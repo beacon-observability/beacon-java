@@ -2,7 +2,7 @@
 
 ## 分支与检查入口
 
-产品开发主线使用 `main`。[Beacon CI](../.github/workflows/beacon-ci.yml) 是本仓库的 PR、主线 push 和手动验证入口；只在 `GuanceCloud/beacon-java` 运行，PR 目标为 `main` 或 `release/*`。
+产品开发主线使用 `main`。[Beacon CI](../.github/workflows/beacon-ci.yml) 是本仓库的 PR、主线 push 和手动验证入口；只在 `beacon-observability/beacon-java` 运行，PR 目标为 `main` 或 `release/*`。
 
 | 场景 | 模块测试矩阵 | 附加检查 |
 | --- | --- | --- |
@@ -36,7 +36,7 @@ Beacon CI 会上传 Agent 和测试报告，因此该工作流中的 Node 包管
 
 ## 继承工作流的隔离
 
-继承的主线/PR 大矩阵入口、PR 镜像构建、正式发布、快照/镜像发布、自动改依赖、自动改源码、Issue/PR 管理机器人及尚未适配的定时任务，通过 job 级仓库条件限制在原 OpenTelemetry 仓库运行。旧 Guance 发布流程限定在旧 GuanceCloud 仓库运行。可复用的 Muzzle、最新依赖、Native 测试实现保留，由 Beacon 按上述规则调用。
+继承的主线/PR 大矩阵入口、PR 镜像构建、正式发布、快照/镜像发布、自动改依赖、自动改源码、Issue/PR 管理机器人及尚未适配的定时任务，通过 job 级仓库条件限制在原 OpenTelemetry 仓库运行。旧下游发布流程保持禁用。可复用的 Muzzle、最新依赖、Native 测试实现保留，由 Beacon 按上述规则调用。
 
 这些限制保留原任务实现及既有条件，不依靠“没有配置 secret”防止误运行。在 Beacon 及普通下游仓库中，受限任务会跳过；页面仍可能显示相应工作流或跳过的运行。继承的 FOSSA 配置生成和上游机器人锁文件再生成校验不作为 Beacon 合并门禁；许可证清单与工作流安全检查继续保留。
 
@@ -50,7 +50,7 @@ Beacon CI 会上传 Agent 和测试报告，因此该工作流中的 Node 包管
 2. 只推送准备好的 `main` 开发分支，并将远程默认分支设为 `main`；不盲推旧分支和全部历史标签。
 3. 启用所需测试工作流，运行一次 PR 和主线构建，确认依赖、Runner、网络和检查权限可用。
 4. 维护者为 `@lrwh` 和 `@songlonqi-java`；在 [CODEOWNERS](../.github/CODEOWNERS) 中维护名单，并核对两位账号的仓库权限及 `main` Ruleset。
-5. 检查工作流和文档链接从预期读者权限下可访问，并更新 [Beacon 产品入口](https://github.com/GuanceCloud/beacon)中的待发布状态。
+5. 检查工作流和文档链接从预期读者权限下可访问，并更新 [Beacon 产品入口](https://github.com/beacon-observability/beacon)中的待发布状态。
 
 ## 仍需确认
 

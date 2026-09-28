@@ -1,13 +1,13 @@
 # Beacon Java 自有贡献者
 
-Beacon Java 保留完整的 OpenTelemetry Java Instrumentation 提交历史，以便使用 Git Log、Blame 和提交链接追溯代码来源。因此 GitHub 的 Contributors 图表可能同时列出上游作者，不能直接当作 Beacon 项目成员名单。本文件单独记录已核对身份的 GuanceCloud 下游与 Beacon 自有贡献者；不替代 Git 历史、许可证署名，也不表示仓库管理权限。
+Beacon Java 保留完整的 OpenTelemetry Java Instrumentation 提交历史，以便使用 Git Log、Blame 和提交链接追溯代码来源。因此 GitHub 的 Contributors 图表可能同时列出上游作者，不能直接当作 Beacon 项目成员名单。本文件单独记录已核对身份的既有下游与 Beacon 自有贡献者；不替代 Git 历史、许可证署名，也不表示仓库管理权限。
 
 ## 已核对名单
 
 | GitHub 账号 | 历史 Git 署名 | 可追溯的下游贡献示例 |
 | --- | --- | --- |
-| [@lrwh](https://github.com/lrwh) | `liurui`、`心有千千结` | [Beacon 工程初始化](https://github.com/GuanceCloud/beacon-java/commit/28b06d9ba60361dd7ab47c198243c16f9a80d02e)、[实验性 Profiling](https://github.com/GuanceCloud/beacon-java/commit/ed3c0eea74) |
-| [@songlonqi-java](https://github.com/songlonqi-java) | `songlq` | [JDBC SQL 脱敏](https://github.com/GuanceCloud/beacon-java/commit/50d181fa17)、[历史 HSF 插桩](https://github.com/GuanceCloud/beacon-java/commit/6687592826) |
+| [@lrwh](https://github.com/lrwh) | `liurui`、`心有千千结` | [Beacon 工程初始化](https://github.com/beacon-observability/beacon-java/commit/28b06d9ba60361dd7ab47c198243c16f9a80d02e)、[实验性 Profiling](https://github.com/beacon-observability/beacon-java/commit/ed3c0eea74) |
+| [@songlonqi-java](https://github.com/songlonqi-java) | `songlq` | [JDBC SQL 脱敏](https://github.com/beacon-observability/beacon-java/commit/50d181fa17)、[历史 HSF 插桩](https://github.com/beacon-observability/beacon-java/commit/6687592826) |
 
 名单依据 GitHub 对上述提交作者账号的关联以及实际下游改动核对；同一账号的不同 Git 署名合并为一人。HSF 当前已从 Agent 移除，但其历史提交仍保留，历史贡献不会因此删除。
 

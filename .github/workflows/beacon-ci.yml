@@ -25,7 +25,7 @@ concurrency:
 
 jobs:
   plan:
-    if: github.repository == 'GuanceCloud/beacon-java'
+    if: github.repository == 'beacon-observability/beacon-java'
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
@@ -217,7 +217,7 @@ jobs:
   required:
     name: Beacon required
     needs: [plan, build, quality, tests, muzzle, latest-deps, native, upstream-smoke]
-    if: ${{ always() && github.repository == 'GuanceCloud/beacon-java' }}
+    if: ${{ always() && github.repository == 'beacon-observability/beacon-java' }}
     runs-on: ubuntu-latest
     env:
       NEEDS_JSON: ${{ toJSON(needs) }}

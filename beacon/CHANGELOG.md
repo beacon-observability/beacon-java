@@ -21,9 +21,9 @@
 
 ### 工程与发行
 
-- 源码仓库迁移至 `beacon-observability/beacon-java`，同步更新 Beacon CI 的仓库隔离条件和项目入口链接；GuanceCloud 历史来源与产品厂商标识保持不变。
+- 源码仓库迁移至 `beacon-observability/beacon-java`，同步更新 Beacon CI 的仓库隔离条件、项目入口链接和产品厂商标识。
 - 新增 Beacon 专用 CI 入口，普通 PR 缩减 JDK 矩阵、保留全部测试分片与两种 Indy 模式；共享核心及上游基线变化自动扩大验证。重型兼容性测试提供手动入口，上游 PR 镜像构建不再在 Beacon 自动执行；保留独立安全检查，新增成品 Agent 的 HTTP/TraceContext/OTLP Trace 导出烟测。
-- 产品主线使用 `main`，保留完整上游历史和 GuanceCloud 下游增强。
+- 产品主线使用 `main`，保留完整上游历史和既有下游增强。
 - 使用独立产品版本，首次公开候选版为 `0.1.0-rc.1`。
 - 完整 Agent 命名为 `beacon-javaagent-<Beacon版本>.jar`，Manifest 记录 Beacon 版本、模块构建版本及上游标签和提交，制品内嵌来源记录。
 - 隔离继承的发布和管理自动化，保留构建检查，独立维护 Beacon 同步与发行流程。
@@ -31,7 +31,7 @@
 
 ### 初始导入
 
-- 从 GuanceCloud `guance-v2` 的 `73a8f7edd0415f0e8651d3d1f3f295e6e6d4d1ea` 导入完整源码；采用的官方发布祖先为 OTel Java Instrumentation `v2.30.0`。
+- 从历史下游提交 `73a8f7edd0415f0e8651d3d1f3f295e6e6d4d1ea` 导入完整源码；采用的官方发布祖先为 OTel Java Instrumentation `v2.30.0`。
 - 继承 JDBC 旧配置兼容、实验性 JFR Profiling / DataKit 导出、Spring AI、Spring AI Alibaba Agent、HSF 插桩。这些是原分支已有实现，不是迁移后新开发或已通过 Beacon 验收的能力。
 
 ### 已知限制

@@ -1,6 +1,6 @@
 # Beacon Java 开发说明
 
-本仓库维护完整 OpenTelemetry Java Instrumentation 源码与 GuanceCloud 增强。产品总入口为 [beacon-observability/beacon](https://github.com/beacon-observability/beacon)。
+本仓库维护完整 OpenTelemetry Java Instrumentation 源码与 Beacon 增强。产品总入口为 [beacon-observability/beacon](https://github.com/beacon-observability/beacon)。
 
 ## 工程布局
 
@@ -25,7 +25,7 @@
 - [CI 状态与上线检查](CI.md)：哪些自动化可以运行，哪些尚未适配。
 - [发行流程](RELEASING.md)：版本、制品验证与回退。
 
-开发主线为 `main`，延续已导入的 GuanceCloud 增强代码，不使用旧仓库的 `main` 替换当前代码。历史分支和自定义上游引用不会仅因克隆 Beacon 仓库就出现在 `legacy/*` 或 `refs/upstream-tags/*` 下，需要按同步指南显式配置和抓取。
+开发主线为 `main`，延续已导入的既有下游增强代码，不使用其他仓库的 `main` 替换当前代码。自定义上游引用不会仅因克隆 Beacon 仓库就出现在 `refs/upstream-tags/*` 下，需要按同步指南显式配置和抓取。
 
 保留上游包名、工程布局和许可证。必须修改原生插桩时在对应模块开发；可独立实现的能力优先采用 Extension，不为产品品牌全仓替换上游标识。
 

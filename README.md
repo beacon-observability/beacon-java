@@ -1,6 +1,6 @@
 # Beacon Java
 
-Beacon Java 是 GuanceCloud 基于完整 OpenTelemetry Java Instrumentation 源码维护的 Java 探针工程，支持增强原生插桩，并独立发行。
+Beacon Java 是基于完整 OpenTelemetry Java Instrumentation 源码维护的 Java 探针工程，支持增强原生插桩，并独立发行。
 
 当前处于开发阶段，尚无 Beacon Java 正式安装包。上游 Agent 的下载包和支持声明不代表 Beacon 的发行结果。
 
@@ -21,7 +21,7 @@ Beacon Java 是 GuanceCloud 基于完整 OpenTelemetry Java Instrumentation 源�
 
 - [Beacon 产品入口](https://github.com/beacon-observability/beacon)
 - [OpenTelemetry Java Instrumentation](https://github.com/open-telemetry/opentelemetry-java-instrumentation)
-- [导入时的上游来源说明](https://github.com/GuanceCloud/opentelemetry-java-instrumentation/blob/73a8f7edd0415f0e8651d3d1f3f295e6e6d4d1ea/README.md)
+- [初始导入提交](https://github.com/beacon-observability/beacon-java/commit/73a8f7edd0415f0e8651d3d1f3f295e6e6d4d1ea)
 
 保留上游源码布局、包名、[许可证](LICENSE)及第三方声明。产品版本、上游基线和应用自身的版本分别管理。
 

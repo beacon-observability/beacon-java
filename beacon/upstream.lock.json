@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "import": {
-    "repository": "https://github.com/GuanceCloud/opentelemetry-java-instrumentation.git",
-    "branch": "guance-v2",
+    "repository": "https://github.com/beacon-observability/beacon-java.git",
+    "branch": "main",
     "commit": "73a8f7edd0415f0e8651d3d1f3f295e6e6d4d1ea"
   },
   "upstream": {

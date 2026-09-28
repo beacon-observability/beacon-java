@@ -30,7 +30,7 @@ require(Regex("[0-9a-f]{40}").matches(upstreamCommit)) { "Invalid OTel release c
 val beaconAttributes = mapOf(
   "Implementation-Title" to "Beacon Java",
   "Implementation-Version" to beaconVersion,
-  "Implementation-Vendor" to "GuanceCloud",
+  "Implementation-Vendor" to "Beacon Observability",
   "Beacon-Version" to beaconVersion,
   "Beacon-Upstream-Tag" to upstreamTag,
   "Beacon-Upstream-Commit" to upstreamCommit,

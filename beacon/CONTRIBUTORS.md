@@ -1,6 +1,6 @@
 # Beacon Java 自有贡献者
 
-Beacon Java 保留完整的 OpenTelemetry Java Instrumentation 提交历史，以便使用 Git Log、Blame 和提交链接追溯代码来源。因此 GitHub 的 Contributors 图表可能同时列出上游作者，不能直接当作 Beacon 项目成员名单。本文件单独记录已核对身份的 GuanceCloud 下游与 Beacon 自有贡献者；不替代 Git 历史、许可证署名，也不表示仓库管理权限。
+Beacon Java 保留完整的 OpenTelemetry Java Instrumentation 提交历史，以便使用 Git Log、Blame 和提交链接追溯代码来源。因此 GitHub 的 Contributors 图表可能同时列出上游作者，不能直接当作 Beacon 项目成员名单。本文件单独记录已核对身份的既有下游与 Beacon 自有贡献者；不替代 Git 历史、许可证署名，也不表示仓库管理权限。
 
 ## 已核对名单
 

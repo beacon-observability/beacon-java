@@ -20,14 +20,7 @@ git config remote.pushDefault origin
 
 此配置替换旧的自动标签抓取规则，仅抓取官方主线。自定义上游标签必须通过下文的校验脚本获取。`git fetch upstream` 不会更新已采用的标签引用。
 
-如需查询旧 GuanceCloud 分支，可在未配置 `legacy` 时添加并抓取：
-
-```bash
-git remote add legacy https://github.com/GuanceCloud/opentelemetry-java-instrumentation.git
-git fetch --no-tags legacy
-```
-
-Remote、refspec 和抓取产生的远程跟踪引用属于本地配置，不随提交传递；CI 也必须显式配置。不要把所有历史分支或标签直接推送成 Beacon 的发布入口。
+历史导入提交已经保留在当前仓库，可直接使用基线文件记录的提交 SHA 查询。Remote、refspec 和抓取产生的远程跟踪引用属于本地配置，不随提交传递；CI 也必须显式配置。不要把所有历史分支或标签直接推送成 Beacon 的发布入口。
 
 ## 获取并校验正式标签
 

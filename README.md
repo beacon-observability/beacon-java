@@ -19,7 +19,7 @@ Beacon Java 是 GuanceCloud 基于完整 OpenTelemetry Java Instrumentation 源�
 
 ## 产品与上游
 
-- [Beacon 产品入口](https://github.com/GuanceCloud/beacon)
+- [Beacon 产品入口](https://github.com/beacon-observability/beacon)
 - [OpenTelemetry Java Instrumentation](https://github.com/open-telemetry/opentelemetry-java-instrumentation)
 - [导入时的上游来源说明](https://github.com/GuanceCloud/opentelemetry-java-instrumentation/blob/73a8f7edd0415f0e8651d3d1f3f295e6e6d4d1ea/README.md)
 

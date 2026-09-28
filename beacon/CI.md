@@ -50,7 +50,7 @@ Beacon CI 会上传 Agent 和测试报告，因此该工作流中的 Node 包管
 2. 只推送准备好的 `main` 开发分支，并将远程默认分支设为 `main`；不盲推旧分支和全部历史标签。
 3. 启用所需测试工作流，运行一次 PR 和主线构建，确认依赖、Runner、网络和检查权限可用。
 4. 维护者为 `@lrwh` 和 `@songlonqi-java`；在 [CODEOWNERS](../.github/CODEOWNERS) 中维护名单，并核对两位账号的仓库权限及 `main` Ruleset。
-5. 检查工作流和文档链接从预期读者权限下可访问，并更新 [Beacon 产品入口](https://github.com/GuanceCloud/beacon)中的待发布状态。
+5. 检查工作流和文档链接从预期读者权限下可访问，并更新 [Beacon 产品入口](https://github.com/beacon-observability/beacon)中的待发布状态。
 
 ## 仍需确认
 

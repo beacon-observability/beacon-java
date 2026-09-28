@@ -4,7 +4,7 @@
 
 ## 首次配置
 
-从 Beacon 仓库完整克隆后，`origin` 应指向 `https://github.com/GuanceCloud/beacon-java.git`。先用 `git remote -v` 核对。不存在 `upstream` 时再添加：
+从 Beacon 仓库完整克隆后，`origin` 应指向 `https://github.com/beacon-observability/beacon-java.git`。先用 `git remote -v` 核对。不存在 `upstream` 时再添加：
 
 ```bash
 git remote add upstream https://github.com/open-telemetry/opentelemetry-java-instrumentation.git

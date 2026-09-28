@@ -1,6 +1,6 @@
 # Beacon Java 开发说明
 
-本仓库维护完整 OpenTelemetry Java Instrumentation 源码与 GuanceCloud 增强。产品总入口为 [GuanceCloud/beacon](https://github.com/GuanceCloud/beacon)。
+本仓库维护完整 OpenTelemetry Java Instrumentation 源码与 GuanceCloud 增强。产品总入口为 [beacon-observability/beacon](https://github.com/beacon-observability/beacon)。
 
 ## 工程布局
 

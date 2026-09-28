@@ -21,6 +21,7 @@
 
 ### 工程与发行
 
+- 源码仓库迁移至 `beacon-observability/beacon-java`，同步更新 Beacon CI 的仓库隔离条件和项目入口链接；GuanceCloud 历史来源与产品厂商标识保持不变。
 - 新增 Beacon 专用 CI 入口，普通 PR 缩减 JDK 矩阵、保留全部测试分片与两种 Indy 模式；共享核心及上游基线变化自动扩大验证。重型兼容性测试提供手动入口，上游 PR 镜像构建不再在 Beacon 自动执行；保留独立安全检查，新增成品 Agent 的 HTTP/TraceContext/OTLP Trace 导出烟测。
 - 产品主线使用 `main`，保留完整上游历史和 GuanceCloud 下游增强。
 - 使用独立产品版本，首次公开候选版为 `0.1.0-rc.1`。

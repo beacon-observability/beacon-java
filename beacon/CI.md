@@ -2,7 +2,7 @@
 
 ## 分支与检查入口
 
-产品开发主线使用 `main`。[Beacon CI](../.github/workflows/beacon-ci.yml) 是本仓库的 PR、主线 push 和手动验证入口；只在 `GuanceCloud/beacon-java` 运行，PR 目标为 `main` 或 `release/*`。
+产品开发主线使用 `main`。[Beacon CI](../.github/workflows/beacon-ci.yml) 是本仓库的 PR、主线 push 和手动验证入口；只在 `beacon-observability/beacon-java` 运行，PR 目标为 `main` 或 `release/*`。
 
 | 场景 | 模块测试矩阵 | 附加检查 |
 | --- | --- | --- |

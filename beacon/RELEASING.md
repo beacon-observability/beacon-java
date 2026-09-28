@@ -1,45 +1,45 @@
-# Beacon Java 发行流程
+# Beacon Java Release Process
 
-Beacon 使用独立产品版本和制品身份，[打包配置](agent.gradle.kts)由 `:javaagent` 加载。继承的官方及旧下游发布任务已通过仓库条件限制，不能作为 Beacon 发行入口；具体见 [CI 说明](CI.md)。当前采用下述受控构建与人工发布流程，不依赖尚未配置的自动发布任务。
+Beacon uses an independent product version and artifact identity. The [packaging configuration](agent.gradle.kts) is loaded by `:javaagent`. Repository conditions prevent inherited official and legacy downstream publication jobs from serving as Beacon release entry points; see the [CI guide](CI.md). The controlled build and manual publication process below does not depend on unconfigured automated publication jobs.
 
-## 版本与范围
+## Versioning and scope
 
-- Beacon Java 使用独立语义版本和 `beacon-vX.Y.Z` 标签，不复用旧 `v*` 标签。
-- [version.properties](version.properties) 是产品版本的唯一配置源。当前 `0.1.0-SNAPSHOT` 是开发版本；正式版使用 `X.Y.Z`，公开候选版使用 `X.Y.Z-rc.N`。不发布 SNAPSHOT 为正式 Release，不通过临时命令行覆盖发行版本。
-- 产品版本与[上游基线](upstream.lock.json)分别记录，不全局替换上游构建版本，也不修改应用的 `service.version`。
-- 完整安装包为 `beacon-javaagent-<Beacon版本>.jar`；`base`、`dontuse` 等辅助产物不作为 Beacon 安装包发布。不使用继承的 Maven/Sonatype 发布任务发布 Beacon 产品。
-- Manifest 的 `Implementation-Title` / `Implementation-Version` / `Implementation-Vendor` 标识 Beacon 产品；`Beacon-Upstream-Tag` / `Beacon-Upstream-Commit` 标识官方基线；`Beacon-Instrumentation-Version` 保留当前继承的模块构建版本。内嵌 `META-INF/beacon/` 保存版本与来源文件。
-- 上游模块坐标、Java 包名和 instrumentation scope 不批量重命名。完整 JAR 的 `java -jar` 版本输出及 AgentVersion 从 Manifest 读取，因此使用 Beacon 产品版本；模块构建版本另读 `Beacon-Instrumentation-Version`。现有启动日志前缀及默认 `telemetry.distro.name` 仍由继承的运行时代码提供，不将文件命名调整描述成所有运行时标识均已品牌化。
-- 每版明确实际验证的功能和支持范围。现有 Profiling 为继承的实验性实现；Extension 化单独实施，不作为首次提交源码的前置条件。
-- 来源、许可证、必要第三方声明、制品摘要和已知限制随发行提供。签名、制品托管及 SBOM 生成方式在发布实现中确定。
+- Beacon Java uses independent semantic versions and `beacon-vX.Y.Z` tags. It does not reuse legacy `v*` tags.
+- [version.properties](version.properties) is the only source of the product version. Stable releases use `X.Y.Z`, public release candidates use `X.Y.Z-rc.N`, and development versions use `X.Y.Z-SNAPSHOT`. Do not publish a SNAPSHOT as a formal release or override the release version through an ad hoc command-line property.
+- The product version and [upstream baseline](upstream.lock.json) are recorded separately. Do not globally replace the upstream build version or modify the instrumented application's `service.version`.
+- The complete installation package is `beacon-javaagent-<Beacon-version>.jar`. Helper artifacts such as `base` and `dontuse` are not published as Beacon installation packages. Do not publish the Beacon product through inherited Maven or Sonatype publication tasks.
+- Manifest attributes `Implementation-Title`, `Implementation-Version`, and `Implementation-Vendor` identify the Beacon product. `Beacon-Upstream-Tag` and `Beacon-Upstream-Commit` identify the official baseline. `Beacon-Instrumentation-Version` retains the currently inherited module build version. Embedded files under `META-INF/beacon/` preserve version and provenance records.
+- Do not bulk-rename upstream module coordinates, Java packages, or instrumentation scopes. The complete JAR's `java -jar` version output and AgentVersion read the Manifest and therefore use the Beacon product version; the module build version is available separately through `Beacon-Instrumentation-Version`. Existing startup log prefixes and the default `telemetry.distro.name` still come from inherited runtime code. Do not describe the file-name change as a complete rebranding of all runtime identifiers.
+- State the functionality and support scope actually validated for each release. The current Profiling implementation is inherited and experimental. Its conversion to an Extension is a separate effort and is not a prerequisite for the initial source publication.
+- Publish source provenance, licenses, required third-party notices, artifact digests, and known limitations with each release. Define signing, artifact hosting, and SBOM generation in the publication implementation.
 
-## 发布顺序
+## Release sequence
 
-1. 在发行 PR 中更新 `version.properties`，将 [Changelog](CHANGELOG.md) 的已完成条目归入对应版本，明确配置变化、发布范围与说明；合并后固定最终源码提交。上游 Changelog 不混入 Beacon 条目。
-2. 从该提交、固定依赖和构建环境生成候选制品，记录 SHA-256 与构建来源。
-3. 对该候选制品完成适用的模块、运行环境、自有增强、接收端、性能及回退验证。运行 [Beacon CI 的手动扩展验证](CI.md#重型验证与测试镜像)，并按实际支持范围补充 Windows/OpenJ9/性能等专项测试；扩展 CI 不替代候选制品验收。测试证据绑定到同一提交及制品摘要。
-4. 审批后在已验证提交创建不可变的发行标签，发布已经验证的同一份制品；不在这一步修改依赖或重新构建替代品。
-5. 如产品版本、Manifest 或任意制品内容变化，重新构建并验证。公开 RC 与正式版内容不同，不能直接重命名当作同一制品。
-6. 将用户文档和支持范围关联到该版本。首次发行或入口、支持状态变化时更新 [Beacon 产品入口](https://github.com/beacon-observability/beacon)，不要求每个补丁版本跨仓登记。
+1. In a release pull request, update `version.properties`, move completed entries in the [Changelog](CHANGELOG.md) into the target version, and state configuration changes, publication scope, and notes. After merge, pin the final source commit. Do not mix upstream changelog entries into the Beacon changelog.
+2. Build the release candidate from that commit with pinned dependencies and a pinned build environment, and record its SHA-256 digest and build provenance.
+3. Complete applicable module, runtime, Beacon enhancement, receiver, performance, and rollback validation against that exact candidate. Run [Beacon CI manual extended validation](CI.md#extended-validation-and-test-images) and add Windows, OpenJ9, performance, or other targeted testing according to the declared support scope. Extended CI does not replace candidate acceptance. Bind test evidence to the same commit and artifact digest.
+4. After approval, create an immutable release tag at the validated commit and publish the same validated artifact. Do not change dependencies or rebuild a substitute at this step.
+5. If the product version, Manifest, or any artifact content changes, rebuild and validate again. A public release candidate whose content differs from the stable release cannot simply be renamed as the same artifact.
+6. Link user documentation and the support scope to the version. For the first release or when entry points or support status change, update the [Beacon product repository](https://github.com/beacon-observability/beacon). Cross-repository registration is not required for every patch release.
 
-本流程尚未绑定具体 GitHub Environment 或审批人；管理员确认后配置，不能仅凭文档认为审批已经生效。
+This process is not yet bound to a specific GitHub Environment or approver. Configure those controls after administrator confirmation; documentation alone does not make approval enforcement active.
 
-## 候选制品构建
+## Building a release candidate
 
-在干净的发行提交、JDK 21 环境下，从仓库根目录执行：
+From a clean release commit with JDK 21, run the following command at the repository root:
 
 ```bash
 ./gradlew :javaagent:assemble :javaagent:verifyBeaconAgent
 ```
 
-输出位于 `javaagent/build/libs/`，按已提交的产品版本选取唯一的完整 Agent；不要用包含旧产物的通配符发布。`verifyBeaconAgent` 检查文件名、Manifest 和来源文件，不代替功能、兼容性或性能测试。SHA-256、源码提交及验证结果随候选制品保存。
+Output is written to `javaagent/build/libs/`. Select the single complete agent that matches the committed product version; do not publish through a wildcard that may include stale artifacts. `verifyBeaconAgent` checks the file name, Manifest, and provenance files, but does not replace functional, compatibility, or performance testing. Preserve the SHA-256 digest, source commit, and validation results with the candidate.
 
-审批后只推送该版本的 `beacon-vX.Y.Z` 标签，并在同名 Release 上传已经验证的同一 JAR、SHA-256 和必要声明；不要使用 `git push --tags`，不要重新构建后替换候选制品。下一开发版本在另一个提交中设置，不能混进当前发行标签。
+After approval, push only that version's `beacon-vX.Y.Z` tag and upload the same validated JAR, SHA-256 digest, and required notices to a Release with the same name. Do not use `git push --tags`, and do not rebuild and replace the candidate. Set the next development version in a separate commit; it must not be included in the current release tag.
 
-## 回退与重试
+## Rollback and retry
 
-同版本重试只允许发布相同内容。标签或制品与预期不一致时停止，不覆盖已有资产。问题版本保留追溯记录，回退到上一固定制品及对应配置。
+A retry under the same version may publish only identical content. Stop if the tag or artifact differs from the expected value; do not overwrite existing assets. Retain traceability for a problematic release and roll back to the previous pinned artifact and its corresponding configuration.
 
-## 构建和首次上线
+## Build and initial launch
 
-构建入口见[贡献指南](../CONTRIBUTING.md)，首次 GitHub 上线与待确认项目见 [CI 检查](CI.md)。普通 assemble 成功不代表完成发行验收。
+See the [contributing guide](../CONTRIBUTING.md) for build entry points and the [CI checklist](CI.md) for the initial GitHub launch and outstanding decisions. A successful ordinary `assemble` does not constitute release acceptance.

@@ -55,6 +55,7 @@ test('all core and optional jobs are represented in the final gate', () => {
   assert.match(source, /needs: \[plan, build, quality, tests, muzzle, latest-deps, native, upstream-smoke\]/);
   assert.match(source, /if: github.repository == 'beacon-observability\/beacon-java'/);
   assert.match(source, /if: \$\{\{ always\(\) && github.repository == 'beacon-observability\/beacon-java' \}\}/);
+  assert.doesNotMatch(source, /GuanceCloud\/beacon-java/);
   assert(!source.includes('continue-on-error:'), 'Failures must not be ignored');
   assert(!source.includes('pull_request_target:'), 'PR code must not run with privileged context');
 });

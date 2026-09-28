@@ -1,5 +1,5 @@
 blank_issues_enabled: true
 contact_links:
   - name: Beacon 产品与语言入口
-    url: https://github.com/GuanceCloud/beacon
+    url: https://github.com/beacon-observability/beacon
     about: Beacon Java 的缺陷和功能请求请使用本仓库的 Issue 模板。

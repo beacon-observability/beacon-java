@@ -1,61 +1,61 @@
-# CI 与首次上线检查
+# CI and Initial Launch Checklist
 
-## 分支与检查入口
+## Branches and check entry points
 
-产品开发主线使用 `main`。[Beacon CI](../.github/workflows/beacon-ci.yml) 是本仓库的 PR、主线 push 和手动验证入口；只在 `beacon-observability/beacon-java` 运行，PR 目标为 `main` 或 `release/*`。
+The product development branch is `main`. [Beacon CI](../.github/workflows/beacon-ci.yml) is this repository's entry point for pull-request, main-branch push, and manual validation. It runs only in `beacon-observability/beacon-java` for pull requests targeting `main` or `release/*`.
 
-| 场景 | 模块测试矩阵 | 附加检查 |
+| Scenario | Module test matrix | Additional checks |
 | --- | --- | --- |
-| 普通 PR | JDK 21 × 4 分片 × 两种 Indy 模式，共 8 个测试任务 | 插桩目录有变化时运行 4 个 Muzzle 分片 |
-| 上游同步、共享构建或 Agent 核心变化 | JDK 8/17/21 × 4 分片 × 两种 Indy 模式，共 24 个测试任务 | 4 个 Muzzle 分片 |
-| 手动勾选 `full` | JDK 8/11/17/21/25/26 × 4 分片 × 两种 Indy 模式，共 48 个测试任务 | Muzzle、最新依赖测试、上游 Linux 容器烟测 |
+| Regular pull request | JDK 21 × 4 partitions × 2 Indy modes, for 8 test jobs | 4 Muzzle partitions when instrumentation directories change |
+| Upstream synchronization, shared build, or agent core changes | JDK 8/17/21 × 4 partitions × 2 Indy modes, for 24 test jobs | 4 Muzzle partitions |
+| Manual `full` selection | JDK 8/11/17/21/25/26 × 4 partitions × 2 Indy modes, for 48 test jobs | Muzzle, latest-dependency tests, and upstream Linux container smoke tests |
 
-三个层级都运行完整 Agent 构建、Beacon 文件名/Manifest/来源校验、维护脚本及打包回归、成品包 HTTP 插桩/TraceContext/OTLP Trace 导出烟测、格式检查、包名等静态检查和许可证清单检查。模块测试复用上游 `listTestsInPartition`，没有按目录删减测试模块，自有增强中已接入 Gradle 的测试也包含在内；没有测试的模块不会因此自动获得功能验收。
+All three tiers build the complete agent; validate the Beacon file name, Manifest, and provenance; run maintainer-script and packaging regression tests; run packaged-agent HTTP instrumentation, TraceContext, and OTLP trace export smoke tests; and run formatting, package-name, other static checks, and license-list checks. Module tests reuse upstream `listTestsInPartition` without excluding test modules by directory. Tests wired into Gradle for Beacon-specific enhancements are included. A module without tests does not automatically gain functional acceptance.
 
-分层由[计划脚本](scripts/ci-plan.cjs)根据完整 Git 差异判断，不依赖分支名或 PR 标签。PR 比较 base SHA 与 GitHub 默认检出的合并结果；push 比较 before SHA 与当前提交。缺少基准时扩大到升级验证，合法 SHA 无法读取则直接失败，不默默降级。设置、基线、依赖、共享测试设施和 CI 自身变更会扩大矩阵；具体路径规则以脚本和测试为准。
+The [planning script](scripts/ci-plan.cjs) selects a tier from the complete Git diff rather than branch names or pull-request labels. Pull requests compare the base SHA with GitHub's default checked-out merge result; pushes compare the before SHA with the current commit. A missing baseline expands validation to the upgrade tier, while an unreadable otherwise-valid SHA fails rather than silently reducing coverage. Changes to settings, baselines, dependencies, shared test infrastructure, or CI itself expand the matrix. The script and its tests define the exact path rules.
 
-测试矩阵最多同时运行 4 个任务。新提交会取消同一 PR 旧的 Beacon CI 运行；这不自动取消迁移前已经启动的上游工作流。
+At most four matrix jobs run concurrently. A new commit cancels an older Beacon CI run for the same pull request. It does not automatically cancel upstream workflows that began before migration.
 
-Wrapper、按路径触发的元数据检查、依赖审查、CodeQL 和工作流安全扫描继续独立运行，不包含在上表的测试任务数中。它们不被 `Beacon required` 代替，应根据实际启用情况单独配置必需检查。
+Wrapper validation, path-triggered metadata checks, dependency review, CodeQL, and workflow security scans continue to run independently and are not included in the test-job counts above. `Beacon required` does not replace them; configure them separately as required checks when appropriate.
 
-### 合并门禁
+### Merge gate
 
-`Beacon required` 汇总本次选中的检查：必需任务失败、取消或意外跳过都不能通过；只有未选中的可选任务允许跳过。`main` 的 GitHub Ruleset 已将它设为必需检查，当前不要求 PR 批准。修改工作流文件本身不会自动修改 GitHub 分支保护。
+`Beacon required` summarizes the checks selected for the current change. A required job that fails, is canceled, or is unexpectedly skipped prevents the gate from passing; only optional jobs that were not selected may be skipped. The GitHub Ruleset for `main` requires this check and currently does not require pull-request approval. Editing workflow files does not automatically update GitHub branch protection.
 
-检查失败需要修正原因，不能为了绿色状态删除检查。CI artifact 是开发制品，不是正式 Release；构建通过也不能替代功能与发行验收。
+Fix the cause of a failing check; do not remove checks solely to obtain a green status. CI artifacts are development artifacts, not formal releases, and a successful build does not replace functional or release acceptance.
 
-Beacon CI 会上传 Agent 和测试报告，因此该工作流中的 Node 包管理器缓存与 Gradle 用户目录缓存全部禁用。只读缓存仍会恢复既有内容，不能防止污染内容进入待下载的运行时制品。未来如需恢复缓存，应将可信分支的制品构建与不可信 PR 验证拆成不同的工作流并重新完成安全评审，不能只把缓存改成只读。
+Beacon CI uploads the agent and test reports, so Node package-manager caches and Gradle user-home caches are disabled throughout the workflow. Read-only caches still restore existing content and therefore cannot prevent contaminated content from entering a downloadable runtime artifact. If caching is restored later, separate trusted-branch artifact builds from untrusted pull-request validation and repeat the security review; merely making a cache read-only is insufficient.
 
-### 重型验证与测试镜像
+### Extended validation and test images
 
-在 Actions → Beacon CI → Run workflow 中选择待验证分支，勾选 `full` 执行扩展验证；勾选 `native` 额外调用 GraalVM Native 测试。入口需先进入默认分支才能正常从 Actions 页面手动启动。暂不新增定时全量运行，以免默认持续占用 Runner。
+In Actions → Beacon CI → Run workflow, select the branch to validate and choose `full` for extended validation. Choose `native` to additionally invoke GraalVM Native tests. The workflow must first exist on the default branch before it can be launched from the Actions page. No scheduled full run is currently added, to avoid continuously consuming runners by default.
 
-`full` 指这里定义的扩展集合，不等于上游所有任务：Windows、OpenJ9、性能、示例工程和 Gradle 插件专项验证仍需按实际发行支持范围安排，不能据此宣称已支持。完整容器烟测沿用源码中固定的上游镜像版本，需要 Docker 和对应镜像可拉取；若镜像不可用，需修复镜像来源后重试，不允许忽略失败。
+Here, `full` means the extended set defined above, not every upstream job. Windows, OpenJ9, performance, example-project, and Gradle-plugin validation must still be scheduled according to the actual release support scope and cannot be claimed as supported on this basis. Full container smoke tests use the upstream image versions pinned in the source tree and require Docker plus access to those images. If an image is unavailable, fix its source and rerun; do not ignore the failure.
 
-继承的 PR 镜像构建入口只在上游仓库运行。Beacon 普通 PR 使用无需容器镜像的[成品烟测](scripts/agent-smoke.cjs)，不重复构建 Payara、Tomcat、Play、gRPC、early-JDK8 等镜像。未来修改测试镜像时，需要先建立 Beacon 自己的镜像构建/托管流程，不能将“跳过镜像构建”误认为镜像变更已验收。
+Inherited pull-request image builds run only in the upstream repository. Regular Beacon pull requests use the [packaged-agent smoke test](scripts/agent-smoke.cjs), which requires no container images, and do not rebuild Payara, Tomcat, Play, gRPC, early-JDK8, or similar images. Before changing test images in the future, establish Beacon-owned image build and hosting processes. Skipping image builds must not be treated as acceptance of image changes.
 
-## 继承工作流的隔离
+## Isolation of inherited workflows
 
-继承的主线/PR 大矩阵入口、PR 镜像构建、正式发布、快照/镜像发布、自动改依赖、自动改源码、Issue/PR 管理机器人及尚未适配的定时任务，通过 job 级仓库条件限制在原 OpenTelemetry 仓库运行。旧下游发布流程保持禁用。可复用的 Muzzle、最新依赖、Native 测试实现保留，由 Beacon 按上述规则调用。
+Job-level repository conditions restrict inherited main-branch and pull-request matrices, pull-request image builds, formal release, snapshot and image publication, automated dependency and source changes, Issue and pull-request management bots, and unadapted scheduled tasks to the original OpenTelemetry repository. The old downstream release process remains disabled. Reusable Muzzle, latest-dependency, and Native test implementations remain available and are invoked by Beacon under the rules above.
 
-这些限制保留原任务实现及既有条件，不依靠“没有配置 secret”防止误运行。在 Beacon 及普通下游仓库中，受限任务会跳过；页面仍可能显示相应工作流或跳过的运行。继承的 FOSSA 配置生成和上游机器人锁文件再生成校验不作为 Beacon 合并门禁；许可证清单与工作流安全检查继续保留。
+These restrictions preserve the original job implementations and their existing conditions; they do not rely on missing secrets to prevent execution. Restricted jobs are skipped in Beacon and ordinary downstream repositories, although their workflows or skipped runs may remain visible in the UI. Inherited FOSSA configuration generation and upstream bot lock-file regeneration checks are not Beacon merge gates. License-list and workflow security checks remain enabled.
 
-可复用的发布与故障通知任务也受限制。CodeQL 的扫描保留，其继承的定时失败 Issue 通知只在上游运行。Beacon 尚未启用自动发布、自动上游升级或 PR/Issue 管理机器人。
+Reusable release and failure-notification jobs are also restricted. CodeQL scanning remains enabled, while its inherited scheduled-failure Issue notification runs only upstream. Beacon has not enabled automated releases, automated upstream upgrades, or pull-request and Issue management bots.
 
-`*.lock.yml` 是继承的生成文件，当前也加了隔离条件。重新生成或合入上游版本时，必须重新核对这些条件，不能直接用生成结果覆盖后启用。未来按实际需要逐项适配，不整体取消仓库限制。
+Inherited `*.lock.yml` generated files are also protected by repository conditions. When regenerating or merging upstream versions, review those conditions again; do not overwrite them with generated output that re-enables the jobs. Adapt workflows individually as needed rather than removing repository restrictions wholesale.
 
-## 首次 GitHub 上线
+## Initial GitHub launch
 
-1. 核对目标仓库、可见范围与 Actions 策略；首次推送前保持 Actions 关闭，或先完成允许执行的工作流审查。
-2. 只推送准备好的 `main` 开发分支，并将远程默认分支设为 `main`；不盲推旧分支和全部历史标签。
-3. 启用所需测试工作流，运行一次 PR 和主线构建，确认依赖、Runner、网络和检查权限可用。
-4. 维护者为 `@lrwh` 和 `@songlonqi-java`；在 [CODEOWNERS](../.github/CODEOWNERS) 中维护名单，并核对两位账号的仓库权限及 `main` Ruleset。
-5. 检查工作流和文档链接从预期读者权限下可访问，并更新 [Beacon 产品入口](https://github.com/beacon-observability/beacon)中的待发布状态。
+1. Verify the target repository, visibility, and Actions policy. Keep Actions disabled before the first push, or first review the workflows that will be allowed to execute.
+2. Push only the prepared `main` development branch and set the remote default branch to `main`. Do not blindly push old branches or all historical tags.
+3. Enable the required test workflows and run one pull-request and one main-branch build to confirm that dependencies, runners, networking, and check permissions work.
+4. The maintainers are `@lrwh` and `@songlonqi-java`. Maintain them in [CODEOWNERS](../.github/CODEOWNERS), and verify both accounts' repository permissions and the `main` Ruleset.
+5. Confirm that workflow and documentation links are accessible with the intended readers' permissions, and update the pending-release status in the [Beacon product repository](https://github.com/beacon-observability/beacon).
 
-## 仍需确认
+## Items still to confirm
 
-- 正式发行的审批人及 GitHub Environment；`main` 当前不强制代码所有者批准。
-- 正式制品托管、签名与发布凭证；产品版本、文件名和 Manifest 由 [Beacon 打包配置](agent.gradle.kts)管理。
-- 实际支持矩阵与构建、运行验收结果。
+- Formal release approvers and a GitHub Environment. `main` does not currently require code-owner approval.
+- Long-term artifact hosting and signing policy. GitHub Releases currently hosts the release JAR and SHA-256 digest. The product version, file name, and Manifest are managed by the [Beacon packaging configuration](agent.gradle.kts).
+- The actual support matrix and build and runtime acceptance results.
 
-这些项目未完成前，只能视为开发工程准备，不能宣布正式发行。发布顺序见[发行流程](RELEASING.md)。
+Until these items are complete, do not expand support claims beyond the evidence attached to each published release. See the [release process](RELEASING.md) for publication order.

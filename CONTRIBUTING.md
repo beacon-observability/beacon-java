@@ -1,46 +1,46 @@
-# 贡献指南
+# Contributing Guide
 
-Beacon Java 的功能、缺陷和 PR 在本仓库处理，PR 目标分支为 `main`。涉及通用 OpenTelemetry 行为的改进，在本仓库明确复现和影响后，再按上游贡献流程提交。
+Beacon Java features, bugs, and pull requests are handled in this repository. Pull requests target `main`. For improvements that apply to general OpenTelemetry behavior, first document the reproduction and impact here, then follow the upstream contribution process.
 
-## 开发准备
+## Development setup
 
-使用 Git 完整克隆和 JDK 21，在仓库根目录执行以下命令。仅配置 remote 不会自动获取历史或改变 GitHub 默认分支。
+Use a full Git clone and JDK 21, and run the following commands from the repository root. Configuring a remote alone does not fetch history or change the GitHub default branch.
 
 ```bash
 java -version
 ./gradlew :javaagent:assemble
 ```
 
-完整 Agent 产物为 `javaagent/build/libs/beacon-javaagent-<Beacon版本>.jar`，产品版本由 [beacon/version.properties](beacon/version.properties) 唯一定义。`assemble` 同时校验制品名称、Manifest 产品标识和内嵌上游来源；这不替代功能测试或正式发行验收。
+The complete agent artifact is `javaagent/build/libs/beacon-javaagent-<Beacon-version>.jar`. The product version is defined exclusively by [beacon/version.properties](beacon/version.properties). `assemble` also validates the artifact name, Manifest product identity, and embedded upstream provenance. It does not replace functional testing or formal release acceptance.
 
-[Beacon 打包配置](beacon/agent.gradle.kts)只定制完整 Agent 的文件名、Manifest 和来源记录，不替换上游模块版本、Maven 坐标或 Java 包名。[version.gradle.kts](version.gradle.kts)继续管理继承的模块构建版本，OTel 官方来源单独记录在[基线文件](beacon/upstream.lock.json)。`base`、`dontuse` 等内部辅助 JAR 不是 Beacon 安装包。
+The [Beacon packaging configuration](beacon/agent.gradle.kts) customizes only the complete agent's file name, Manifest, and provenance records. It does not replace upstream module versions, Maven coordinates, or Java package names. [version.gradle.kts](version.gradle.kts) continues to manage inherited module build versions, while the official OTel source is recorded separately in the [baseline file](beacon/upstream.lock.json). Internal helper JARs such as `base` and `dontuse` are not Beacon installation packages.
 
-不要把官方 Sonatype 快照当作 Beacon 快照，当前没有 Beacon 快照发布渠道。
+Do not treat official Sonatype snapshots as Beacon snapshots. Beacon does not currently provide a snapshot publication channel.
 
-## 修改与测试
+## Changes and testing
 
-- 原生插桩改动放在对应上游模块，保留既有布局、包名和许可证。
-- 实现与回归测试在同一 PR 提交，说明用户可见影响、配置变化和兼容范围。
-- 普通功能 PR 可按团队规则整理提交；上游同步 PR 必须保留上游祖先关系。
-- 用户可见变化写入 [Beacon Changelog](beacon/CHANGELOG.md) 的 `Unreleased`；详细实现和测试证据保留在 PR/CI，不另建差异台账。破坏性变化必须提供迁移说明。
-- Beacon 自有贡献者名单见[独立维护文档](beacon/CONTRIBUTORS.md)；合入上游提交不自动将其作者列为 Beacon 自有贡献者。
-- 根目录 [CHANGELOG.md](CHANGELOG.md)保留上游日志；Beacon 日志不重复抄录上游全部变化。当前日志手工维护，不依赖上游标签机器人。
+- Make native instrumentation changes in the corresponding upstream module, preserving the existing layout, package names, and licenses.
+- Submit implementation and regression tests in the same pull request, and describe user-visible impact, configuration changes, and compatibility scope.
+- Regular feature pull requests may organize commits according to team conventions. Upstream synchronization pull requests must preserve upstream ancestry.
+- Record user-visible changes under `Unreleased` in the [Beacon Changelog](beacon/CHANGELOG.md). Keep implementation details and test evidence in the pull request and CI rather than maintaining a separate delta ledger. Breaking changes must include migration guidance.
+- See the separately maintained [Beacon contributors list](beacon/CONTRIBUTORS.md). Merging upstream commits does not automatically list their authors as Beacon-specific contributors.
+- The root [CHANGELOG.md](CHANGELOG.md) retains the upstream changelog. The Beacon changelog does not duplicate every upstream change. It is maintained manually and does not depend on upstream tag automation.
 
-## 技术参考
+## Technical references
 
-- [代码风格](docs/contributing/style-guide.md)
-- [测试运行](docs/contributing/running-tests.md)
-- [编写 instrumentation](docs/contributing/writing-instrumentation.md)
-- [Agent 结构](docs/contributing/javaagent-structure.md)
-- [Muzzle 兼容检查](docs/contributing/muzzle.md)
-- [调试](docs/contributing/debugging.md)
-- [IntelliJ 配置](docs/contributing/intellij-setup-and-troubleshooting.md)
+- [Code style](docs/contributing/style-guide.md)
+- [Running tests](docs/contributing/running-tests.md)
+- [Writing instrumentation](docs/contributing/writing-instrumentation.md)
+- [Agent structure](docs/contributing/javaagent-structure.md)
+- [Muzzle compatibility checks](docs/contributing/muzzle.md)
+- [Debugging](docs/contributing/debugging.md)
+- [IntelliJ setup](docs/contributing/intellij-setup-and-troubleshooting.md)
 
-这些技术文档随所采用的源码维护。不要将其中的上游发布地址、组织权限或机器人行为直接视作 Beacon 已有能力。
+These technical documents are maintained with the adopted source tree. Do not assume that their upstream release destinations, organization permissions, or bot behavior are available to Beacon.
 
-## 维护工具验证
+## Maintainer tool verification
 
-上游标签抓取脚本只依赖 Bash 和 Git。修改脚本后运行以下测试，测试另需 Node.js 18 或更高版本：
+The upstream tag-fetching script depends only on Bash and Git. After changing it, run the following tests, which additionally require Node.js 18 or later:
 
 ```bash
 bash -n beacon/scripts/fetch-upstream-tag.sh
@@ -48,24 +48,24 @@ node --test beacon/scripts/fetch-upstream-tag.test.cjs
 node --test beacon/scripts/ci-plan.test.cjs beacon/scripts/ci-workflow.test.cjs
 ```
 
-脚本测试只使用临时本地 Git 仓库，不访问网络，不运行源码合并或发布。
+These script tests use temporary local Git repositories only. They do not access the network, merge source, or publish releases.
 
-修改产品打包配置后运行：
+After changing the product packaging configuration, run:
 
 ```bash
 node --test beacon/scripts/agent-packaging.test.cjs
 ```
 
-该测试用仓库 Gradle Wrapper 在临时最小工程中执行实际打包配置，验证产品版本、文件名、Manifest 和错误拒绝；首次运行可能需要下载 Gradle。它不构建完整 Agent，不能代替 `:javaagent:assemble`。
+This test uses the repository Gradle Wrapper to execute the real packaging configuration in a temporary minimal project. It validates the product version, file name, Manifest, and rejection of invalid input. The first run may download Gradle. It does not build the complete agent and cannot replace `:javaagent:assemble`.
 
-完整 Agent 构建后，运行无 Docker 的 HTTP 插桩与 OTLP Trace 导出烟测：
+After building the complete agent, run the Docker-free HTTP instrumentation and OTLP trace export smoke test:
 
 ```bash
-node beacon/scripts/agent-smoke.cjs javaagent/build/libs/beacon-javaagent-<Beacon版本>.jar
+node beacon/scripts/agent-smoke.cjs javaagent/build/libs/beacon-javaagent-<Beacon-version>.jar
 ```
 
-将占位符替换为 `beacon/version.properties` 中的版本。CI 分层及手动扩展验证见 [CI 说明](beacon/CI.md)。
+Replace the placeholder with the version in `beacon/version.properties`. See the [CI guide](beacon/CI.md) for CI tiers and manual extended validation.
 
-## 上线与发行
+## Launch and releases
 
-首次 GitHub 上线前完成 [CI 检查](beacon/CI.md)，正式发行按[发行流程](beacon/RELEASING.md)执行。`main` 分支保护与 Beacon 维护者见 [CI 说明](beacon/CI.md)，不沿用上游组织的 CODEOWNERS。
+Complete the [CI checklist](beacon/CI.md) before the initial GitHub launch, and follow the [release process](beacon/RELEASING.md) for formal releases. See the [CI guide](beacon/CI.md) for `main` branch protection and Beacon maintainers; do not reuse the upstream organization's CODEOWNERS configuration.

@@ -1,40 +1,40 @@
 # Beacon Java Changelog
 
-这里只记录 Beacon 产品变化。根目录 [CHANGELOG.md](../CHANGELOG.md)保留上游日志；OTel 标签和完整提交由[基线文件](upstream.lock.json)记录。
+This file records Beacon product changes only. The root [CHANGELOG.md](../CHANGELOG.md) retains the upstream changelog. The OTel tag and full commit are recorded in the [baseline file](upstream.lock.json).
 
 ## Unreleased
 
-## Version 0.1.0-rc.1 (2026-09-23)
+## Version 1.0.0 (2026-09-28)
 
-这是 Beacon Java 的首个公开候选版本，用于验证首次正式发行的功能、兼容性和交付流程；它不是稳定版承诺。实际支持范围以绑定到候选制品摘要的验收记录为准。
+This is the first public stable release of Beacon Java. The actual support scope is defined by acceptance records bound to the artifact digest.
 
-### 能力移除
+### Removed capabilities
 
-- 暂时移除 Taobao HSF 的 Javaagent 和 library 模块及 `hsf-sdk` 依赖，解除构建对开发机本地制品的依赖。当前 Agent 不再提供 HSF 自动插桩；原 `otel.instrumentation.hsf.enabled`、`otel.instrumentation.hsf-client.enabled` 开关无法恢复此能力。依赖 HSF 链路采集的使用者需在恢复支持并完成验证后再迁移。历史源码保留在 Git 历史中。
+- Temporarily removed the Taobao HSF Javaagent and library modules together with the `hsf-sdk` dependency, eliminating the build's dependency on developer-local artifacts. The current agent no longer provides HSF auto-instrumentation, and the former `otel.instrumentation.hsf.enabled` and `otel.instrumentation.hsf-client.enabled` switches cannot restore it. Users who depend on HSF trace collection should migrate only after support has been restored and validated. The historical source remains in Git history.
 
-### 上游同步
+### Upstream synchronization
 
-- 合入官方 OTel Java Instrumentation [v2.31.1](https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/tag/v2.31.1)，固定提交 `8ad06a082e051f366f19c16ad95a7b68edf30afd`；采用其配套 SDK 1.65.0、依赖约束及 Gradle Wrapper。
-- 保留 JDBC 旧配置兼容、Profiling、Spring AI、Alibaba Agent 等下游实现，以及 Beacon 打包与工作流隔离；HSF 暂时移除，见上述说明。本次 Beacon 产品版本为 `0.1.0-rc.1`，是首次公开候选版，不是稳定版。
-- 上游 2.31.x 含非稳定 API 变更及配置弃用，升级时查看根目录[上游 Changelog](../CHANGELOG.md)；2.31.1 修复 Spring Boot autoconfigure/starter 的稳定语义约定 API 编译依赖。
-- 修正 Profiling 元数据的 YAML 描述语法和默认值表示，补充文件导出路径的实际默认值；不改变运行时配置或行为。
+- Integrated official OTel Java Instrumentation [v2.31.1](https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/tag/v2.31.1), pinned to commit `8ad06a082e051f366f19c16ad95a7b68edf30afd`, together with its SDK 1.65.0, dependency constraints, and Gradle Wrapper.
+- Retained downstream implementations for legacy JDBC configuration compatibility, Profiling, Spring AI, and Alibaba Agent, together with Beacon packaging and workflow isolation. HSF is temporarily removed as described above. Beacon product version `1.0.0` is the first public stable release.
+- Upstream 2.31.x includes unstable API changes and configuration deprecations. Review the root [upstream changelog](../CHANGELOG.md) when upgrading. Version 2.31.1 fixes the stable semantic-convention API compile dependency for Spring Boot autoconfigure and starter.
+- Corrected YAML description syntax and default-value representation in the Profiling metadata, and documented the actual default file export path. Runtime configuration and behavior are unchanged.
 
-### 工程与发行
+### Engineering and release
 
-- 源码仓库迁移至 `beacon-observability/beacon-java`，同步更新 Beacon CI 的仓库隔离条件、项目入口链接和产品厂商标识。
-- 新增 Beacon 专用 CI 入口，普通 PR 缩减 JDK 矩阵、保留全部测试分片与两种 Indy 模式；共享核心及上游基线变化自动扩大验证。重型兼容性测试提供手动入口，上游 PR 镜像构建不再在 Beacon 自动执行；保留独立安全检查，新增成品 Agent 的 HTTP/TraceContext/OTLP Trace 导出烟测。
-- 产品主线使用 `main`，保留完整上游历史和既有下游增强。
-- 使用独立产品版本，首次公开候选版为 `0.1.0-rc.1`。
-- 完整 Agent 命名为 `beacon-javaagent-<Beacon版本>.jar`，Manifest 记录 Beacon 版本、模块构建版本及上游标签和提交，制品内嵌来源记录。
-- 隔离继承的发布和管理自动化，保留构建检查，独立维护 Beacon 同步与发行流程。
-- 用本日志记录产品变化，不再维护独立的下游差异台账。
+- Migrated the source repository to `beacon-observability/beacon-java` and updated Beacon CI repository-isolation conditions, project entry links, and product vendor identity.
+- Added a dedicated Beacon CI entry point. Regular pull requests use a reduced JDK matrix while retaining all test partitions and both Indy modes; changes to shared core code or the upstream baseline automatically expand validation. Heavy compatibility testing is available through a manual entry point, and upstream pull-request image builds no longer run automatically in Beacon. Independent security checks remain enabled, and the packaged agent now has HTTP, TraceContext, and OTLP trace export smoke tests.
+- Established `main` as the product development branch while retaining full upstream history and existing downstream enhancements.
+- Introduced independent product versioning, beginning with public stable release `1.0.0`.
+- Named the complete agent `beacon-javaagent-<Beacon-version>.jar`. Its Manifest records the Beacon version, module build version, upstream tag, and upstream commit, and the artifact embeds provenance records.
+- Isolated inherited release and repository-management automation while retaining build checks, and established independent Beacon synchronization and release processes.
+- Established this changelog as the product change record instead of maintaining a separate downstream delta ledger.
 
-### 初始导入
+### Initial import
 
-- 从历史下游提交 `73a8f7edd0415f0e8651d3d1f3f295e6e6d4d1ea` 导入完整源码；采用的官方发布祖先为 OTel Java Instrumentation `v2.30.0`。
-- 继承 JDBC 旧配置兼容、实验性 JFR Profiling / DataKit 导出、Spring AI、Spring AI Alibaba Agent、HSF 插桩。这些是原分支已有实现，不是迁移后新开发或已通过 Beacon 验收的能力。
+- Imported the complete source tree from historical downstream commit `73a8f7edd0415f0e8651d3d1f3f295e6e6d4d1ea`. The adopted official release ancestor was OTel Java Instrumentation `v2.30.0`.
+- Inherited legacy JDBC configuration compatibility, experimental JFR Profiling and DataKit export, Spring AI, Spring AI Alibaba Agent, and HSF instrumentation. These implementations existed in the previous branch; they were not newly developed after migration and had not completed Beacon acceptance at import time.
 
-### 已知限制
+### Known limitations
 
-- Profiling 仍是继承的实验性实现，Extension 迁移尚未完成；方向见[开发说明](README.md#profiling-的扩展边界)。
-- 当前启动日志前缀和默认 `telemetry.distro.name` 仍沿用继承实现，不能将 Agent 文件名与 Manifest 的 Beacon 标识理解为所有运行时标识均已完成品牌化。
+- Profiling remains an inherited experimental implementation, and migration to an Extension is not complete. See the [development guide](README.md#profiling-extension-boundary) for the intended direction.
+- The startup log prefix and default `telemetry.distro.name` still come from the inherited implementation. The Beacon agent file name and Manifest identity do not imply that every runtime identifier has been rebranded.

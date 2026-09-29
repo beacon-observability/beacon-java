@@ -1,29 +1,29 @@
 # Beacon Java
 
-Beacon Java 是基于完整 OpenTelemetry Java Instrumentation 源码维护的 Java 探针工程，支持增强原生插桩，并独立发行。
+Beacon Java is a Java agent project maintained from the complete OpenTelemetry Java Instrumentation source tree. It supports enhanced native instrumentation and is released independently.
 
-当前处于开发阶段，尚无 Beacon Java 正式安装包。上游 Agent 的下载包和支持声明不代表 Beacon 的发行结果。
+The latest stable release is [Beacon Java 1.0.0](https://github.com/beacon-observability/beacon-java/releases/tag/beacon-v1.0.0). Upstream agent downloads and support statements do not represent Beacon release results.
 
-## 开发入口
+## Development resources
 
-- [开发说明与工程布局](beacon/README.md)
-- [源码来源与上游基线](beacon/upstream.lock.json)
-- [同步 OpenTelemetry](beacon/UPSTREAM.md)
-- [发行流程](beacon/RELEASING.md)
-- [Beacon 版本日志](beacon/CHANGELOG.md)
-- [Beacon 自有贡献者](beacon/CONTRIBUTORS.md)
-- [贡献指南](CONTRIBUTING.md)
-- [CI 与首次上线检查](beacon/CI.md)
+- [Development guide and repository layout](beacon/README.md)
+- [Source provenance and upstream baseline](beacon/upstream.lock.json)
+- [Synchronizing OpenTelemetry](beacon/UPSTREAM.md)
+- [Release process](beacon/RELEASING.md)
+- [Beacon changelog](beacon/CHANGELOG.md)
+- [Beacon contributors](beacon/CONTRIBUTORS.md)
+- [Contributing guide](CONTRIBUTING.md)
+- [CI and initial launch checklist](beacon/CI.md)
 
-开发主线为 `main`。使用 JDK 21 执行 `./gradlew :javaagent:assemble`，完整 Agent 输出为 `javaagent/build/libs/beacon-javaagent-<Beacon版本>.jar`。产品版本见 [beacon/version.properties](beacon/version.properties)，构建不等于正式发行验收。
+The development branch is `main`. With JDK 21, run `./gradlew :javaagent:assemble`. The complete agent is written to `javaagent/build/libs/beacon-javaagent-<Beacon-version>.jar`. See [beacon/version.properties](beacon/version.properties) for the product version. A successful build alone does not constitute release acceptance.
 
-## 产品与上游
+## Product and upstream
 
-- [Beacon 产品入口](https://github.com/beacon-observability/beacon)
+- [Beacon product repository](https://github.com/beacon-observability/beacon)
 - [OpenTelemetry Java Instrumentation](https://github.com/open-telemetry/opentelemetry-java-instrumentation)
-- [初始导入提交](https://github.com/beacon-observability/beacon-java/commit/73a8f7edd0415f0e8651d3d1f3f295e6e6d4d1ea)
+- [Initial import commit](https://github.com/beacon-observability/beacon-java/commit/73a8f7edd0415f0e8651d3d1f3f295e6e6d4d1ea)
 
-保留上游源码布局、包名、[许可证](LICENSE)及第三方声明。产品版本、上游基线和应用自身的版本分别管理。
+The upstream source layout, package names, [license](LICENSE), and third-party notices are retained. The product version, upstream baseline, and instrumented application's own version are managed independently.
 
 ## Beacon Contributors
 
@@ -31,13 +31,13 @@ Beacon Java 是基于完整 OpenTelemetry Java Instrumentation 源码维护的 J
   <tr>
     <td align="center">
       <a href="https://github.com/lrwh">
-        <img src="https://avatars.githubusercontent.com/u/17264378?v=4" width="72" height="72" alt="lrwh 头像"><br>
+        <img src="https://avatars.githubusercontent.com/u/17264378?v=4" width="72" height="72" alt="lrwh avatar"><br>
         lrwh
       </a>
     </td>
     <td align="center">
       <a href="https://github.com/songlonqi-java">
-        <img src="https://avatars.githubusercontent.com/u/31207055?v=4" width="72" height="72" alt="songlonqi-java 头像"><br>
+        <img src="https://avatars.githubusercontent.com/u/31207055?v=4" width="72" height="72" alt="songlonqi-java avatar"><br>
         songlonqi-java
       </a>
     </td>

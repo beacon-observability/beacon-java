@@ -1,5 +1,5 @@
-blank_issues_enabled: true
+blank_issues_enabled: false
 contact_links:
-  - name: Beacon 产品与语言入口
+  - name: Beacon product and language repositories
     url: https://github.com/beacon-observability/beacon
-    about: Beacon Java 的缺陷和功能请求请使用本仓库的 Issue 模板。
+    about: Use this repository's issue templates for Beacon Java bugs and feature requests.

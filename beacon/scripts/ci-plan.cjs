@@ -10,10 +10,26 @@ function plan(files, full = false, unknownBase = false) {
     /^(beacon\/upstream\.lock\.json|version\.gradle\.kts|settings\.gradle\.kts|build\.gradle\.kts|gradle\.properties|\.java-version)$/.test(file) ||
     /^(gradle\/|conventions\/|dependencyManagement\/|javaagent[^/]*\/|instrumentation-api[^/]*\/|testing[^/]*\/|buildscripts\/|declarative-config-bridge\/|instrumentation-annotations\/|bom[^/]*\/|custom-checks\/|\.github\/|beacon\/scripts\/)/.test(file) ||
     /^beacon\/(agent\.gradle\.kts|version\.properties)$/.test(file));
-  const java = full ? [8, 11, 17, 21, 25, 26] : broad ? [8, 17, 21] : [21];
+  const modes = full
+    ? [8, 11, 17, 21, 25, 26].flatMap((java) => [false, true].map((indy) => ({ java, indy })))
+    : broad
+      ? [
+        { java: 8, indy: false },
+        { java: 17, indy: true },
+        { java: 21, indy: false },
+        { java: 21, indy: true },
+      ]
+      : [
+        { java: 21, indy: false },
+        { java: 21, indy: true },
+      ];
+  const matrix = {
+    include: modes.flatMap(({ java, indy }) =>
+      [0, 1, 2, 3].map((partition) => ({ java, indy, partition }))),
+  };
   return {
     profile: full ? 'full' : broad ? 'upgrade' : 'pr',
-    matrix: { java, indy: [false, true], partition: [0, 1, 2, 3] },
+    matrix,
     muzzle: full || broad || files.some((file) => file.startsWith('instrumentation/')),
     full,
   };

@@ -4,7 +4,7 @@ Beacon uses an independent product version and artifact identity. The [packaging
 
 ## Versioning and scope
 
-- Beacon Java uses independent semantic versions and `beacon-vX.Y.Z` tags. It does not reuse legacy `v*` tags.
+- Beacon Java uses independent semantic versions and `vX.Y.Z` tags. Official upstream tags are fetched into the separate `refs/upstream-tags/` namespace and are not published as Beacon release tags.
 - [version.properties](version.properties) is the only source of the product version. Stable releases use `X.Y.Z`, public release candidates use `X.Y.Z-rc.N`, and development versions use `X.Y.Z-SNAPSHOT`. Do not publish a SNAPSHOT as a formal release or override the release version through an ad hoc command-line property.
 - The product version and [upstream baseline](upstream.lock.json) are recorded separately. Do not globally replace the upstream build version or modify the instrumented application's `service.version`.
 - The complete installation package is `beacon-javaagent-<Beacon-version>.jar`. Helper artifacts such as `base` and `dontuse` are not published as Beacon installation packages. Do not publish the Beacon product through inherited Maven or Sonatype publication tasks.
@@ -34,7 +34,7 @@ From a clean release commit with JDK 21, run the following command at the reposi
 
 Output is written to `javaagent/build/libs/`. Select the single complete agent that matches the committed product version; do not publish through a wildcard that may include stale artifacts. `verifyBeaconAgent` checks the file name, Manifest, and provenance files, but does not replace functional, compatibility, or performance testing. Preserve the SHA-256 digest, source commit, and validation results with the candidate.
 
-After approval, push only that version's `beacon-vX.Y.Z` tag and upload the same validated JAR, SHA-256 digest, and required notices to a Release with the same name. Do not use `git push --tags`, and do not rebuild and replace the candidate. Set the next development version in a separate commit; it must not be included in the current release tag.
+After approval, push only that version's `vX.Y.Z` tag and upload the same validated JAR, SHA-256 digest, and required notices to a Release with the same name. Do not use `git push --tags`, and do not rebuild and replace the candidate. Set the next development version in a separate commit; it must not be included in the current release tag.
 
 ## Rollback and retry
 

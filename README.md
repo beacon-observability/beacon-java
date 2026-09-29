@@ -2,7 +2,7 @@
 
 Beacon Java is a Java agent project maintained from the complete OpenTelemetry Java Instrumentation source tree. It supports enhanced native instrumentation and is released independently.
 
-The latest stable release is [Beacon Java 1.0.0](https://github.com/beacon-observability/beacon-java/releases/tag/beacon-v1.0.0). Upstream agent downloads and support statements do not represent Beacon release results.
+Download the [latest stable Beacon Java release](https://github.com/beacon-observability/beacon-java/releases/latest). Upstream agent downloads and support statements do not represent Beacon release results.
 
 ## Development resources
 

@@ -31,9 +31,14 @@ function results(muzzle = false, full = false) {
   };
 }
 
-function check(needs, native = false) {
+function check(needs, native = false, lightweight = false) {
   return spawnSync(process.execPath, ['-e', gate], {
-    env: { ...process.env, NEEDS_JSON: JSON.stringify(needs), NATIVE: String(native) },
+    env: {
+      ...process.env,
+      NEEDS_JSON: JSON.stringify(needs),
+      NATIVE: String(native),
+      LIGHTWEIGHT: String(lightweight),
+    },
     encoding: 'utf8',
   });
 }
@@ -60,7 +65,7 @@ test('all core and optional jobs are represented in the final gate', () => {
   assert(!source.includes('pull_request_target:'), 'PR code must not run with privileged context');
 });
 
-test('artifact-producing workflow does not restore or write dependency caches', () => {
+test('only artifact-producing build disables dependency caches', () => {
   const setupNodeSteps = actionSteps('actions/setup-node@');
   assert.equal(setupNodeSteps.length, 3);
   for (const step of setupNodeSteps) {
@@ -70,10 +75,31 @@ test('artifact-producing workflow does not restore or write dependency caches', 
 
   const setupGradleSteps = actionSteps('gradle/actions/setup-gradle@');
   assert.equal(setupGradleSteps.length, 4);
-  for (const step of setupGradleSteps) {
-    assert.match(step, /^          cache-disabled: true$/m);
+  assert.equal(setupGradleSteps.filter((step) => /^          cache-disabled: true$/m.test(step)).length, 1);
+  assert.equal(setupGradleSteps.filter((step) => /^          cache-read-only: true$/m.test(step)).length, 3);
+});
+
+test('main pushes use the lightweight build and smoke-test path', () => {
+  assert.match(source, /LIGHTWEIGHT:.*github\.event_name == 'push'.*refs\/heads\/main/);
+  assert.equal(
+    (source.match(/github\.event_name != 'push' \|\| github\.ref != 'refs\/heads\/main'/g) || []).length,
+    5,
+    'quality, tests, Muzzle, latest-deps and upstream smoke must skip on main pushes',
+  );
+  assert.match(source, /max-parallel: 8/);
+  const needs = results(true, true);
+  needs.quality.result = 'skipped';
+  needs.tests.result = 'skipped';
+  needs.muzzle.result = 'skipped';
+  needs['latest-deps'].result = 'skipped';
+  needs['upstream-smoke'].result = 'skipped';
+  assert.equal(check(needs, false, true).status, 0);
+
+  for (const job of ['plan', 'build']) {
+    const failed = structuredClone(needs);
+    failed[job].result = 'failure';
+    assert.equal(check(failed, false, true).status, 1, job);
   }
-  assert(!source.includes('cache-read-only:'), 'Read-only caches can still poison runtime artifacts');
 });
 
 test('ordinary, upgrade and full successes pass with unselected jobs skipped', () => {

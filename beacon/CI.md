@@ -7,14 +7,16 @@ The product development branch is `main`. [Beacon CI](../.github/workflows/beaco
 | Scenario | Module test matrix | Additional checks |
 | --- | --- | --- |
 | Regular pull request | JDK 21 × 4 partitions × 2 Indy modes, for 8 test jobs | 4 Muzzle partitions when instrumentation directories change |
-| Upstream synchronization, shared build, or agent core changes | JDK 8/17/21 × 4 partitions × 2 Indy modes, for 24 test jobs | 4 Muzzle partitions |
+| Upstream synchronization, shared build, or agent core changes | JDK 8 with classic transformation, JDK 17 with Indy, and JDK 21 with both modes, each across 4 partitions, for 16 test jobs | 4 Muzzle partitions |
 | Manual `full` selection | JDK 8/11/17/21/25/26 × 4 partitions × 2 Indy modes, for 48 test jobs | Muzzle, latest-dependency tests, and upstream Linux container smoke tests |
 
-All three tiers build the complete agent; validate the Beacon file name, Manifest, and provenance; run maintainer-script and packaging regression tests; run packaged-agent HTTP instrumentation, TraceContext, and OTLP trace export smoke tests; and run formatting, package-name, other static checks, and license-list checks. Module tests reuse upstream `listTestsInPartition` without excluding test modules by directory. Tests wired into Gradle for Beacon-specific enhancements are included. A module without tests does not automatically gain functional acceptance.
+All three pull-request and manual tiers build the complete agent; validate the Beacon file name, Manifest, and provenance; run maintainer-script and packaging regression tests; run packaged-agent HTTP instrumentation, TraceContext, and OTLP trace export smoke tests; and run formatting, package-name, other static checks, and license-list checks. Module tests reuse upstream `listTestsInPartition` without excluding test modules by directory. Tests wired into Gradle for Beacon-specific enhancements are included. A module without tests does not automatically gain functional acceptance.
+
+After a pull request has passed its selected tier and is merged, the `main` push runs only the clean agent build, packaging verification, and packaged-agent smoke test. The merge ruleset prevents direct pushes, so repeating the complete pull-request matrix on the resulting merge commit would add substantial latency without testing different file content. Manual `full` validation remains available when release acceptance or an explicit post-merge rerun is required.
 
 The [planning script](scripts/ci-plan.cjs) selects a tier from the complete Git diff rather than branch names or pull-request labels. Pull requests compare the base SHA with GitHub's default checked-out merge result; pushes compare the before SHA with the current commit. A missing baseline expands validation to the upgrade tier, while an unreadable otherwise-valid SHA fails rather than silently reducing coverage. Changes to settings, baselines, dependencies, shared test infrastructure, or CI itself expand the matrix. The script and its tests define the exact path rules.
 
-At most four matrix jobs run concurrently. A new commit cancels an older Beacon CI run for the same pull request. It does not automatically cancel upstream workflows that began before migration.
+At most eight matrix jobs run concurrently. A new commit cancels an older Beacon CI run for the same pull request. It does not automatically cancel upstream workflows that began before migration.
 
 Wrapper validation, path-triggered metadata checks, dependency review, CodeQL, and workflow security scans continue to run independently and are not included in the test-job counts above. `Beacon required` does not replace them; configure them separately as required checks when appropriate.
 
@@ -24,7 +26,7 @@ Wrapper validation, path-triggered metadata checks, dependency review, CodeQL, a
 
 Fix the cause of a failing check; do not remove checks solely to obtain a green status. CI artifacts are development artifacts, not formal releases, and a successful build does not replace functional or release acceptance.
 
-Beacon CI uploads the agent and test reports, so Node package-manager caches and Gradle user-home caches are disabled throughout the workflow. Read-only caches still restore existing content and therefore cannot prevent contaminated content from entering a downloadable runtime artifact. If caching is restored later, separate trusted-branch artifact builds from untrusted pull-request validation and repeat the security review; merely making a cache read-only is insufficient.
+The artifact-producing build disables Node package-manager and Gradle user-home caches so restored content cannot enter the downloadable agent. Quality, module-test, and upstream-smoke jobs may restore Gradle caches read-only because they upload only reports, not runtime artifacts. Formal release candidates must continue to come from the cache-isolated build path.
 
 ### Extended validation and test images
 

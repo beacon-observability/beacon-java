@@ -88,6 +88,7 @@ jobs:
 
   quality:
     needs: plan
+    if: github.event_name != 'push' || github.ref != 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -101,7 +102,7 @@ jobs:
           java-version-file: .java-version
       - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
         with:
-          cache-disabled: true
+          cache-read-only: true
       - name: Format and static checks
         run: |
           ./gradlew spotlessCheck
@@ -119,11 +120,12 @@ jobs:
   tests:
     name: tests (JDK ${{ matrix.java }}, indy ${{ matrix.indy }}, part ${{ matrix.partition }})
     needs: plan
+    if: github.event_name != 'push' || github.ref != 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     strategy:
       fail-fast: false
-      max-parallel: 4
+      max-parallel: 8
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -146,7 +148,7 @@ jobs:
           package-manager-cache: false
       - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
         with:
-          cache-disabled: true
+          cache-read-only: true
       - name: Run upstream test partition (includes Beacon modules)
         shell: bash
         env:
@@ -176,12 +178,12 @@ jobs:
 
   muzzle:
     needs: plan
-    if: needs.plan.outputs.muzzle == 'true'
+    if: ${{ (github.event_name != 'push' || github.ref != 'refs/heads/main') && needs.plan.outputs.muzzle == 'true' }}
     uses: ./.github/workflows/reusable-muzzle.yml
 
   latest-deps:
     needs: plan
-    if: needs.plan.outputs.full == 'true'
+    if: ${{ (github.event_name != 'push' || github.ref != 'refs/heads/main') && needs.plan.outputs.full == 'true' }}
     uses: ./.github/workflows/reusable-test-latest-deps.yml
 
   native:
@@ -191,7 +193,7 @@ jobs:
 
   upstream-smoke:
     needs: plan
-    if: needs.plan.outputs.full == 'true'
+    if: ${{ (github.event_name != 'push' || github.ref != 'refs/heads/main') && needs.plan.outputs.full == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
@@ -205,7 +207,7 @@ jobs:
           java-version-file: .java-version
       - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
         with:
-          cache-disabled: true
+          cache-read-only: true
       - run: ./gradlew :smoke-tests:test -PskipOpenJ9SmokeTests=true
       - if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -222,15 +224,19 @@ jobs:
     env:
       NEEDS_JSON: ${{ toJSON(needs) }}
       NATIVE: ${{ inputs.native || false }}
+      LIGHTWEIGHT: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     steps:
       - name: Require all selected checks to succeed
         run: |
           node <<'NODE'
           const needs = JSON.parse(process.env.NEEDS_JSON);
-          const required = ['plan', 'build', 'quality', 'tests'];
-          if (needs.plan.outputs.muzzle === 'true') required.push('muzzle');
-          if (needs.plan.outputs.full === 'true') required.push('latest-deps', 'upstream-smoke');
-          if (process.env.NATIVE === 'true') required.push('native');
+          const lightweight = process.env.LIGHTWEIGHT === 'true';
+          const required = lightweight ? ['plan', 'build'] : ['plan', 'build', 'quality', 'tests'];
+          if (!lightweight && needs.plan.outputs.muzzle === 'true') required.push('muzzle');
+          if (!lightweight && needs.plan.outputs.full === 'true') {
+            required.push('latest-deps', 'upstream-smoke');
+          }
+          if (!lightweight && process.env.NATIVE === 'true') required.push('native');
           for (const job of required) {
             if (needs[job].result !== 'success') {
               console.error(job + ': ' + needs[job].result);

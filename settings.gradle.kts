@@ -146,6 +146,9 @@ include(":javaagent")
 include(":sdk-autoconfigure-support")
 include(":declarative-config-bridge")
 
+// Beacon-specific embedded extensions
+include(":extensions:security")
+
 include(":bom")
 include(":bom-alpha")
 include(":instrumentation-api")

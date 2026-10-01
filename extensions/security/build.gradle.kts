@@ -18,6 +18,20 @@ val beaconVersion = Properties().apply {
       .asText.get().reader()
   )
 }.getProperty("version") ?: error("Missing Beacon product version")
+val securitySpec = Properties().apply {
+  load(
+    providers.fileContents(rootProject.layout.projectDirectory.file("beacon/security-spec.properties"))
+      .asText.get().reader()
+  )
+}
+val securitySpecRepository = securitySpec.getProperty("repository")
+  ?: error("Missing Beacon Security specification repository")
+val securitySpecRevision = securitySpec.getProperty("revision")
+  ?: error("Missing Beacon Security specification revision")
+val securitySchemaVersion = securitySpec.getProperty("schemaVersion")
+  ?: error("Missing Beacon Security schema version")
+val securityFingerprintVersion = securitySpec.getProperty("fingerprintVersion")
+  ?: error("Missing Beacon Security fingerprint version")
 
 dependencies {
   compileOnly(project(":javaagent-extension-api"))
@@ -54,6 +68,10 @@ val generateSecurityVersionProperties =
       generatedSecurityResources.map { it.file("META-INF/beacon/security-version.properties") }
     )
     property("version", beaconVersion)
+    property("spec.repository", securitySpecRepository)
+    property("spec.revision", securitySpecRevision)
+    property("schema.version", securitySchemaVersion)
+    property("fingerprint.version", securityFingerprintVersion)
   }
 
 tasks.processResources {
@@ -67,6 +85,8 @@ tasks.named("assemble") {
 
 tasks.test {
   useJUnitPlatform()
+  systemProperty("beacon.security.spec.schema-version", securitySchemaVersion)
+  systemProperty("beacon.security.spec.fingerprint-version", securityFingerprintVersion)
 }
 
 tasks.withType<JavaCompile>().configureEach {

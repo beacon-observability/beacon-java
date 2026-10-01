@@ -10,6 +10,12 @@ instrumentation, build, tests, and releases remain owned by `beacon-java`. Cross
 documentation belongs in the Beacon product repository, while each future language implementation
 belongs in that language's repository.
 
+The language-neutral event, identity, configuration, fingerprint, and runtime SBOM contract lives
+in [beacon-security-spec](https://github.com/beacon-observability/beacon-security-spec). This
+repository pins an immutable specification revision in
+[`beacon/security-spec.properties`](../../beacon/security-spec.properties); the complete Agent JAR
+embeds that record under `META-INF/beacon/` and exposes the versions in its Manifest.
+
 ## Current status
 
 The embedded extension, runtime data-flow observation, security finding events, local diagnostic

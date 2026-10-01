@@ -13,6 +13,10 @@ This file records Beacon product changes only. The root [CHANGELOG.md](../CHANGE
 - Established the initial `beacon.security.*` configuration and `beacon.security.*` event contract
   without legacy compatibility aliases, added local diagnostic output as an explicit opt-in, and
   added a Boot 2 end-to-end smoke test plus a native Kubernetes initContainer deployment example.
+- Pinned the language-neutral
+  [Beacon Security specification](https://github.com/beacon-observability/beacon-security-spec) by
+  immutable commit and embedded its repository, revision, schema version, and fingerprint version
+  in the complete Agent artifact provenance.
 - This implementation has local validation evidence but has not yet completed public release
   acceptance or image publication.
 

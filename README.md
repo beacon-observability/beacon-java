@@ -15,6 +15,7 @@ Download the [latest stable Beacon Java release](https://github.com/beacon-obser
 - [Contributing guide](CONTRIBUTING.md)
 - [CI and initial launch checklist](beacon/CI.md)
 - [Beacon Security for Java](extensions/security/README.md)
+- [Shared Beacon Security specification](https://github.com/beacon-observability/beacon-security-spec)
 
 The development branch is `main`. With JDK 21, run `./gradlew :javaagent:assemble`. The complete agent is written to `javaagent/build/libs/beacon-javaagent-<Beacon-version>.jar`. See [beacon/version.properties](beacon/version.properties) for the product version. A successful build alone does not constitute release acceptance.
 

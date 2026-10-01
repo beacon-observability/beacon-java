@@ -67,8 +67,11 @@ class EventsTest {
         Events.fingerprint(
             "orders", "java", "sql_injection", sink, asList("header|x", "parameter|name"));
 
-    assertThat(Events.SCHEMA_VERSION).isEqualTo(1);
-    assertThat(Events.FINGERPRINT_VERSION).isEqualTo(1);
+    assertThat(Events.SCHEMA_VERSION)
+        .isEqualTo(Integer.parseInt(System.getProperty("beacon.security.spec.schema-version")));
+    assertThat(Events.FINGERPRINT_VERSION)
+        .isEqualTo(
+            Integer.parseInt(System.getProperty("beacon.security.spec.fingerprint-version")));
     assertThat(first).startsWith("finding-").isEqualTo(second);
   }
 

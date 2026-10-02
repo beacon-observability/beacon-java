@@ -4,6 +4,22 @@ This file records Beacon product changes only. The root [CHANGELOG.md](../CHANGE
 
 ## Unreleased
 
+### Beacon Security
+
+- Migrated the Java runtime data-flow and runtime SBOM implementation into the internal
+  `extensions/security` module and embedded it in the complete Beacon Java agent. Applications use
+  one Agent JAR, while Security remains disabled by default and shares OpenTelemetry resource
+  identity and OTLP Logs delivery.
+- Established the initial `beacon.security.*` configuration and `beacon.security.*` event contract
+  without legacy compatibility aliases, added local diagnostic output as an explicit opt-in, and
+  added a Boot 2 end-to-end smoke test plus a native Kubernetes initContainer deployment example.
+- Pinned the language-neutral
+  [Beacon Security specification](https://github.com/beacon-observability/beacon-security-spec) by
+  immutable commit and embedded its repository, revision, schema version, and fingerprint version
+  in the complete Agent artifact provenance.
+- This implementation has local validation evidence but has not yet completed public release
+  acceptance or image publication.
+
 ## Version 1.0.0 (2026-09-28)
 
 This is the first public stable release of Beacon Java. The actual support scope is defined by acceptance records bound to the artifact digest.

@@ -1,0 +1,15 @@
+description: Beacon Security runtime data-flow observation and runtime SBOM collection.
+library_link: https://github.com/beacon-observability/beacon-java
+configurations:
+  - name: beacon.security.enabled
+    description: Enables Beacon Security runtime observation and SBOM collection.
+    type: boolean
+    default: false
+  - name: beacon.security.sbom.enabled
+    description: Enables runtime SBOM collection when Beacon Security is enabled.
+    type: boolean
+    default: true
+  - name: beacon.security.local-output.enabled
+    description: Enables process-local diagnostic snapshots; production Kubernetes workloads should normally use OTLP only.
+    type: boolean
+    default: false

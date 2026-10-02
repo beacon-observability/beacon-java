@@ -14,7 +14,7 @@ test('Beacon packaging keeps product identity separate from upstream versions', 
   const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'beacon-packaging-'));
   try {
     fs.mkdirSync(path.join(fixture, 'beacon'));
-    for (const name of ['agent.gradle.kts', 'upstream.lock.json']) {
+    for (const name of ['agent.gradle.kts', 'upstream.lock.json', 'security-spec.properties']) {
       fs.copyFileSync(path.join(repository, 'beacon', name), path.join(fixture, 'beacon', name));
     }
     fs.writeFileSync(path.join(fixture, 'settings.gradle.kts'), 'rootProject.name = "packaging-test"\n');

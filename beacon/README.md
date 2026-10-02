@@ -42,6 +42,14 @@ The following are source entry points, not support commitments that have complet
 
 HSF instrumentation has been temporarily removed because its SDK dependency was available only as a developer-local artifact and no artifact source is available to CI. The current agent does not provide HSF auto-instrumentation. The historical implementation remains in Git history; restoring it requires a reliable dependency source plus build and compatibility validation.
 
+## Beacon Security extension
+
+[Beacon Security](../extensions/security/) is implemented as an opt-in extension embedded in the
+complete Beacon Java agent. It is not a separate repository, release line, or application-facing
+JAR. Its runtime data-flow observation, finding events, local diagnostic snapshots, and runtime
+SBOM have local test evidence, but have not yet completed public release acceptance. Security is
+disabled by default; applications continue to use one `-javaagent` when it is enabled.
+
 ## Profiling extension boundary
 
 The intended direction is an independent implementation embedded by default. In a future change, the JFR collection and export core and the OTel lifecycle adapter will move to `extensions/profiling/core/` and `extensions/profiling/agent-extension/` in this repository. These directories do not exist yet and are not current build entry points.

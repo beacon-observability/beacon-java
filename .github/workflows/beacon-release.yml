@@ -54,8 +54,9 @@ jobs:
         run: |
           [[ "$RUN_ID" =~ ^[1-9][0-9]*$ ]]
           gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" > validation-run.json
-          gh api --paginate --slurp \
-            "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/jobs?per_page=100" > validation-jobs.json
+          gh api \
+            "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/jobs?filter=latest&per_page=100" \
+            > validation-jobs.json
           node beacon/scripts/release-metadata.cjs verify-ci \
             validation-run.json validation-jobs.json "$GITHUB_SHA"
       - name: Reject an existing release or a conflicting tag

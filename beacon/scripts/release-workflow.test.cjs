@@ -21,6 +21,8 @@ test('Beacon release is isolated from inherited publication and uses a protected
 test('candidate validation is bound to the exact full CI source commit', () => {
   assert.match(release, /validation_run_id:/);
   assert.match(release, /release-metadata\.cjs verify-ci[\s\S]*?\$GITHUB_SHA/);
+  assert.match(release, /jobs\?filter=latest&per_page=100/);
+  assert.doesNotMatch(release, /gh api[^\n]*--slurp/);
   assert.match(release, /:javaagent:assemble :javaagent:verifyBeaconAgent :javaagent:spdxSbom/);
   assert.match(release, /security-smoke\.cjs/);
   assert.match(release, /cache-disabled: true/);

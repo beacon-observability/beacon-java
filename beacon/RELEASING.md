@@ -1,6 +1,6 @@
 # Beacon Java Release Process
 
-Beacon uses an independent product version and artifact identity. The [packaging configuration](agent.gradle.kts) is loaded by `:javaagent`. Repository conditions prevent inherited official and legacy downstream publication jobs from serving as Beacon release entry points; see the [CI guide](CI.md). The controlled build and manual publication process below does not depend on unconfigured automated publication jobs.
+Beacon uses an independent product version and artifact identity. The [packaging configuration](agent.gradle.kts) is loaded by `:javaagent`. Repository conditions prevent inherited official and legacy downstream publication jobs from serving as Beacon release entry points; see the [CI guide](CI.md). Beacon has separate [preparation](../.github/workflows/beacon-prepare-release.yml) and [publication](../.github/workflows/beacon-release.yml) workflows; neither calls inherited Maven, Sonatype, plugin, or image publication.
 
 ## Versioning and scope
 
@@ -11,30 +11,38 @@ Beacon uses an independent product version and artifact identity. The [packaging
 - Manifest attributes `Implementation-Title`, `Implementation-Version`, and `Implementation-Vendor` identify the Beacon product. `Beacon-Upstream-Tag` and `Beacon-Upstream-Commit` identify the official baseline. `Beacon-Instrumentation-Version` retains the currently inherited module build version. Embedded files under `META-INF/beacon/` preserve version and provenance records.
 - Do not bulk-rename upstream module coordinates, Java packages, or instrumentation scopes. The complete JAR's `java -jar` version output and AgentVersion read the Manifest and therefore use the Beacon product version; the module build version is available separately through `Beacon-Instrumentation-Version`. Existing startup log prefixes and the default `telemetry.distro.name` still come from inherited runtime code. Do not describe the file-name change as a complete rebranding of all runtime identifiers.
 - State the functionality and support scope actually validated for each release. The current Profiling implementation is inherited and experimental. Its conversion to an Extension is a separate effort and is not a prerequisite for the initial source publication.
-- Publish source provenance, licenses, required third-party notices, artifact digests, and known limitations with each release. Define signing, artifact hosting, and SBOM generation in the publication implementation.
+- Publish source provenance, licenses, required third-party notices, artifact digests, SPDX SBOM,
+  and known limitations with each release. GitHub Releases is the current artifact host, and the
+  publication workflow creates GitHub build-provenance attestations through OIDC.
 
 ## Release sequence
 
-1. In a release pull request, update `version.properties`, move completed entries in the [Changelog](CHANGELOG.md) into the target version, and state configuration changes, publication scope, and notes. After merge, pin the final source commit. Do not mix upstream changelog entries into the Beacon changelog.
-2. Build the release candidate from that commit with pinned dependencies and a pinned build environment, and record its SHA-256 digest and build provenance.
-3. Complete applicable module, runtime, Beacon enhancement, receiver, performance, and rollback validation against that exact candidate. Run [Beacon CI manual extended validation](CI.md#extended-validation-and-test-images) and add Windows, OpenJ9, performance, or other targeted testing according to the declared support scope. Extended CI does not replace candidate acceptance. Bind test evidence to the same commit and artifact digest.
-4. After approval, create an immutable release tag at the validated commit and publish the same validated artifact. Do not change dependencies or rebuild a substitute at this step.
+1. Add user-visible changes under `Unreleased`. Run **Prepare Beacon release** from `main` with the target version. It updates `version.properties`, moves the completed changelog entries, opens a release pull request, and requests full Beacon CI. Do not mix upstream changelog entries into the Beacon changelog. The same two files may be updated manually in an exceptional recovery, but must still be reviewed in a pull request.
+2. Merge the release pull request, then run [Beacon CI manual extended validation](CI.md#extended-validation-and-test-images) with `full` selected against the exact merge commit. Record the successful workflow run ID. Add Windows, OpenJ9, performance, or other targeted testing according to the declared support scope.
+3. Run **Beacon release** against that same Git ref, supplying the committed version and full-validation run ID. The workflow rejects a different commit, a reduced matrix, an existing release, or inconsistent metadata. It builds the candidate with dependency caches disabled and records its SHA-256 digest and provenance.
+4. The candidate job runs packaged-Agent and embedded-Security smoke tests. The `beacon-release` GitHub Environment gates the publish job. After approval, that job downloads the candidate artifact from the first job, revalidates its digest and Manifest, creates an annotated immutable tag, publishes the exact JAR without rebuilding, and downloads the public assets for another validation pass.
 5. If the product version, Manifest, or any artifact content changes, rebuild and validate again. A public release candidate whose content differs from the stable release cannot simply be renamed as the same artifact.
 6. Link user documentation and the support scope to the version. For the first release or when entry points or support status change, update the [Beacon product repository](https://github.com/beacon-observability/beacon). Cross-repository registration is not required for every patch release.
 
-This process is not yet bound to a specific GitHub Environment or approver. Configure those controls after administrator confirmation; documentation alone does not make approval enforcement active.
+The publish job is bound to the `beacon-release` GitHub Environment. Repository administrators
+must keep required reviewers configured there; changing the workflow file alone must not be used to
+bypass an environment review.
 
 ## Building a release candidate
 
-From a clean release commit with JDK 21, run the following command at the repository root:
+The publication workflow is the formal candidate builder. For local diagnosis from a clean release
+commit with JDK 21, run the following commands at the repository root:
 
 ```bash
-./gradlew :javaagent:assemble :javaagent:verifyBeaconAgent
+./gradlew :javaagent:assemble :javaagent:verifyBeaconAgent :javaagent:spdxSbom
+./gradlew -p beacon/testing/security-smoke-fixture shadowJar
 ```
 
-Output is written to `javaagent/build/libs/`. Select the single complete agent that matches the committed product version; do not publish through a wildcard that may include stale artifacts. `verifyBeaconAgent` checks the file name, Manifest, and provenance files, but does not replace functional, compatibility, or performance testing. Preserve the SHA-256 digest, source commit, and validation results with the candidate.
+Output is written to `javaagent/build/libs/`, `javaagent/build/spdx/`, and the fixture's `build/libs/` directory. Select the single complete agent that matches the committed product version; do not publish through a wildcard that may include stale artifacts. `verifyBeaconAgent` checks the file name, Manifest, and provenance files, but does not replace functional, compatibility, or performance testing.
 
-After approval, push only that version's `vX.Y.Z` tag and upload the same validated JAR, SHA-256 digest, and required notices to a Release with the same name. Do not use `git push --tags`, and do not rebuild and replace the candidate. Set the next development version in a separate commit; it must not be included in the current release tag.
+Do not manually upload a locally built substitute. The publication workflow attaches the exact
+candidate JAR, SHA-256 file, SPDX SBOM, provenance record, license, and third-party notices. Set the
+next development version in a separate commit; it must not be included in the current release tag.
 
 ## Rollback and retry
 

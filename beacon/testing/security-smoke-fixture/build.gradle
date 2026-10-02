@@ -1,0 +1,37 @@
+plugins {
+    id 'java'
+    id 'com.gradleup.shadow' version '9.6.1'
+}
+
+group = 'io.beacon.testing'
+version = '1.0.0'
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter-web:2.7.18'
+    implementation 'org.springframework.boot:spring-boot-starter-jdbc:2.7.18'
+    runtimeOnly 'com.h2database:h2:2.2.224'
+}
+
+tasks.named('shadowJar') {
+    archiveFileName = 'beacon-security-smoke-fixture.jar'
+    duplicatesStrategy = DuplicatesStrategy.INCLUDE
+    mergeServiceFiles()
+    append 'META-INF/spring.factories'
+    append 'META-INF/spring.handlers'
+    append 'META-INF/spring.schemas'
+    manifest {
+        attributes 'Main-Class': 'io.beacon.testing.security.SecuritySmokeApplication'
+    }
+}
+
+tasks.named('jar') {
+    enabled = false
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.release = 8
+}

@@ -140,15 +140,19 @@ separate acceptance decision. They are not current release capabilities.
 
 ## End-to-end smoke test
 
-The repository smoke script accepts the runnable Boot 2 Security validation fixture JAR:
+The repository contains a minimal Boot 2 Security validation fixture. Build it and pass it to the
+smoke script together with the complete Agent:
 
 ```bash
 export JAVA_HOME=/path/to/jdk-21
 export PATH="$JAVA_HOME/bin:$PATH"
 
+./gradlew :javaagent:assemble
+./gradlew -p beacon/testing/security-smoke-fixture shadowJar
+version=$(sed -n 's/^version=//p' beacon/version.properties)
 node beacon/scripts/security-smoke.cjs \
-  javaagent/build/libs/beacon-javaagent-1.0.0.jar \
-  /path/to/security-validation-boot2.jar
+  "javaagent/build/libs/beacon-javaagent-$version.jar" \
+  beacon/testing/security-smoke-fixture/build/libs/beacon-security-smoke-fixture.jar
 ```
 
 It verifies that dynamic SQL produces one `sql_injection` finding, parameterized and constant SQL

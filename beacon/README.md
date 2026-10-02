@@ -46,9 +46,10 @@ HSF instrumentation has been temporarily removed because its SDK dependency was 
 
 [Beacon Security](../extensions/security/) is implemented as an opt-in extension embedded in the
 complete Beacon Java agent. It is not a separate repository, release line, or application-facing
-JAR. Its runtime data-flow observation, finding events, local diagnostic snapshots, and runtime
-SBOM have local test evidence, but have not yet completed public release acceptance. Security is
-disabled by default; applications continue to use one `-javaagent` when it is enabled.
+JAR. Beginning with Beacon Java 1.1.0, the public complete Agent includes its runtime data-flow
+observation, finding events, local diagnostic snapshots, and runtime SBOM. Security remains
+disabled by default; applications continue to use one `-javaagent` when it is enabled. No
+standalone Security artifact or Beacon-owned container image is published by this release.
 
 ## Profiling extension boundary
 

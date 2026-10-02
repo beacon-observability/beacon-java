@@ -74,11 +74,16 @@ jobs:
           node --test beacon/scripts/*.test.cjs
       - name: Assemble and verify complete Beacon Agent
         run: ./gradlew :javaagent:assemble
+      - name: Build Beacon Security smoke fixture
+        run: ./gradlew -p beacon/testing/security-smoke-fixture shadowJar --no-build-cache
       - name: Smoke test the packaged Agent
         shell: bash
         run: |
           version=$(sed -n 's/^version=//p' beacon/version.properties)
-          node beacon/scripts/agent-smoke.cjs "javaagent/build/libs/beacon-javaagent-$version.jar"
+          agent="javaagent/build/libs/beacon-javaagent-$version.jar"
+          node beacon/scripts/agent-smoke.cjs "$agent"
+          node beacon/scripts/security-smoke.cjs "$agent" \
+            beacon/testing/security-smoke-fixture/build/libs/beacon-security-smoke-fixture.jar
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: beacon-javaagent

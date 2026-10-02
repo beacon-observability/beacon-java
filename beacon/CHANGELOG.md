@@ -4,6 +4,12 @@ This file records Beacon product changes only. The root [CHANGELOG.md](../CHANGE
 
 ## Unreleased
 
+## Version 1.1.0 (2026-10-02)
+
+This release adds Beacon Security to the complete Beacon Java agent as an opt-in capability. The
+publication scope is the versioned complete Agent JAR; it does not include a standalone Security
+extension JAR or a Beacon-owned container image.
+
 ### Beacon Security
 
 - Migrated the Java runtime data-flow and runtime SBOM implementation into the internal
@@ -17,8 +23,18 @@ This file records Beacon product changes only. The root [CHANGELOG.md](../CHANGE
   [Beacon Security specification](https://github.com/beacon-observability/beacon-security-spec) by
   immutable commit and embedded its repository, revision, schema version, and fingerprint version
   in the complete Agent artifact provenance.
-- This implementation has local validation evidence but has not yet completed public release
-  acceptance or image publication.
+- Published Security as part of `beacon-javaagent-1.1.0.jar`, disabled by default. The Kubernetes
+  initContainer manifest is a deployment example and does not imply publication of a Beacon-owned
+  container image.
+
+### Engineering and release
+
+- Added Beacon-owned release preparation and controlled publication workflows. A formal release is
+  bound to a successful full Beacon CI run for the exact source commit, promotes one tested Agent
+  candidate without rebuilding it, and publishes its checksum, SPDX SBOM, provenance, licenses,
+  notices, and GitHub build-provenance attestations.
+- Added a repository-owned Spring Boot 2 fixture and made the packaged-agent CI path verify dynamic
+  SQL detection, prepared-statement suppression, runtime SBOM output, and delivery health.
 
 ## Version 1.0.0 (2026-09-28)
 

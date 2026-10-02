@@ -78,7 +78,9 @@ class SbomInventoryBehaviorTest {
 
   @BeforeEach
   void captureSettings() {
-    for (String key : SETTINGS) previousSettings.put(key, System.getProperty(key));
+    for (String key : SETTINGS) {
+      previousSettings.put(key, System.getProperty(key));
+    }
     System.setProperty("beacon.security.local-output.enabled", "true");
   }
 
@@ -86,8 +88,11 @@ class SbomInventoryBehaviorTest {
   void restoreSettings() {
     for (String key : SETTINGS) {
       String value = previousSettings.get(key);
-      if (value == null) System.clearProperty(key);
-      else System.setProperty(key, value);
+      if (value == null) {
+        System.clearProperty(key);
+      } else {
+        System.setProperty(key, value);
+      }
     }
   }
 
@@ -359,7 +364,9 @@ class SbomInventoryBehaviorTest {
       assertEquals(secondRef, publishedResult.get("bom-ref"));
     } finally {
       secondLoader.release.countDown();
-      if (inventory != null) inventory.close();
+      if (inventory != null) {
+        inventory.close();
+      }
       firstLoader.close();
       secondLoader.close();
       System.setProperty("java.class.path", originalClasspath);
@@ -803,7 +810,9 @@ class SbomInventoryBehaviorTest {
       Map<String, Object> document = read(inventory.output());
       List<?> dependencies = (List<?>) document.get("dependencies");
       for (Object value : dependencies) {
-        if (!(value instanceof Map)) continue;
+        if (!(value instanceof Map)) {
+          continue;
+        }
         Map<?, ?> dependency = (Map<?, ?>) value;
         assertFalse(((List<?>) dependency.get("dependsOn")).isEmpty());
       }
@@ -856,8 +865,11 @@ class SbomInventoryBehaviorTest {
       assertNotNull(component(read(inventory.output()), "second"));
       assertNotNull(event(events, "beacon.security.sbom.snapshot", "revision", 2));
     } finally {
-      if (previousLimit == null) System.clearProperty("beacon.security.evidence.max.bytes");
-      else System.setProperty("beacon.security.evidence.max.bytes", previousLimit);
+      if (previousLimit == null) {
+        System.clearProperty("beacon.security.evidence.max.bytes");
+      } else {
+        System.setProperty("beacon.security.evidence.max.bytes", previousLimit);
+      }
       inventory.close();
     }
   }
@@ -904,14 +916,19 @@ class SbomInventoryBehaviorTest {
     System.setProperty("beacon.security.sbom.max.archive.bytes", "64");
     try {
       byte[] oversized = new byte[2048];
-      for (int i = 0; i < oversized.length; i++) oversized[i] = (byte) (i * 31);
+      for (int i = 0; i < oversized.length; i++) {
+        oversized[i] = (byte) (i * 31);
+      }
       Path artifact =
           archive(temp, "oversized.jar", mapOf("BOOT-INF/lib/oversized.jar", oversized));
       RecordingReceiver receiver = scan(artifact);
       assertTrue(receiver.incomplete.contains("archive_byte_limit"));
     } finally {
-      if (previousLimit == null) System.clearProperty("beacon.security.sbom.max.archive.bytes");
-      else System.setProperty("beacon.security.sbom.max.archive.bytes", previousLimit);
+      if (previousLimit == null) {
+        System.clearProperty("beacon.security.sbom.max.archive.bytes");
+      } else {
+        System.setProperty("beacon.security.sbom.max.archive.bytes", previousLimit);
+      }
     }
   }
 
@@ -921,14 +938,19 @@ class SbomInventoryBehaviorTest {
     System.setProperty("beacon.security.sbom.max.archive.bytes", "64");
     try {
       byte[] uninteresting = new byte[2048];
-      for (int i = 0; i < uninteresting.length; i++) uninteresting[i] = (byte) (i * 17);
+      for (int i = 0; i < uninteresting.length; i++) {
+        uninteresting[i] = (byte) (i * 17);
+      }
       Path artifact =
           archive(temp, "uninteresting-oversized.jar", mapOf("payload.bin", uninteresting));
       RecordingReceiver receiver = scan(artifact);
       assertTrue(receiver.incomplete.contains("archive_byte_limit"));
     } finally {
-      if (previousLimit == null) System.clearProperty("beacon.security.sbom.max.archive.bytes");
-      else System.setProperty("beacon.security.sbom.max.archive.bytes", previousLimit);
+      if (previousLimit == null) {
+        System.clearProperty("beacon.security.sbom.max.archive.bytes");
+      } else {
+        System.setProperty("beacon.security.sbom.max.archive.bytes", previousLimit);
+      }
     }
   }
 
@@ -983,8 +1005,11 @@ class SbomInventoryBehaviorTest {
   }
 
   private static void restore(String key, String value) {
-    if (value == null) System.clearProperty(key);
-    else System.setProperty(key, value);
+    if (value == null) {
+      System.clearProperty(key);
+    } else {
+      System.setProperty(key, value);
+    }
   }
 
   private static Instrumentation instrumentation(Class<?>... loaded) {
@@ -993,9 +1018,15 @@ class SbomInventoryBehaviorTest {
             SbomInventoryBehaviorTest.class.getClassLoader(),
             new Class<?>[] {Instrumentation.class},
             (proxy, method, args) -> {
-              if (method.getName().equals("getAllLoadedClasses")) return loaded;
-              if (method.getReturnType() == boolean.class) return false;
-              if (method.getReturnType() == int.class) return 0;
+              if (method.getName().equals("getAllLoadedClasses")) {
+                return loaded;
+              }
+              if (method.getReturnType() == boolean.class) {
+                return false;
+              }
+              if (method.getReturnType() == int.class) {
+                return 0;
+              }
               return null;
             });
   }
@@ -1006,9 +1037,15 @@ class SbomInventoryBehaviorTest {
             SbomInventoryBehaviorTest.class.getClassLoader(),
             new Class<?>[] {Instrumentation.class},
             (proxy, method, args) -> {
-              if (method.getName().equals("getAllLoadedClasses")) return loaded.get();
-              if (method.getReturnType() == boolean.class) return false;
-              if (method.getReturnType() == int.class) return 0;
+              if (method.getName().equals("getAllLoadedClasses")) {
+                return loaded.get();
+              }
+              if (method.getReturnType() == boolean.class) {
+                return false;
+              }
+              if (method.getReturnType() == int.class) {
+                return 0;
+              }
               return null;
             });
   }
@@ -1079,7 +1116,11 @@ class SbomInventoryBehaviorTest {
   }
 
   private static Record find(List<Record> records, String name) {
-    for (Record record : records) if (record.component.name.equals(name)) return record;
+    for (Record record : records) {
+      if (record.component.name.equals(name)) {
+        return record;
+      }
+    }
     return null;
   }
 
@@ -1103,10 +1144,13 @@ class SbomInventoryBehaviorTest {
   @SuppressWarnings("unchecked")
   private static Map<String, Object> component(Map<String, Object> document, String name) {
     Object value = document.get("components");
-    if (!(value instanceof List)) return null;
+    if (!(value instanceof List)) {
+      return null;
+    }
     for (Object entry : (List<Object>) value) {
-      if (entry instanceof Map && name.equals(((Map<String, Object>) entry).get("name")))
+      if (entry instanceof Map && name.equals(((Map<String, Object>) entry).get("name"))) {
         return (Map<String, Object>) entry;
+      }
     }
     return null;
   }
@@ -1114,10 +1158,13 @@ class SbomInventoryBehaviorTest {
   @SuppressWarnings("unchecked")
   private static String property(Map<String, Object> component, String name) {
     Object values = component.get("properties");
-    if (!(values instanceof List)) return null;
+    if (!(values instanceof List)) {
+      return null;
+    }
     for (Object value : (List<Object>) values) {
-      if (value instanceof Map && name.equals(((Map<String, Object>) value).get("name")))
+      if (value instanceof Map && name.equals(((Map<String, Object>) value).get("name"))) {
         return String.valueOf(((Map<String, Object>) value).get("value"));
+      }
     }
     return null;
   }
@@ -1125,10 +1172,13 @@ class SbomInventoryBehaviorTest {
   @SuppressWarnings("unchecked")
   private static String documentProperty(Map<String, Object> document, String name) {
     Object values = document.get("properties");
-    if (!(values instanceof List)) return null;
+    if (!(values instanceof List)) {
+      return null;
+    }
     for (Object value : (List<Object>) values) {
-      if (value instanceof Map && name.equals(((Map<String, Object>) value).get("name")))
+      if (value instanceof Map && name.equals(((Map<String, Object>) value).get("name"))) {
         return String.valueOf(((Map<String, Object>) value).get("value"));
+      }
     }
     return null;
   }
@@ -1138,8 +1188,9 @@ class SbomInventoryBehaviorTest {
   private static Map<String, Object> event(
       List<Map<String, Object>> events, String eventName, String key, Object value) {
     for (Map<String, Object> candidate : events) {
-      if (eventName.equals(candidate.get("event_name")) && value.equals(candidate.get(key)))
+      if (eventName.equals(candidate.get("event_name")) && value.equals(candidate.get(key))) {
         return candidate;
+      }
     }
     return null;
   }
@@ -1148,10 +1199,13 @@ class SbomInventoryBehaviorTest {
   @SuppressWarnings("unchecked")
   private static Map<?, ?> historyEntry(Map<String, Object> history, String ref) {
     Object entries = history.get("entries");
-    if (!(entries instanceof List)) return null;
+    if (!(entries instanceof List)) {
+      return null;
+    }
     for (Object entry : (List<Object>) entries) {
-      if (entry instanceof Map && ref.equals(((Map<?, ?>) entry).get("bom-ref")))
+      if (entry instanceof Map && ref.equals(((Map<?, ?>) entry).get("bom-ref"))) {
         return (Map<?, ?>) entry;
+      }
     }
     return null;
   }
@@ -1159,11 +1213,17 @@ class SbomInventoryBehaviorTest {
   @SuppressWarnings("unchecked")
   private static String licenseName(Map<String, Object> component) {
     Object values = component.get("licenses");
-    if (!(values instanceof List) || ((List<?>) values).isEmpty()) return null;
+    if (!(values instanceof List) || ((List<?>) values).isEmpty()) {
+      return null;
+    }
     Object first = ((List<?>) values).get(0);
-    if (!(first instanceof Map)) return null;
+    if (!(first instanceof Map)) {
+      return null;
+    }
     Object license = ((Map<?, ?>) first).get("license");
-    if (!(license instanceof Map)) return null;
+    if (!(license instanceof Map)) {
+      return null;
+    }
     return String.valueOf(((Map<?, ?>) license).get("name"));
   }
 
@@ -1176,12 +1236,15 @@ class SbomInventoryBehaviorTest {
   @SuppressWarnings("unchecked")
   private static String completenessReasons(Map<String, Object> document) {
     Object values = document.get("properties");
-    if (!(values instanceof List)) return "";
+    if (!(values instanceof List)) {
+      return "";
+    }
     for (Object value : (List<Object>) values) {
       if (value instanceof Map
           && "beacon:security:sbom:completeness-reasons"
-              .equals(((Map<String, Object>) value).get("name")))
+              .equals(((Map<String, Object>) value).get("name"))) {
         return String.valueOf(((Map<String, Object>) value).get("value"));
+      }
     }
     return "";
   }
@@ -1196,9 +1259,13 @@ class SbomInventoryBehaviorTest {
   @SuppressWarnings("unchecked")
   private static boolean containsDependency(List<?> dependencies, String ref, String target) {
     for (Object value : dependencies) {
-      if (!(value instanceof Map)) continue;
+      if (!(value instanceof Map)) {
+        continue;
+      }
       Map<String, Object> dependency = (Map<String, Object>) value;
-      if (!ref.equals(dependency.get("ref"))) continue;
+      if (!ref.equals(dependency.get("ref"))) {
+        continue;
+      }
       Object targets = dependency.get("dependsOn");
       return targets instanceof List && ((List<Object>) targets).contains(target);
     }
@@ -1207,7 +1274,11 @@ class SbomInventoryBehaviorTest {
 
   private static int countEvents(List<Map<String, Object>> events, String eventName) {
     int count = 0;
-    for (Map<String, Object> event : events) if (eventName.equals(event.get("event_name"))) count++;
+    for (Map<String, Object> event : events) {
+      if (eventName.equals(event.get("event_name"))) {
+        count++;
+      }
+    }
     return count;
   }
 
@@ -1223,20 +1294,25 @@ class SbomInventoryBehaviorTest {
     ByteArrayOutputStream output = new ByteArrayOutputStream();
     byte[] buffer = new byte[8192];
     int count;
-    while ((count = input.read(buffer)) >= 0) output.write(buffer, 0, count);
+    while ((count = input.read(buffer)) >= 0) {
+      output.write(buffer, 0, count);
+    }
     return output.toByteArray();
   }
 
   private static Map<String, byte[]> mapOf(Object... pairs) {
     Map<String, byte[]> result = new LinkedHashMap<>();
-    for (int i = 0; i < pairs.length; i += 2)
+    for (int i = 0; i < pairs.length; i += 2) {
       result.put(String.valueOf(pairs[i]), (byte[]) pairs[i + 1]);
+    }
     return result;
   }
 
   private static Map<String, Object> mapOfObjects(Object... pairs) {
     Map<String, Object> result = new LinkedHashMap<>();
-    for (int i = 0; i < pairs.length; i += 2) result.put(String.valueOf(pairs[i]), pairs[i + 1]);
+    for (int i = 0; i < pairs.length; i += 2) {
+      result.put(String.valueOf(pairs[i]), pairs[i + 1]);
+    }
     return result;
   }
 
@@ -1291,7 +1367,9 @@ class SbomInventoryBehaviorTest {
       if (gate && TARGET.equals(name)) {
         entered.countDown();
         try {
-          if (!release.await(5, SECONDS)) throw new ClassNotFoundException("resolve gate timeout");
+          if (!release.await(5, SECONDS)) {
+            throw new ClassNotFoundException("resolve gate timeout");
+          }
         } catch (InterruptedException error) {
           Thread.currentThread().interrupt();
           throw new ClassNotFoundException("resolve gate interrupted", error);

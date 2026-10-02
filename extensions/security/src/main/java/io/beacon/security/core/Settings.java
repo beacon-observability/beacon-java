@@ -12,8 +12,9 @@ public final class Settings {
 
   public static String text(String key, String fallback) {
     String value = System.getProperty(key);
-    if (value == null)
+    if (value == null) {
       value = System.getenv(key.toUpperCase(Locale.ROOT).replace('.', '_').replace('-', '_'));
+    }
     return value == null ? fallback : value;
   }
 

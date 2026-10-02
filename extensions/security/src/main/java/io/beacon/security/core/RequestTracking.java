@@ -40,7 +40,9 @@ final class RequestTracking {
 
     @Override
     public boolean equals(Object other) {
-      if (this == other) return true;
+      if (this == other) {
+        return true;
+      }
       Object value = get();
       return value != null && other instanceof Key && value == ((Key) other).get();
     }
@@ -90,23 +92,37 @@ final class RequestTracking {
   Entry track(Object value, int maximumObjects) {
     prune();
     Entry entry = get(value);
-    if (entry != null) return entry;
-    if (entries.size() >= maximumObjects) return null;
+    if (entry != null) {
+      return entry;
+    }
+    if (entries.size() >= maximumObjects) {
+      return null;
+    }
     entry = new Entry(value, collected);
-    if (!reserve(entry.bytes)) return null;
+    if (!reserve(entry.bytes)) {
+      return null;
+    }
     entries.put(entry, entry);
     return entry;
   }
 
   boolean update(Entry entry, List<Mark> marks, String destination, String[] container) {
     long next = entry.baseBytes + marks.size() * 48L + stringBytes(destination);
-    if (container != null) for (String part : container) next += stringBytes(part);
-    if (!reserve(next - entry.bytes)) return false;
+    if (container != null) {
+      for (String part : container) {
+        next += stringBytes(part);
+      }
+    }
+    if (!reserve(next - entry.bytes)) {
+      return false;
+    }
     entry.bytes = next;
     entry.marks = marks;
     entry.destination = destination;
     entry.container = container;
-    if (marks.isEmpty() && destination == null && container == null) remove(entry);
+    if (marks.isEmpty() && destination == null && container == null) {
+      remove(entry);
+    }
     return true;
   }
 
@@ -120,11 +136,15 @@ final class RequestTracking {
       PROCESS_BYTES.addAndGet(delta);
       return true;
     }
-    if (delta > maximum - bytes) return false;
+    if (delta > maximum - bytes) {
+      return false;
+    }
     long process;
     do {
       process = PROCESS_BYTES.get();
-      if (delta > processMaximum - process) return false;
+      if (delta > processMaximum - process) {
+        return false;
+      }
     } while (!PROCESS_BYTES.compareAndSet(process, process + delta));
     bytes += delta;
     return true;
@@ -139,7 +159,9 @@ final class RequestTracking {
 
   private void prune() {
     Entry entry;
-    while ((entry = (Entry) collected.poll()) != null) remove(entry);
+    while ((entry = (Entry) collected.poll()) != null) {
+      remove(entry);
+    }
   }
 
   int size() {

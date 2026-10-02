@@ -54,7 +54,9 @@ class RuntimeLedgerBehaviorTest {
 
   @BeforeEach
   void captureSettings() {
-    for (String key : SETTINGS) previousSettings.put(key, System.getProperty(key));
+    for (String key : SETTINGS) {
+      previousSettings.put(key, System.getProperty(key));
+    }
     System.setProperty("beacon.security.enabled", "true");
     System.setProperty("beacon.security.local-output.enabled", "true");
   }
@@ -63,8 +65,11 @@ class RuntimeLedgerBehaviorTest {
   void restoreSettings() {
     for (String key : SETTINGS) {
       String value = previousSettings.get(key);
-      if (value == null) System.clearProperty(key);
-      else System.setProperty(key, value);
+      if (value == null) {
+        System.clearProperty(key);
+      } else {
+        System.setProperty(key, value);
+      }
     }
   }
 
@@ -384,19 +389,21 @@ class RuntimeLedgerBehaviorTest {
       Map<?, ?> before = runFrom(temp.resolve("runs.json"), "concurrent");
       assertEquals(1L, ((Number) before.get("requests")).longValue());
       for (String field :
-          new String[] {"finding_counts", "source_signatures", "risk_source_signatures"})
+          new String[] {"finding_counts", "source_signatures", "risk_source_signatures"}) {
         assertTrue(
             ((Map<?, ?>) before.get(field))
                 .values().stream().allMatch(count -> ((Number) count).longValue() == 1));
+      }
       releaseNext.countDown();
       next.get(5, SECONDS);
       Map<?, ?> after = runFrom(temp.resolve("runs.json"), "concurrent");
       assertEquals(2L, ((Number) after.get("requests")).longValue());
       for (String field :
-          new String[] {"finding_counts", "source_signatures", "risk_source_signatures"})
+          new String[] {"finding_counts", "source_signatures", "risk_source_signatures"}) {
         assertTrue(
             ((Map<?, ?>) after.get(field))
                 .values().stream().allMatch(count -> ((Number) count).longValue() == 2));
+      }
       Map<?, ?> finding =
           (Map<?, ?>) ((List<?>) read(temp.resolve("findings.json")).get("findings")).get(0);
       assertEquals(2L, ((Number) finding.get("occurrences")).longValue());
@@ -473,7 +480,9 @@ class RuntimeLedgerBehaviorTest {
 
   private static void awaitRelease(CountDownLatch release) {
     try {
-      if (!release.await(5, SECONDS)) throw new AssertionError("snapshot not released");
+      if (!release.await(5, SECONDS)) {
+        throw new AssertionError("snapshot not released");
+      }
     } catch (InterruptedException error) {
       Thread.currentThread().interrupt();
       throw new AssertionError(error);
@@ -561,7 +570,9 @@ class RuntimeLedgerBehaviorTest {
     List<?> findings = (List<?>) read(path).get("findings");
     for (Object value : findings) {
       Map<?, ?> finding = (Map<?, ?>) value;
-      if (findingId.equals(finding.get("finding_id"))) return finding;
+      if (findingId.equals(finding.get("finding_id"))) {
+        return finding;
+      }
     }
     throw new AssertionError("missing finding " + findingId);
   }
@@ -570,7 +581,9 @@ class RuntimeLedgerBehaviorTest {
     List<?> runs = (List<?>) read(path).get("runs");
     for (Object value : runs) {
       Map<?, ?> run = (Map<?, ?>) value;
-      if (runId.equals(run.get("run_id"))) return run;
+      if (runId.equals(run.get("run_id"))) {
+        return run;
+      }
     }
     throw new AssertionError("missing run " + runId);
   }
@@ -596,7 +609,9 @@ class RuntimeLedgerBehaviorTest {
 
   private static Map<String, Object> map(Object... values) {
     Map<String, Object> result = new LinkedHashMap<>();
-    for (int i = 0; i < values.length; i += 2) result.put(String.valueOf(values[i]), values[i + 1]);
+    for (int i = 0; i < values.length; i += 2) {
+      result.put(String.valueOf(values[i]), values[i + 1]);
+    }
     return result;
   }
 }

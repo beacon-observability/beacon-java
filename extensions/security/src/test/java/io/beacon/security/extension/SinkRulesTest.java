@@ -111,7 +111,9 @@ class SinkRulesTest {
     assertMarkedFinding(findings, "shell_command", "script must be a shell command");
     List<SinkRules.Finding> ordinary = findingsForRole(findings, "ordinary_argument");
     assertEquals(3, ordinary.size(), "-c and the two shell argv values stay ordinary");
-    for (SinkRules.Finding finding : ordinary) assertTrue(finding.marks.isEmpty());
+    for (SinkRules.Finding finding : ordinary) {
+      assertTrue(finding.marks.isEmpty());
+    }
   }
 
   @Test
@@ -254,7 +256,11 @@ class SinkRulesTest {
   private static List<SinkRules.Finding> findingsForRole(
       List<SinkRules.Finding> findings, String role) {
     List<SinkRules.Finding> result = new ArrayList<>();
-    for (SinkRules.Finding finding : findings) if (role.equals(finding.role)) result.add(finding);
+    for (SinkRules.Finding finding : findings) {
+      if (role.equals(finding.role)) {
+        result.add(finding);
+      }
+    }
     return result;
   }
 
@@ -271,7 +277,9 @@ class SinkRulesTest {
     ByteArrayOutputStream bytes = new ByteArrayOutputStream();
     byte[] buffer = new byte[256];
     int count;
-    while ((count = stream.read(buffer)) >= 0) bytes.write(buffer, 0, count);
+    while ((count = stream.read(buffer)) >= 0) {
+      bytes.write(buffer, 0, count);
+    }
     return new String(bytes.toByteArray(), UTF_8).trim();
   }
 

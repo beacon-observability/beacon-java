@@ -11,6 +11,7 @@ import static java.util.Arrays.asList;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.NANOSECONDS;
 import static java.util.concurrent.TimeUnit.SECONDS;
+import static java.util.logging.Level.WARNING;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.beacon.security.core.Events;
@@ -41,8 +42,11 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.logging.Logger;
 
 public final class EvidenceExporter implements AutoCloseable {
+  private static final Logger logger = Logger.getLogger(EvidenceExporter.class.getName());
+
   private final ObjectMapper json = new ObjectMapper();
   private final ArrayBlockingQueue<Entry> queue =
       new ArrayBlockingQueue<>(Settings.limit("beacon.security.export.queue.size", 1024));
@@ -121,9 +125,11 @@ public final class EvidenceExporter implements AutoCloseable {
       loss(channel + ".closed");
       return;
     }
-    if (!target.offer(new Entry(Events.record(event), context, evidence)))
+    if (!target.offer(new Entry(Events.record(event), context, evidence))) {
       loss(channel + ".queue_full");
-    else counter(channel + ".queued").incrementAndGet();
+    } else {
+      counter(channel + ".queued").incrementAndGet();
+    }
   }
 
   public long dropped() {
@@ -146,7 +152,7 @@ public final class EvidenceExporter implements AutoCloseable {
     for (String channel : new String[] {"security", "sbom"}) {
       long count =
           (channel.equals("sbom") ? pendingSbomDropped : pendingSecurityDropped).getAndSet(0);
-      if (count > 0)
+      if (count > 0) {
         emit(
             map(
                 "event_name",
@@ -159,6 +165,7 @@ public final class EvidenceExporter implements AutoCloseable {
                 delivery()),
             Context.root(),
             false);
+      }
     }
   }
 
@@ -215,7 +222,9 @@ public final class EvidenceExporter implements AutoCloseable {
     while (running || !channelQueue.isEmpty()) {
       try {
         Entry entry = channelQueue.poll(100, MILLISECONDS);
-        if (entry == null) continue;
+        if (entry == null) {
+          continue;
+        }
         long now = System.nanoTime() / 1000000000L;
         if (now != second) {
           second = now;
@@ -223,7 +232,9 @@ public final class EvidenceExporter implements AutoCloseable {
           bytes = 0;
         }
         Encoded encoded = encode(entry.event);
-        if (encoded.truncated) counter(channel + ".record_truncated").incrementAndGet();
+        if (encoded.truncated) {
+          counter(channel + ".record_truncated").incrementAndGet();
+        }
         boolean lossDiagnostic =
             "beacon.security.export.dropped".equals(entry.event.get("event_name"))
                 || "beacon.security.sbom.export.dropped".equals(entry.event.get("event_name"));
@@ -259,7 +270,9 @@ public final class EvidenceExporter implements AutoCloseable {
         diagnostic(error);
       }
     }
-    if (channel.equals("security")) closeWriter();
+    if (channel.equals("security")) {
+      closeWriter();
+    }
   }
 
   private Encoded encode(Map<String, Object> input) throws IOException {
@@ -344,8 +357,12 @@ public final class EvidenceExporter implements AutoCloseable {
         && (entry.evidence || encoded.truncated || diagnosticEvent(event))
         && file != null) {
       try {
-        if (writer == null) openWriter();
-        if (fileBytes + encoded.bytes.length + 1 > rotateBytes) rotate();
+        if (writer == null) {
+          openWriter();
+        }
+        if (fileBytes + encoded.bytes.length + 1 > rotateBytes) {
+          rotate();
+        }
         writer.write(body);
         writer.newLine();
         writer.flush();
@@ -372,14 +389,18 @@ public final class EvidenceExporter implements AutoCloseable {
     for (int i = backups; i >= 1; i--) {
       Path target = Paths.get(file + "." + i);
       Path source = i == 1 ? file : Paths.get(file + "." + (i - 1));
-      if (Files.exists(source)) Files.move(source, target, StandardCopyOption.REPLACE_EXISTING);
+      if (Files.exists(source)) {
+        Files.move(source, target, StandardCopyOption.REPLACE_EXISTING);
+      }
     }
     openWriter();
   }
 
   private void closeWriter() {
     try {
-      if (writer != null) writer.close();
+      if (writer != null) {
+        writer.close();
+      }
     } catch (IOException ignored) {
       // Closing is best effort; delivery failures are tracked before the writer reaches here.
     } finally {
@@ -391,7 +412,7 @@ public final class EvidenceExporter implements AutoCloseable {
     long now = System.currentTimeMillis();
     if (now - lastError > 30000) {
       lastError = now;
-      System.err.println("[BeaconSecurity] export failure: " + error.getClass().getSimpleName());
+      logger.log(WARNING, "[BeaconSecurity] export failure: {0}", error.getClass().getSimpleName());
     }
   }
 
@@ -416,8 +437,9 @@ public final class EvidenceExporter implements AutoCloseable {
       }
     }
     try {
-      if (!shutdownComplete.await(Math.max(0, shutdownDeadline - System.nanoTime()), NANOSECONDS))
+      if (!shutdownComplete.await(Math.max(0, shutdownDeadline - System.nanoTime()), NANOSECONDS)) {
         markShutdownIncomplete();
+      }
     } catch (InterruptedException error) {
       markShutdownIncomplete();
       Thread.currentThread().interrupt();
@@ -438,14 +460,19 @@ public final class EvidenceExporter implements AutoCloseable {
       running = false;
       joinUntilDeadline(worker);
       joinUntilDeadline(sbomWorker);
-      if (worker.isAlive() || sbomWorker.isAlive() || System.nanoTime() >= shutdownDeadline)
+      if (worker.isAlive() || sbomWorker.isAlive() || System.nanoTime() >= shutdownDeadline) {
         markShutdownIncomplete();
+      }
       discardPending(queue, "security");
       discardPending(sbomQueue, "sbom");
       boolean incomplete = shutdownIncomplete.get();
       ledger.tick(delivery(), event -> {}, true);
-      if (System.nanoTime() >= shutdownDeadline) markShutdownIncomplete();
-      if (!incomplete && shutdownIncomplete.get()) ledger.tick(delivery(), event -> {}, true);
+      if (System.nanoTime() >= shutdownDeadline) {
+        markShutdownIncomplete();
+      }
+      if (!incomplete && shutdownIncomplete.get()) {
+        ledger.tick(delivery(), event -> {}, true);
+      }
     } catch (InterruptedException error) {
       Thread.currentThread().interrupt();
       markShutdownIncomplete();
@@ -461,7 +488,9 @@ public final class EvidenceExporter implements AutoCloseable {
 
   private void joinUntilDeadline(Thread thread) throws InterruptedException {
     long remaining = shutdownDeadline - System.nanoTime();
-    if (remaining > 0) NANOSECONDS.timedJoin(thread, remaining);
+    if (remaining > 0) {
+      NANOSECONDS.timedJoin(thread, remaining);
+    }
   }
 
   private void markShutdownIncomplete() {
@@ -474,7 +503,9 @@ public final class EvidenceExporter implements AutoCloseable {
   private void discardPending(ArrayBlockingQueue<Entry> pending, String channel) {
     List<Entry> discarded = new ArrayList<>();
     pending.drainTo(discarded);
-    for (Entry ignored : discarded) loss(channel + ".shutdown_pending");
+    for (Entry ignored : discarded) {
+      loss(channel + ".shutdown_pending");
+    }
   }
 
   private static boolean diagnosticEvent(Map<String, Object> event) {

@@ -48,29 +48,40 @@ final class ArtifactCache implements ArchiveScanner.Receiver {
   }
 
   void replay(ArchiveScanner.Receiver receiver) {
-    for (Entry entry : entries)
+    for (Entry entry : entries) {
       receiver.component(entry.component.copy(), entry.location, entry.primary);
-    for (Declaration declaration : declarations)
+    }
+    for (Declaration declaration : declarations) {
       receiver.imported(declaration.location, declaration.bom);
-    for (String reason : reasons) receiver.incomplete(reason);
+    }
+    for (String reason : reasons) {
+      receiver.incomplete(reason);
+    }
   }
 
   @Override
   public void component(Component component, String location, boolean primary) {
-    if (entries.size() < Settings.limit("beacon.security.sbom.max.components", 10000))
+    if (entries.size() < Settings.limit("beacon.security.sbom.max.components", 10000)) {
       entries.add(new Entry(component, location, primary));
-    else incomplete("component_count_limit");
+    } else {
+      incomplete("component_count_limit");
+    }
   }
 
   @Override
   public void imported(String location, Map<String, Object> bom) {
-    if (declarations.size() < 64) declarations.add(new Declaration(location, bom));
-    else incomplete("embedded_sbom_limit");
+    if (declarations.size() < 64) {
+      declarations.add(new Declaration(location, bom));
+    } else {
+      incomplete("embedded_sbom_limit");
+    }
   }
 
   @Override
   public void incomplete(String reason) {
-    if (reasons.size() < 128) reasons.add(reason);
+    if (reasons.size() < 128) {
+      reasons.add(reason);
+    }
   }
 
   private static final class Entry {

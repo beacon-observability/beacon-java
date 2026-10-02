@@ -12,7 +12,9 @@ public final class Propagation {
   private Propagation() {}
 
   public static void after(Call c, Object result) {
-    if (result == null || !c.state.active()) return;
+    if (result == null || !c.state.active()) {
+      return;
+    }
     if (c.owner.equals("java/lang/String") && c.method.equals("substring")) {
       int start = c.integer(0, 0);
       int end = c.integer(1, c.receiverLength);
@@ -34,7 +36,9 @@ public final class Propagation {
       return;
     }
     List<Mark> all = c.allMarks();
-    if (all.isEmpty()) return;
+    if (all.isEmpty()) {
+      return;
+    }
     boolean exact =
         c.owner.equals("java/lang/String")
             && (c.method.equals("toString")
@@ -96,17 +100,22 @@ public final class Propagation {
       }
       Object value = c.arguments[argument];
       output.addAll(c.step(c.arg(argument), offset, 0, Integer.MAX_VALUE, exact));
-      if (value == null) offset += 4;
-      else if (value instanceof String) offset += ((String) value).length();
-      else if (value instanceof Byte
+      if (value == null) {
+        offset += 4;
+      } else if (value instanceof String) {
+        offset += ((String) value).length();
+      } else if (value instanceof Byte
           || value instanceof Short
           || value instanceof Integer
           || value instanceof Long
           || value instanceof Float
           || value instanceof Double
           || value instanceof Boolean
-          || value instanceof Character) offset += String.valueOf(value).length();
-      else exact = false;
+          || value instanceof Character) {
+        offset += String.valueOf(value).length();
+      } else {
+        exact = false;
+      }
       argument++;
     }
     c.state.put(result, output);

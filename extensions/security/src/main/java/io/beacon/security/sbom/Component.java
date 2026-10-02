@@ -93,10 +93,18 @@ final class Component {
 
   Map<String, Object> json() {
     Map<String, Object> result = map("type", "library", "bom-ref", ref, "name", name);
-    if (!group.isEmpty()) result.put("group", group);
-    if (!version.isEmpty()) result.put("version", version);
-    if (!purl.isEmpty()) result.put("purl", purl);
-    if (hash != null) result.put("hashes", singletonList(map("alg", "SHA-256", "content", hash)));
+    if (!group.isEmpty()) {
+      result.put("group", group);
+    }
+    if (!version.isEmpty()) {
+      result.put("version", version);
+    }
+    if (!purl.isEmpty()) {
+      result.put("purl", purl);
+    }
+    if (hash != null) {
+      result.put("hashes", singletonList(map("alg", "SHA-256", "content", hash)));
+    }
     List<Object> properties = new ArrayList<>();
     properties.add(map("name", "beacon:security:sbom:identity-source", "value", source));
     properties.add(
@@ -105,20 +113,27 @@ final class Component {
             "beacon:security:sbom:deployed",
             "value",
             declared || source.equals("shaded-maven-metadata") ? "unknown" : "true"));
-    if (declared) properties.add(map("name", "beacon:security:sbom:declared", "value", "true"));
+    if (declared) {
+      properties.add(map("name", "beacon:security:sbom:declared", "value", "true"));
+    }
     properties.add(map("name", "beacon:security:sbom:lifecycle", "value", "current"));
     properties.add(map("name", "beacon:security:sbom:loaded", "value", Boolean.toString(loaded)));
-    if (version.isEmpty())
+    if (version.isEmpty()) {
       properties.add(map("name", "beacon:security:sbom:version-status", "value", "unknown"));
+    }
     result.put("properties", properties);
     List<Object> occurrences = new ArrayList<>();
-    for (String location : locations)
+    for (String location : locations) {
       occurrences.add(map("location", Values.bounded(display(location), 2048)));
-    if (!occurrences.isEmpty()) result.put("evidence", map("occurrences", occurrences));
+    }
+    if (!occurrences.isEmpty()) {
+      result.put("evidence", map("occurrences", occurrences));
+    }
     if (!licenses.isEmpty()) {
       List<Object> values = new ArrayList<>();
-      for (String license : licenses)
+      for (String license : licenses) {
         values.add(map("license", map("name", Values.bounded(license, 512))));
+      }
       result.put("licenses", values);
     }
     return result;

@@ -6,6 +6,7 @@
 package io.opentelemetry.javaagent;
 
 import static java.util.Arrays.asList;
+import static java.util.Collections.singletonList;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.File;
@@ -19,6 +20,8 @@ import org.junit.jupiter.api.Test;
 
 class ShadingTest {
 
+  private static final List<String> EXPECTED_ENTRIES =
+      singletonList("extensions/beacon-security-extension.jar");
   private static final List<String> EXPECTED_ENTRY_PREFIXES =
       asList("io/opentelemetry/javaagent/", "inst/", "META-INF/");
 
@@ -40,7 +43,8 @@ class ShadingTest {
           .forEach(
               entryName -> {
                 boolean isExpected =
-                    EXPECTED_ENTRY_PREFIXES.stream().anyMatch(entryName::startsWith);
+                    EXPECTED_ENTRIES.contains(entryName)
+                        || EXPECTED_ENTRY_PREFIXES.stream().anyMatch(entryName::startsWith);
                 if (!isExpected) {
                   unexpectedEntries.add(entryName);
                 }

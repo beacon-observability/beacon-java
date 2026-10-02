@@ -47,18 +47,23 @@ public final class SecurityRuntime {
                 EXPORTER.emit(event, Context.root(), false);
                 if ("beacon.security.sbom.snapshot".equals(event.get("event_name"))
                     || "beacon.security.sbom.health".equals(event.get("event_name"))
-                    || "beacon.security.sbom.update_failed".equals(event.get("event_name")))
+                    || "beacon.security.sbom.update_failed".equals(event.get("event_name"))) {
                   EXPORTER.ledger().sbom(event);
+                }
               },
               SecurityConfiguration.applicationIdentity);
       inventory.start();
-    } else EXPORTER.ledger().sbom(Values.map("status", "disabled"));
+    } else {
+      EXPORTER.ledger().sbom(Values.map("status", "disabled"));
+    }
     Runtime.getRuntime()
         .addShutdownHook(
             new Thread(
                 () -> {
                   SbomInventory current = inventory;
-                  if (current != null) current.close();
+                  if (current != null) {
+                    current.close();
+                  }
                   EXPORTER.close();
                 },
                 "BeaconSecurity-shutdown"));
@@ -66,7 +71,9 @@ public final class SecurityRuntime {
 
   static BiFunction<Integer, Object[], Object> handler(ClassLoader loader) {
     return (operation, values) -> {
-      if (Boolean.TRUE.equals(GUARD.get())) return null;
+      if (Boolean.TRUE.equals(GUARD.get())) {
+        return null;
+      }
       if (operation == 3) {
         SecurityState state = Context.current().get(STATE);
         return state != null
@@ -81,7 +88,9 @@ public final class SecurityRuntime {
           if (state == null
               || !state.active()
               || !state.collectionEnabled
-              || !EXPORTER.ledger().enabled()) return null;
+              || !EXPORTER.ledger().enabled()) {
+            return null;
+          }
           Call call =
               new Call(
                   state,
@@ -99,7 +108,9 @@ public final class SecurityRuntime {
           return call;
         }
         if (operation == 1) {
-          if (EXPORTER.ledger().enabled()) after((Call) values[0], values[1]);
+          if (EXPORTER.ledger().enabled()) {
+            after((Call) values[0], values[1]);
+          }
           return null;
         }
         if (operation == 2) {
@@ -107,14 +118,17 @@ public final class SecurityRuntime {
           if (state != null
               && state.active()
               && state.collectionEnabled
-              && EXPORTER.ledger().enabled())
+              && EXPORTER.ledger().enabled()) {
             SourceCapture.capture(
                 state, (String) values[0], values[1], values[2], (String) values[3]);
+          }
         }
         return null;
       } catch (Throwable error) {
         SecurityState state = Context.current().get(STATE);
-        if (state != null) state.gap("collection_error:" + error.getClass().getSimpleName());
+        if (state != null) {
+          state.gap("collection_error:" + error.getClass().getSimpleName());
+        }
         return null;
       } finally {
         GUARD.remove();
@@ -129,8 +143,9 @@ public final class SecurityRuntime {
   static void end(SecurityState state, Context context) {
     try {
       state.request.put("ended_at", Events.now());
-      for (Map<String, Object> event : EXPORTER.ledger().end(state))
+      for (Map<String, Object> event : EXPORTER.ledger().end(state)) {
         EXPORTER.emit(event, context, true);
+      }
     } catch (Throwable error) {
       EXPORTER.ledger().count("request_completion_errors");
     }
@@ -158,15 +173,21 @@ public final class SecurityRuntime {
             call.state.traceId.equals(Span.fromContext(context).getSpanContext().getTraceId())
                 ? Span.fromContext(context).getSpanContext().getSpanId()
                 : "");
-    if (event == null) return;
+    if (event == null) {
+      return;
+    }
     List<String> stack = new ArrayList<>();
     for (StackTraceElement frame : Thread.currentThread().getStackTrace()) {
       String name = frame.getClassName();
       if (name.startsWith("io.beacon.security.")
           || name.startsWith("io.opentelemetry.")
-          || name.equals("java.lang.Thread")) continue;
+          || name.equals("java.lang.Thread")) {
+        continue;
+      }
       stack.add(frame.toString());
-      if (stack.size() == 24) break;
+      if (stack.size() == 24) {
+        break;
+      }
     }
     event.put("stack", stack);
     SbomInventory current = inventory;
@@ -188,7 +209,9 @@ public final class SecurityRuntime {
   }
 
   private static String logicalSite(Call call, ClassLoader loader) {
-    if (!(call.receiver instanceof Statement)) return call.location;
+    if (!(call.receiver instanceof Statement)) {
+      return call.location;
+    }
     for (StackTraceElement frame : Thread.currentThread().getStackTrace()) {
       String name = frame.getClassName();
       if (name.startsWith("io.beacon.security.")
@@ -197,12 +220,16 @@ public final class SecurityRuntime {
           || name.startsWith("jdk.")
           || name.startsWith("sun.")
           || name.startsWith("com.sun.")
-          || name.startsWith("org.springframework.")) continue;
+          || name.startsWith("org.springframework.")) {
+        continue;
+      }
       try {
         Class<?> type = Class.forName(name, false, loader);
         if (Statement.class.isAssignableFrom(type)
             || Connection.class.isAssignableFrom(type)
-            || InvocationHandler.class.isAssignableFrom(type)) continue;
+            || InvocationHandler.class.isAssignableFrom(type)) {
+          continue;
+        }
       } catch (Throwable ignored) {
         return call.location;
       }
@@ -218,10 +245,14 @@ public final class SecurityRuntime {
   }
 
   private static void after(Call call, Object result) {
-    if (!call.state.active() || result == null) return;
+    if (!call.state.active() || result == null) {
+      return;
+    }
     if (call.owner.equals("java/io/BufferedReader") && call.method.equals("readLine")) {
       String[] source = call.state.container(call.receiver);
-      if (source != null) SourceCapture.capture(call.state, "body", "body", result, source[2]);
+      if (source != null) {
+        SourceCapture.capture(call.state, "body", "body", result, source[2]);
+      }
       return;
     }
     if (CallSites.isJacksonReader(call.owner) && call.method.equals("readValue")) {
@@ -239,14 +270,16 @@ public final class SecurityRuntime {
             || (call.owner.equals("org/springframework/util/StringUtils")
                 && call.method.equals("toStringArray")))) {
       String[] source = call.state.container(call.arguments[0]);
-      if (source != null)
+      if (source != null) {
         SourceCapture.capture(call.state, source[0], source[1], result, source[2]);
+      }
       return;
     }
     if (call.method.equals("nextElement")) {
       String[] source = call.state.container(call.receiver);
-      if (source != null)
+      if (source != null) {
         SourceCapture.capture(call.state, source[0], source[1], result, source[2]);
+      }
       return;
     }
     if (call.receiver instanceof Connection
@@ -258,7 +291,9 @@ public final class SecurityRuntime {
         || SinkRules.isHttpSink(call.owner, call.method)
         || call.receiver instanceof Statement
         || call.owner.equals("java/lang/ProcessBuilder")
-        || call.owner.equals("java/lang/Runtime")) return;
+        || call.owner.equals("java/lang/Runtime")) {
+      return;
+    }
     if (networkCarrier(call.owner)) {
       network(call, result);
       return;
@@ -267,7 +302,9 @@ public final class SecurityRuntime {
     // (for example RestTemplate.execute) do not propagate request arguments into responses.
     if (call.method.startsWith("execute")
         || call.method.equals("prepareStatement")
-        || call.method.equals("prepareCall")) return;
+        || call.method.equals("prepareCall")) {
+      return;
+    }
     Propagation.after(call, result);
   }
 
@@ -332,8 +369,13 @@ public final class SecurityRuntime {
     int colon = origin.indexOf(':');
     int authority = origin.startsWith("//", colon + 1) ? colon + 3 : -1;
     int path = authority;
-    if (path >= 0) while (path < origin.length() && "/?#".indexOf(origin.charAt(path)) < 0) path++;
-    else path = Math.max(0, colon + 1);
+    if (path >= 0) {
+      while (path < origin.length() && "/?#".indexOf(origin.charAt(path)) < 0) {
+        path++;
+      }
+    } else {
+      path = Math.max(0, colon + 1);
+    }
     int query = origin.indexOf('?', path);
     int fragment = origin.indexOf('#', path);
     int end = fragment < 0 ? origin.length() : fragment;
@@ -353,13 +395,19 @@ public final class SecurityRuntime {
         to = path;
         if (from >= 0) {
           int at = origin.lastIndexOf('@', to - 1);
-          if (at >= from) from = at + 1;
+          if (at >= from) {
+            from = at + 1;
+          }
           if (from < to && origin.charAt(from) == '[') {
             int bracket = origin.indexOf(']', from);
-            if (bracket >= from && bracket < to) to = bracket + 1;
+            if (bracket >= from && bracket < to) {
+              to = bracket + 1;
+            }
           } else {
             int port = origin.indexOf(':', from);
-            if (port >= from && port < to) to = port;
+            if (port >= from && port < to) {
+              to = port;
+            }
           }
         }
         break;

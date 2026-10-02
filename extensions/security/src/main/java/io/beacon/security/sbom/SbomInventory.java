@@ -10,6 +10,7 @@ import static java.util.Arrays.asList;
 import static java.util.Collections.emptyMap;
 import static java.util.Collections.singletonList;
 import static java.util.concurrent.TimeUnit.SECONDS;
+import static java.util.logging.Level.WARNING;
 
 import com.fasterxml.jackson.core.StreamReadConstraints;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -43,9 +44,11 @@ import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.function.Consumer;
+import java.util.logging.Logger;
 import java.util.regex.Pattern;
 
 public final class SbomInventory implements AutoCloseable, ArchiveScanner.Receiver {
+  private static final Logger logger = Logger.getLogger(SbomInventory.class.getName());
   private static final String PROCESS_INSTANCE_ID = Identity.INSTANCE;
 
   private final Instrumentation instrumentation;
@@ -114,7 +117,9 @@ public final class SbomInventory implements AutoCloseable, ArchiveScanner.Receiv
                         + "/application.cdx.json"))
             .toAbsolutePath();
     reasons.add("runtime_dependency_graph_incomplete");
-    if (instrumentation == null) reasons.add("loaded_class_observation_unavailable");
+    if (instrumentation == null) {
+      reasons.add("loaded_class_observation_unavailable");
+    }
   }
 
   public Path output() {
@@ -142,7 +147,9 @@ public final class SbomInventory implements AutoCloseable, ArchiveScanner.Receiv
     imported.clear();
     reasons.clear();
     reasons.add("runtime_dependency_graph_incomplete");
-    if (instrumentation == null) reasons.add("loaded_class_observation_unavailable");
+    if (instrumentation == null) {
+      reasons.add("loaded_class_observation_unavailable");
+    }
     Class<?>[] loaded =
         instrumentation == null ? new Class<?>[0] : instrumentation.getAllLoadedClasses();
     Set<String> observed = new LinkedHashSet<>();
@@ -151,30 +158,46 @@ public final class SbomInventory implements AutoCloseable, ArchiveScanner.Receiv
     Set<String> processedOrigins = new HashSet<>();
     URL extensionOrigin = origin(SbomInventory.class);
     String extensionLocation = extensionOrigin == null ? null : location(extensionOrigin);
-    if (extensionLocation != null) infrastructure.add(extensionLocation);
+    if (extensionLocation != null) {
+      infrastructure.add(extensionLocation);
+    }
     for (Class<?> type : loaded) {
       URL origin = origin(type);
-      if (origin == null) continue;
+      if (origin == null) {
+        continue;
+      }
       boolean agent = type.getName().equals("io.opentelemetry.javaagent.OpenTelemetryAgent");
-      if (!processedOrigins.add(origin.toExternalForm()) && !agent) continue;
+      if (!processedOrigins.add(origin.toExternalForm()) && !agent) {
+        continue;
+      }
       String location = location(origin);
-      if (location == null) continue;
+      if (location == null) {
+        continue;
+      }
       // Application dependencies can use these same namespaces. Only the actual
       // agent entry point and this extension identify infrastructure artifacts;
       // a nested dependency must never exclude its enclosing application JAR.
-      if (agent) infrastructure.add(location);
+      if (agent) {
+        infrastructure.add(location);
+      }
       observed.add(location);
     }
     Set<String> roots = new LinkedHashSet<>();
     for (String entry :
         System.getProperty("java.class.path", "").split(Pattern.quote(File.pathSeparator))) {
-      if (!entry.isEmpty()) roots.add(Paths.get(entry).toAbsolutePath().normalize().toString());
+      if (!entry.isEmpty()) {
+        roots.add(Paths.get(entry).toAbsolutePath().normalize().toString());
+      }
     }
-    for (String location : observed) roots.add(outer(location));
+    for (String location : observed) {
+      roots.add(outer(location));
+    }
     scanned.keySet().retainAll(roots);
     int rootCount = 0;
     for (String root : roots) {
-      if (infrastructure.contains(root)) continue;
+      if (infrastructure.contains(root)) {
+        continue;
+      }
       if (++rootCount > maxComponents) {
         incomplete("artifact_count_limit");
         break;
@@ -183,7 +206,9 @@ public final class SbomInventory implements AutoCloseable, ArchiveScanner.Receiv
       String fingerprint = ArtifactCache.fingerprint(path);
       ArtifactCache cached = scanned.get(root);
       if (cached == null || !cached.reusable(fingerprint)) {
-        if (cached != null && !cached.fingerprint.equals(fingerprint)) replacedOrigins.add(root);
+        if (cached != null && !cached.fingerprint.equals(fingerprint)) {
+          replacedOrigins.add(root);
+        }
         cached = new ArtifactCache(path, fingerprint);
         scanned.put(root, cached);
       }
@@ -193,13 +218,16 @@ public final class SbomInventory implements AutoCloseable, ArchiveScanner.Receiv
     if (!buildFile.isEmpty()) {
       Path path = Paths.get(buildFile);
       try {
-        if (Files.size(path) > 1024 * 1024) incomplete("build_sbom_byte_limit");
-        else {
+        if (Files.size(path) > 1024 * 1024) {
+          incomplete("build_sbom_byte_limit");
+        } else {
           Map<String, Object> bom = json.readValue(path.toFile(), Map.class);
-          if (!"CycloneDX".equals(bom.get("bomFormat"))) incomplete("invalid_build_sbom");
-          else
+          if (!"CycloneDX".equals(bom.get("bomFormat"))) {
+            incomplete("invalid_build_sbom");
+          } else {
             imported(
                 Settings.text("beacon.security.sbom.build.artifact", "external-build-sbom"), bom);
+          }
         }
       } catch (Exception error) {
         incomplete("build_sbom_unreadable");
@@ -207,16 +235,24 @@ public final class SbomInventory implements AutoCloseable, ArchiveScanner.Receiv
     }
     for (String location : observed) {
       String ref = locations.get(location);
-      if (ref == null && location.endsWith("!/BOOT-INF/classes"))
+      if (ref == null && location.endsWith("!/BOOT-INF/classes")) {
         ref = locations.get(outer(location));
-      if (ref == null && location.endsWith("!/WEB-INF/classes"))
+      }
+      if (ref == null && location.endsWith("!/WEB-INF/classes")) {
         ref = locations.get(outer(location));
+      }
       Component component = ref == null ? null : components.get(ref);
-      if (component != null && !replacedOrigins.contains(outer(location))) component.loaded = true;
-      else if (component != null) incomplete("replaced_artifact_loaded_class_identity_unknown");
+      if (component != null && !replacedOrigins.contains(outer(location))) {
+        component.loaded = true;
+      } else if (component != null) {
+        incomplete("replaced_artifact_loaded_class_identity_unknown");
+      }
     }
-    for (String location : new ArrayList<>(locations.keySet()))
-      if (replacedOrigins.contains(outer(location))) locations.remove(location);
+    for (String location : new ArrayList<>(locations.keySet())) {
+      if (replacedOrigins.contains(outer(location))) {
+        locations.remove(location);
+      }
+    }
     publish();
     refreshedAt = System.currentTimeMillis();
     events.accept(health());
@@ -265,8 +301,8 @@ public final class SbomInventory implements AutoCloseable, ArchiveScanner.Receiv
       lastFailure = now;
       lastErrorType = error.getClass().getSimpleName();
       if (report) {
-        System.err.println(
-            "[BeaconSecurity] SBOM update failed: " + error.getClass().getSimpleName());
+        logger.log(
+            WARNING, "[BeaconSecurity] SBOM update failed: {0}", error.getClass().getSimpleName());
         events.accept(
             map(
                 "event_name",
@@ -293,18 +329,25 @@ public final class SbomInventory implements AutoCloseable, ArchiveScanner.Receiv
       components.put(existing.ref, existing);
     }
     existing.locations.add(location);
-    if (primary) locations.put(location, existing.ref);
+    if (primary) {
+      locations.put(location, existing.ref);
+    }
   }
 
   @Override
   public void imported(String location, Map<String, Object> bom) {
-    if (imported.size() < 64) imported.add(new DeclaredBom(location, bom));
-    else incomplete("embedded_sbom_limit");
+    if (imported.size() < 64) {
+      imported.add(new DeclaredBom(location, bom));
+    } else {
+      incomplete("embedded_sbom_limit");
+    }
   }
 
   @Override
   public void incomplete(String reason) {
-    if (reasons.size() < 128) reasons.add(reason);
+    if (reasons.size() < 128) {
+      reasons.add(reason);
+    }
   }
 
   public Map<String, Object> resolve(String className, ClassLoader loader) {
@@ -329,8 +372,10 @@ public final class SbomInventory implements AutoCloseable, ArchiveScanner.Receiv
       if (location != null) {
         String ref = snapshot.locations.get(location);
         if (ref == null
-            && (location.endsWith("!/BOOT-INF/classes") || location.endsWith("!/WEB-INF/classes")))
+            && (location.endsWith("!/BOOT-INF/classes")
+                || location.endsWith("!/WEB-INF/classes"))) {
           ref = snapshot.locations.get(outer(location));
+        }
         if (ref != null) {
           result.put("bom-ref", ref);
           result.put("status", "resolved");
@@ -350,16 +395,19 @@ public final class SbomInventory implements AutoCloseable, ArchiveScanner.Receiv
     Map<String, List<String>> purls = new HashMap<>();
     for (Component component : components.values()) {
       records.put(component.ref, component.json());
-      if (!component.purl.isEmpty())
+      if (!component.purl.isEmpty()) {
         purls.computeIfAbsent(component.purl, key -> new ArrayList<>()).add(component.ref);
+      }
     }
     List<Object> dependencies = mergeDeclared(records, purls);
     Set<String> artifacts = new TreeSet<>();
     boolean artifactIdentityComplete = true;
     for (Component component : components.values()) {
-      if (component.hash != null) artifacts.add(component.hash);
-      else if (!component.source.equals("shaded-maven-metadata") && !component.declared)
+      if (component.hash != null) {
+        artifacts.add(component.hash);
+      } else if (!component.source.equals("shaded-maven-metadata") && !component.declared) {
         artifactIdentityComplete = false;
+      }
     }
     String nextReleaseId = "release-" + Identity.digest(applicationId + "|" + artifacts);
     List<Object> properties = new ArrayList<>();
@@ -404,14 +452,17 @@ public final class SbomInventory implements AutoCloseable, ArchiveScanner.Receiv
                     "service.name", Settings.text("otel.service.name", "unknown-java-application")),
                 512));
     String version = identity.get("service.version");
-    if (version != null && !version.isEmpty())
+    if (version != null && !version.isEmpty()) {
       application.put("version", Values.bounded(version, 256));
+    }
     List<Object> identityProperties = new ArrayList<>();
     identity.forEach(
         (key, value) ->
             identityProperties.add(
                 map("name", "otel:" + key, "value", Values.bounded(value, 512))));
-    if (!identityProperties.isEmpty()) application.put("properties", identityProperties);
+    if (!identityProperties.isEmpty()) {
+      application.put("properties", identityProperties);
+    }
     Map<String, Object> document =
         map(
             "bomFormat",
@@ -459,7 +510,9 @@ public final class SbomInventory implements AutoCloseable, ArchiveScanner.Receiv
     Map<String, Object> stable = new LinkedHashMap<>(document);
     stable.remove("version");
     String content = Component.digest(json.writeValueAsBytes(stable));
-    if (content.equals(lastContent)) return;
+    if (content.equals(lastContent)) {
+      return;
+    }
     List<Map<String, Object>> snapshotEvents =
         DependencySnapshot.events(
             map(
@@ -514,7 +567,7 @@ public final class SbomInventory implements AutoCloseable, ArchiveScanner.Receiv
         }
       }
     }
-    for (String ref : previousRecords.keySet())
+    for (String ref : previousRecords.keySet()) {
       if (!records.containsKey(ref)) {
         Map<String, Object> historical = history.get(ref);
         if (historical != null) {
@@ -522,9 +575,14 @@ public final class SbomInventory implements AutoCloseable, ArchiveScanner.Receiv
           historical.put("last_changed_at", Events.now());
         }
       }
+    }
     previousRecords = new TreeMap<>(records);
-    if (localOutputEnabled) writeHistory();
-    for (Map<String, Object> event : snapshotEvents) events.accept(event);
+    if (localOutputEnabled) {
+      writeHistory();
+    }
+    for (Map<String, Object> event : snapshotEvents) {
+      events.accept(event);
+    }
   }
 
   private List<Object> mergeDeclared(
@@ -536,13 +594,14 @@ public final class SbomInventory implements AutoCloseable, ArchiveScanner.Receiv
       Object metadata = declaration.value.get("metadata");
       if (metadata instanceof Map) {
         Object root = ((Map<?, ?>) metadata).get("component");
-        if (root instanceof Map && ((Map<?, ?>) root).get("bom-ref") instanceof String && true)
+        if (root instanceof Map && ((Map<?, ?>) root).get("bom-ref") instanceof String && true) {
           refs.put(
               (String) ((Map<?, ?>) root).get("bom-ref"),
               locations.getOrDefault(declaration.location, applicationRef));
+        }
       }
       Object list = declaration.value.get("components");
-      if (list instanceof List)
+      if (list instanceof List) {
         for (Object entry : (List<?>) list) {
           if (!(entry instanceof Map) || records.size() >= maxComponents) {
             incomplete("imported_component_limit_or_invalid");
@@ -568,16 +627,24 @@ public final class SbomInventory implements AutoCloseable, ArchiveScanner.Receiv
           component.declared = true;
           Map<String, Object> record = component.json();
           enrich(record, value);
-          if (!purl.isEmpty() && purl.startsWith("pkg:"))
+          if (!purl.isEmpty() && purl.startsWith("pkg:")) {
             record.put("purl", Values.bounded(purl, 2048));
+          }
           records.put(component.ref, record);
-          if (!oldRef.isEmpty()) refs.put(oldRef, component.ref);
-          if (matches != null && matches.size() > 1) incomplete("ambiguous_declared_component");
+          if (!oldRef.isEmpty()) {
+            refs.put(oldRef, component.ref);
+          }
+          if (matches != null && matches.size() > 1) {
+            incomplete("ambiguous_declared_component");
+          }
         }
+      }
       Object graph = declaration.value.get("dependencies");
-      if (graph instanceof List)
+      if (graph instanceof List) {
         for (Object entry : (List<?>) graph) {
-          if (!(entry instanceof Map)) continue;
+          if (!(entry instanceof Map)) {
+            continue;
+          }
           Map<?, ?> dependency = (Map<?, ?>) entry;
           String from = refs.get(string(dependency.get("ref")));
           Object targets = dependency.get("dependsOn");
@@ -588,17 +655,21 @@ public final class SbomInventory implements AutoCloseable, ArchiveScanner.Receiv
           Set<String> to = edges.computeIfAbsent(from, ignored -> new LinkedHashSet<>());
           for (Object target : (List<?>) targets) {
             String mapped = refs.get(string(target));
-            if (mapped != null) to.add(mapped);
-            else {
+            if (mapped != null) {
+              to.add(mapped);
+            } else {
               incomplete("unresolved_declared_dependency");
               unresolvedEdges.add(from);
             }
           }
         }
+      }
     }
     List<Object> result = new ArrayList<>();
     for (Map.Entry<String, Set<String>> edge : edges.entrySet()) {
-      if (edge.getValue().isEmpty() && unresolvedEdges.contains(edge.getKey())) continue;
+      if (edge.getValue().isEmpty() && unresolvedEdges.contains(edge.getKey())) {
+        continue;
+      }
       result.add(map("ref", edge.getKey(), "dependsOn", new ArrayList<>(edge.getValue())));
     }
     return result;
@@ -636,12 +707,13 @@ public final class SbomInventory implements AutoCloseable, ArchiveScanner.Receiv
     } catch (IOException error) {
       events.accept(map("event_name", "beacon.security.sbom.history_write_failed", "sbom_id", id));
     } finally {
-      if (temp != null)
+      if (temp != null) {
         try {
           Files.deleteIfExists(temp);
         } catch (IOException ignored) {
           // The temporary file is already unreachable after a failed atomic replacement.
         }
+      }
     }
   }
 
@@ -652,14 +724,24 @@ public final class SbomInventory implements AutoCloseable, ArchiveScanner.Receiv
     int license = 0;
     int loaded = 0;
     for (Map<String, Object> record : records.values()) {
-      if (record.containsKey("purl")) purl++;
-      if (record.containsKey("version")) version++;
-      if (record.containsKey("hashes")) hash++;
-      if (record.containsKey("licenses")) license++;
+      if (record.containsKey("purl")) {
+        purl++;
+      }
+      if (record.containsKey("version")) {
+        version++;
+      }
+      if (record.containsKey("hashes")) {
+        hash++;
+      }
+      if (record.containsKey("licenses")) {
+        license++;
+      }
       for (Object property : (List<?>) record.get("properties")) {
         Map<?, ?> item = (Map<?, ?>) property;
         if ("beacon:security:sbom:loaded".equals(item.get("name"))
-            && "true".equals(item.get("value"))) loaded++;
+            && "true".equals(item.get("value"))) {
+          loaded++;
+        }
       }
     }
     return map(
@@ -684,12 +766,18 @@ public final class SbomInventory implements AutoCloseable, ArchiveScanner.Receiv
     if (!record.containsKey("licenses") && licenses instanceof List) {
       List<Object> accepted = new ArrayList<>();
       for (Object entry : (List<?>) licenses) {
-        if (accepted.size() >= 16 || !(entry instanceof Map)) break;
+        if (accepted.size() >= 16 || !(entry instanceof Map)) {
+          break;
+        }
         Object license = ((Map<?, ?>) entry).get("license");
         if (license instanceof Map) {
           String name = string(((Map<?, ?>) license).get("name"));
-          if (name.isEmpty()) name = string(((Map<?, ?>) license).get("id"));
-          if (!name.isEmpty()) accepted.add(map("license", map("name", name)));
+          if (name.isEmpty()) {
+            name = string(((Map<?, ?>) license).get("id"));
+          }
+          if (!name.isEmpty()) {
+            accepted.add(map("license", map("name", name)));
+          }
         }
       }
       if (!accepted.isEmpty()) {
@@ -722,11 +810,16 @@ public final class SbomInventory implements AutoCloseable, ArchiveScanner.Receiv
   static String location(URL url) {
     try {
       String path = URLDecoder.decode(url.toExternalForm().replace("+", "%2B"), "UTF-8");
-      while (path.startsWith("jar:") || path.startsWith("nested:") || path.startsWith("file:"))
+      while (path.startsWith("jar:") || path.startsWith("nested:") || path.startsWith("file:")) {
         path = path.substring(path.indexOf(':') + 1);
-      if (!path.startsWith("/")) return null;
+      }
+      if (!path.startsWith("/")) {
+        return null;
+      }
       path = path.replace("/!", "!/");
-      while (path.endsWith("/") || path.endsWith("!")) path = path.substring(0, path.length() - 1);
+      while (path.endsWith("/") || path.endsWith("!")) {
+        path = path.substring(0, path.length() - 1);
+      }
       int split = path.indexOf("!/");
       return Paths.get(split < 0 ? path : path.substring(0, split)).toAbsolutePath().normalize()
           + (split < 0 ? "" : path.substring(split));

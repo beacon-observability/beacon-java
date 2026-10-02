@@ -1,5 +1,4 @@
 import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
-import net.ltgt.gradle.errorprone.errorprone
 import org.gradle.api.tasks.WriteProperties
 import java.util.Properties
 
@@ -87,12 +86,4 @@ tasks.test {
   useJUnitPlatform()
   systemProperty("beacon.security.spec.schema-version", securitySchemaVersion)
   systemProperty("beacon.security.spec.fingerprint-version", securityFingerprintVersion)
-}
-
-tasks.withType<JavaCompile>().configureEach {
-  options.errorprone {
-    // The migrated engine intentionally uses compact guard clauses. Keep all semantic and
-    // safety checks enabled while leaving brace normalization to a dedicated readability pass.
-    disable("MissingBraces")
-  }
 }

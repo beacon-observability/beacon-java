@@ -20,15 +20,21 @@ import io.opentelemetry.instrumentation.api.instrumenter.OperationListener;
 public final class HttpLifecycle implements InstrumenterCustomizerProvider {
   @Override
   public void customize(InstrumenterCustomizer customizer) {
-    if (!Settings.enabled("beacon.security.enabled", false)) return;
-    if (!customizer.hasType(InstrumenterCustomizer.InstrumentationType.HTTP_SERVER)) return;
+    if (!Settings.enabled("beacon.security.enabled", false)) {
+      return;
+    }
+    if (!customizer.hasType(InstrumenterCustomizer.InstrumentationType.HTTP_SERVER)) {
+      return;
+    }
     customizer.addOperationMetrics(
         meter ->
             new OperationListener() {
               @Override
               public Context onStart(Context context, Attributes attributes, long startNanos) {
                 SecurityState existing = context.get(SecurityRuntime.STATE);
-                if (existing != null && existing.active()) return context;
+                if (existing != null && existing.active()) {
+                  return context;
+                }
                 SecurityState state = new SecurityState();
                 state.traceId = Span.fromContext(context).getSpanContext().getTraceId();
                 state.serverSpanId = Span.fromContext(context).getSpanContext().getSpanId();
@@ -43,8 +49,10 @@ public final class HttpLifecycle implements InstrumenterCustomizerProvider {
               public void onEnd(Context context, Attributes attributes, long endNanos) {
                 SecurityState state = context.get(SecurityRuntime.STATE);
                 Span span = Span.fromContext(context);
-                if (state == null || !state.serverSpanId.equals(span.getSpanContext().getSpanId()))
+                if (state == null
+                    || !state.serverSpanId.equals(span.getSpanContext().getSpanId())) {
                   return;
+                }
                 try {
                   request(state, attributes);
                   SecurityRuntime.end(state, context);
@@ -60,7 +68,9 @@ public final class HttpLifecycle implements InstrumenterCustomizerProvider {
                         AttributeKey.stringArrayKey("beacon.security.finding.ids"),
                         state.findingIds());
                   }
-                  if (state.truncated()) span.setAttribute("beacon.security.truncated", true);
+                  if (state.truncated()) {
+                    span.setAttribute("beacon.security.truncated", true);
+                  }
                 } finally {
                   state.close();
                 }
@@ -70,13 +80,23 @@ public final class HttpLifecycle implements InstrumenterCustomizerProvider {
 
   private static void request(SecurityState state, Attributes attributes) {
     String method = attributes.get(AttributeKey.stringKey("http.request.method"));
-    if (method == null) method = attributes.get(AttributeKey.stringKey("http.method"));
+    if (method == null) {
+      method = attributes.get(AttributeKey.stringKey("http.method"));
+    }
     String route = attributes.get(AttributeKey.stringKey("http.route"));
     Long status = attributes.get(AttributeKey.longKey("http.response.status_code"));
-    if (status == null) status = attributes.get(AttributeKey.longKey("http.status_code"));
-    if (method != null) state.request.put("method", Values.bounded(method, 32));
-    if (route != null) state.request.put("route", Values.bounded(route, 1024));
-    if (status != null) state.request.put("status_code", status);
+    if (status == null) {
+      status = attributes.get(AttributeKey.longKey("http.status_code"));
+    }
+    if (method != null) {
+      state.request.put("method", Values.bounded(method, 32));
+    }
+    if (route != null) {
+      state.request.put("route", Values.bounded(route, 1024));
+    }
+    if (status != null) {
+      state.request.put("status_code", status);
+    }
     state.request.put(
         "route_status", state.request.containsKey("route") ? "observed" : "unavailable");
     state.request.put("started_at", Events.timestamp(state.startedAt));

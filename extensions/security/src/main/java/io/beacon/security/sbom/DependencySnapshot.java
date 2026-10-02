@@ -35,7 +35,9 @@ final class DependencySnapshot {
             "beacon:security:sbom:loaded".equals(property.get("name"))
                 && "true".equals(property.get("value"));
       }
-      if (!loaded || !"library".equals(record.get("type"))) continue;
+      if (!loaded || !"library".equals(record.get("type"))) {
+        continue;
+      }
       String group = String.valueOf(record.getOrDefault("group", ""));
       Map<String, Object> row =
           map(
@@ -65,15 +67,18 @@ final class DependencySnapshot {
             Settings.limit("beacon.security.evidence.max.bytes", 65536),
             Settings.limit("beacon.security.export.sbom.bytes-per-second", 262144));
     int overhead = json.writeValueAsBytes(envelope).length;
-    if (overhead > maximum) throw new IOException("dependency_snapshot_envelope_exceeds_budget");
+    if (overhead > maximum) {
+      throw new IOException("dependency_snapshot_envelope_exceeds_budget");
+    }
     List<List<Map<String, Object>>> chunks = new ArrayList<>();
     List<Map<String, Object>> chunk = new ArrayList<>();
     chunks.add(chunk);
     int bytes = overhead;
     for (Map<String, Object> row : unique.values()) {
       int size = json.writeValueAsBytes(row).length;
-      if (overhead + size > maximum)
+      if (overhead + size > maximum) {
         throw new IOException("dependency_snapshot_item_exceeds_budget");
+      }
       if (bytes + size + (chunk.isEmpty() ? 0 : 1) > maximum) {
         chunk = new ArrayList<>();
         chunks.add(chunk);

@@ -101,7 +101,9 @@ public final class SecurityInstrumentationModule extends InstrumentationModule
                   .or(nameStartsWith("ch.qos.logback.")));
       for (String prefix :
           Settings.text("beacon.security.instrumentation.exclude", "").split(",")) {
-        if (!prefix.trim().isEmpty()) matcher = matcher.and(not(nameStartsWith(prefix.trim())));
+        if (!prefix.trim().isEmpty()) {
+          matcher = matcher.and(not(nameStartsWith(prefix.trim())));
+        }
       }
       return matcher;
     }

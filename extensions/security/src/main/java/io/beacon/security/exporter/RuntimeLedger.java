@@ -8,6 +8,7 @@ package io.beacon.security.exporter;
 import static io.beacon.security.core.Values.map;
 import static java.util.Arrays.asList;
 import static java.util.Collections.emptyMap;
+import static java.util.logging.Level.WARNING;
 
 import com.fasterxml.jackson.core.StreamReadConstraints;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -34,12 +35,15 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
+import java.util.logging.Logger;
 
 /**
  * Bounded process-local state. Snapshots are an inspection contract, not a durable backend
  * acknowledgement.
  */
 public final class RuntimeLedger {
+  private static final Logger logger = Logger.getLogger(RuntimeLedger.class.getName());
+
   private final ObjectMapper json = new ObjectMapper();
   private final boolean localOutputEnabled =
       Settings.enabled("beacon.security.local-output.enabled", false);
@@ -119,11 +123,15 @@ public final class RuntimeLedger {
     Map<String, Object> next = new LinkedHashMap<>(sbom);
     value.forEach(
         (key, item) -> {
-          if (!key.equals("dependencies") && !key.equals("part_index") && !key.equals("part_count"))
+          if (!key.equals("dependencies")
+              && !key.equals("part_index")
+              && !key.equals("part_count")) {
             next.put(key, item);
+          }
         });
-    if ("beacon.security.sbom.update_failed".equals(value.get("event_name")))
+    if ("beacon.security.sbom.update_failed".equals(value.get("event_name"))) {
       next.put("status", "degraded");
+    }
     sbom = next;
   }
 
@@ -151,7 +159,9 @@ public final class RuntimeLedger {
       state.run = new LinkedHashMap<>((Map<String, Object>) run);
       String id = String.valueOf(state.run.get("run_id"));
       Map<String, Object> record = runs.get(id);
-      if (record != null) increment(record, "active_requests", 1);
+      if (record != null) {
+        increment(record, "active_requests", 1);
+      }
     }
   }
 
@@ -160,19 +170,29 @@ public final class RuntimeLedger {
     completed++;
     count("requests_completed");
     count("sources", state.sourceCount());
-    if (state.sourceCount() > 0) count("requests_with_sources");
-    if (!state.sinkCounts().isEmpty()) count("requests_with_sinks");
-    for (Map.Entry<String, Integer> sink : state.sinkCounts().entrySet())
+    if (state.sourceCount() > 0) {
+      count("requests_with_sources");
+    }
+    if (!state.sinkCounts().isEmpty()) {
+      count("requests_with_sinks");
+    }
+    for (Map.Entry<String, Integer> sink : state.sinkCounts().entrySet()) {
       count("sink." + sink.getKey(), sink.getValue());
-    if (!state.collectionEnabled) count("requests_" + state.collectionStatus);
+    }
+    if (!state.collectionEnabled) {
+      count("requests_" + state.collectionStatus);
+    }
     boolean incomplete =
         state.truncated()
             || !state.gaps().isEmpty()
             || (state.collectionEnabled
                 && (!enabled() || state.collectionGeneration != pauseGeneration));
-    if (state.collectionEnabled && state.collectionGeneration != pauseGeneration)
+    if (state.collectionEnabled && state.collectionGeneration != pauseGeneration) {
       state.gap("collection_paused_during_request");
-    if (incomplete) count("requests_incomplete");
+    }
+    if (incomplete) {
+      count("requests_incomplete");
+    }
     Map<String, Object> request = Events.request(state.request);
     List<Map<String, Object>> result = new ArrayList<>();
     for (Map<String, Object> original : state.pending()) {
@@ -254,7 +274,9 @@ public final class RuntimeLedger {
         }
         event.put("occurrences_total", finding.get("occurrences"));
         result.add(event);
-      } else count("representative_samples_suppressed");
+      } else {
+        count("representative_samples_suppressed");
+      }
       finding.put("dirty", true);
     }
     Map<String, Object> diagnostic = state.diagnostics();
@@ -268,16 +290,24 @@ public final class RuntimeLedger {
     if (run != null) {
       increment(run, "active_requests", -1);
       increment(run, "requests", 1);
-      if (state.sourceCount() > 0) increment(run, "source_requests", 1);
-      for (String signature : state.sourceSignatures())
+      if (state.sourceCount() > 0) {
+        increment(run, "source_requests", 1);
+      }
+      for (String signature : state.sourceSignatures()) {
         boundedIncrement(run, "source_signatures", signature);
+      }
       String rule = String.valueOf(run.get("rule"));
-      if (state.sinkCounts().getOrDefault(rule, 0) > 0) increment(run, "sink_requests", 1);
-      if (incomplete || !state.collectionEnabled) increment(run, "incomplete_requests", 1);
+      if (state.sinkCounts().getOrDefault(rule, 0) > 0) {
+        increment(run, "sink_requests", 1);
+      }
+      if (incomplete || !state.collectionEnabled) {
+        increment(run, "incomplete_requests", 1);
+      }
       Object status = state.request.get("status_code");
-      if (status instanceof Number && ((Number) status).intValue() >= 500)
+      if (status instanceof Number && ((Number) status).intValue() >= 500) {
         increment(run, "error_requests", 1);
-      for (Map<String, Object> event : state.pending())
+      }
+      for (Map<String, Object> event : state.pending()) {
         if (rule.equals(event.get("rule"))) {
           increment(run, "observations", 1);
           for (Object item : (List<?>) event.get("sources")) {
@@ -287,8 +317,10 @@ public final class RuntimeLedger {
           }
           boundedIncrement(run, "finding_counts", String.valueOf(event.get("finding_id")));
         }
-      if (!profile().equals(run.get("instrumentation_profile")))
+      }
+      if (!profile().equals(run.get("instrumentation_profile"))) {
         increment(run, "incomplete_requests", 1);
+      }
       run.put("last_request", new LinkedHashMap<>(request));
       finishIfIdle(run);
     }
@@ -300,14 +332,16 @@ public final class RuntimeLedger {
         ((Number) delivery.getOrDefault("security_dropped", delivery.getOrDefault("dropped", 0L)))
             .longValue();
     Object counts = delivery.get("counters");
-    if (counts instanceof Map)
+    if (counts instanceof Map) {
       for (Object item : ((Map<?, ?>) counts).entrySet()) {
         Map.Entry<?, ?> entry = (Map.Entry<?, ?>) item;
         String key = String.valueOf(entry.getKey());
         if (key.startsWith("beacon.security.")
-            && (key.endsWith("failed") || key.endsWith("record_truncated")))
+            && (key.endsWith("failed") || key.endsWith("record_truncated"))) {
           total += ((Number) entry.getValue()).longValue();
+        }
       }
+    }
     return total;
   }
 
@@ -414,20 +448,25 @@ public final class RuntimeLedger {
   private void snapshot(
       Map<String, Object> delivery, Consumer<Map<String, Object>> emit, boolean force) {
     long now = System.currentTimeMillis();
-    if (!force && now - snapshotAt < 1000) return;
+    if (!force && now - snapshotAt < 1000) {
+      return;
+    }
     snapshotAt = now;
     lastDelivery = new LinkedHashMap<>(delivery);
-    if (localOutputEnabled) readControl();
+    if (localOutputEnabled) {
+      readControl();
+    }
     List<Map<String, Object>> findingCopy = new ArrayList<>();
     List<Map<String, Object>> runCopy = new ArrayList<>();
     List<Map<String, Object>> summaries = new ArrayList<>();
     synchronized (this) {
       if (shutdownUncertainty.getAndSet(false)) {
-        for (Map<String, Object> run : runs.values())
+        for (Map<String, Object> run : runs.values()) {
           if (((Number) run.getOrDefault("requests", 0L)).longValue() > 0) {
             increment(run, "delivery_loss", 1);
             increment(run, "incomplete_requests", 1);
           }
+        }
       }
       for (Map<String, Object> run : runs.values()) {
         if (!validUntil(run.get("expires_at")) && "active".equals(run.get("status"))) {
@@ -441,7 +480,7 @@ public final class RuntimeLedger {
         if ((force
                 || now - summaryAt
                     >= Settings.limit("beacon.security.findings.flush.seconds", 30) * 1000L)
-            && Boolean.TRUE.equals(finding.remove("dirty")))
+            && Boolean.TRUE.equals(finding.remove("dirty"))) {
           summaries.add(
               map(
                   "event_name",
@@ -460,27 +499,36 @@ public final class RuntimeLedger {
                   finding.get("last_seen"),
                   "triage",
                   finding.get("triage")));
+        }
       }
-      if (!summaries.isEmpty()) summaryAt = now;
+      if (!summaries.isEmpty()) {
+        summaryAt = now;
+      }
       for (Map<String, Object> finding : findings.values()) {
         Map<String, Object> copy = new LinkedHashMap<>(finding);
         for (String key :
-            new String[] {"dirty", "last_sample_millis", "sample_run_id", "representative_bytes"})
+            new String[] {"dirty", "last_sample_millis", "sample_run_id", "representative_bytes"}) {
           copy.remove(key);
+        }
         findingCopy.add(copy);
       }
       for (Map<String, Object> run : runs.values()) {
         Map<String, Object> copy = new LinkedHashMap<>(run);
         for (String key :
-            new String[] {"finding_counts", "source_signatures", "risk_source_signatures"})
+            new String[] {"finding_counts", "source_signatures", "risk_source_signatures"}) {
           sharedRunCounters.add((Map<?, ?>) run.get(key));
+        }
         copy.remove("loss_start");
         copy.remove("snapshot_failures_start");
         runCopy.add(copy);
       }
     }
-    for (Map<String, Object> summary : summaries) emit.accept(Events.record(summary));
-    if (!localOutputEnabled) return;
+    for (Map<String, Object> summary : summaries) {
+      emit.accept(Events.record(summary));
+    }
+    if (!localOutputEnabled) {
+      return;
+    }
     try {
       write(
           output.resolve("findings.json"),
@@ -491,8 +539,10 @@ public final class RuntimeLedger {
       snapshotFailures.incrementAndGet();
       if (now - lastSnapshotFailureLog >= 30000) {
         lastSnapshotFailureLog = now;
-        System.err.println(
-            "[BeaconSecurity] local snapshot write failed: " + error.getClass().getSimpleName());
+        logger.log(
+            WARNING,
+            "[BeaconSecurity] local snapshot write failed: {0}",
+            error.getClass().getSimpleName());
         emit.accept(
             map(
                 "event_name",
@@ -522,53 +572,76 @@ public final class RuntimeLedger {
   // Jackson returns erased Maps; nested policy shapes are validated before the cast is used.
   @SuppressWarnings("unchecked")
   private void readControl() {
-    if (!Files.exists(control)) return;
+    if (!Files.exists(control)) {
+      return;
+    }
     String attemptedRevision = "unparsed";
     try {
-      if (!Files.isRegularFile(control)) throw new IOException("control_regular_file_required");
-      if (Files.size(control) > 256 * 1024) throw new IOException("control_byte_limit");
+      if (!Files.isRegularFile(control)) {
+        throw new IOException("control_regular_file_required");
+      }
+      if (Files.size(control) > 256 * 1024) {
+        throw new IOException("control_byte_limit");
+      }
       Map<String, Object> next = json.readValue(control.toFile(), Map.class);
       String revision = String.valueOf(next.getOrDefault("revision", ""));
       attemptedRevision = revision;
-      if (revision.isEmpty()) throw new IOException("control_revision_required");
-      if (revision.equals(appliedRevision)) return;
-      if (next.containsKey("paused") && !(next.get("paused") instanceof Boolean))
+      if (revision.isEmpty()) {
+        throw new IOException("control_revision_required");
+      }
+      if (revision.equals(appliedRevision)) {
+        return;
+      }
+      if (next.containsKey("paused") && !(next.get("paused") instanceof Boolean)) {
         throw new IOException("invalid_pause");
+      }
       validateExceptions(next.get("exceptions"));
       Object value = next.get("run");
       if (value != null) {
-        if (!(value instanceof Map)) throw new IOException("invalid_run");
+        if (!(value instanceof Map)) {
+          throw new IOException("invalid_run");
+        }
         Map<?, ?> run = (Map<?, ?>) value;
-        for (String field : new String[] {"run_id", "case_id", "rule", "expires_at"})
-          if (!(run.get(field) instanceof String) || ((String) run.get(field)).isEmpty())
+        for (String field : new String[] {"run_id", "case_id", "rule", "expires_at"}) {
+          if (!(run.get(field) instanceof String) || ((String) run.get(field)).isEmpty()) {
             throw new IOException("missing_run_" + field);
-        if (!validUntil(run.get("expires_at")) || !rules().containsKey(run.get("rule")))
+          }
+        }
+        if (!validUntil(run.get("expires_at")) || !rules().containsKey(run.get("rule"))) {
           throw new IOException("invalid_run_expiry_or_rule");
-        if (!(run.get("conditions") instanceof Map))
+        }
+        if (!(run.get("conditions") instanceof Map)) {
           throw new IOException("missing_run_conditions");
+        }
         Map<?, ?> conditions = (Map<?, ?>) run.get("conditions");
-        for (String field : new String[] {"suite", "fixture"})
+        for (String field : new String[] {"suite", "fixture"}) {
           if (!(conditions.get(field) instanceof String)
-              || ((String) conditions.get(field)).trim().isEmpty())
+              || ((String) conditions.get(field)).trim().isEmpty()) {
             throw new IOException("missing_condition_" + field);
+          }
+        }
         if (!(conditions.get("expected_requests") instanceof Number)
-            || ((Number) conditions.get("expected_requests")).longValue() <= 0)
+            || ((Number) conditions.get("expected_requests")).longValue() <= 0) {
           throw new IOException("expected_requests_required");
+        }
       }
       synchronized (this) {
         Map<String, Object> newRun = (Map<String, Object>) value;
         String nextId = newRun == null ? "" : String.valueOf(newRun.get("run_id"));
         if (newRun != null
             && runs.containsKey(nextId)
-            && !"active".equals(runs.get(nextId).get("status")))
+            && !"active".equals(runs.get(nextId).get("status"))) {
           throw new IOException("run_id_already_closed");
-        if (newRun != null && !runs.containsKey(nextId) && runs.size() >= maxRuns)
+        }
+        if (newRun != null && !runs.containsKey(nextId) && runs.size() >= maxRuns) {
           throw new IOException("run_capacity_restart_or_archive");
-        for (Map<String, Object> old : runs.values())
+        }
+        for (Map<String, Object> old : runs.values()) {
           if ("active".equals(old.get("status")) && !nextId.equals(old.get("run_id"))) {
             old.put("status", "draining");
             finishIfIdle(old);
           }
+        }
         if (newRun != null && !runs.containsKey(nextId)) {
           Map<String, Object> run = new LinkedHashMap<>(newRun);
           run.put("status", "active");
@@ -594,11 +667,14 @@ public final class RuntimeLedger {
                 "incomplete_requests",
                 "error_requests",
                 "active_requests"
-              }) run.put(key, 0L);
+              }) {
+            run.put(key, 0L);
+          }
           runs.put(nextId, run);
         }
-        if (Boolean.TRUE.equals(policy.get("paused")) != Boolean.TRUE.equals(next.get("paused")))
+        if (Boolean.TRUE.equals(policy.get("paused")) != Boolean.TRUE.equals(next.get("paused"))) {
           pauseGeneration++;
+        }
         policy = next;
         appliedRevision = revision;
       }
@@ -614,16 +690,28 @@ public final class RuntimeLedger {
   }
 
   private static long estimate(Object value, int depth) {
-    if (value == null) return 4;
-    if (depth > 16) return 65536;
-    if (value instanceof String) return ((String) value).length() * 6L + 2;
-    if (value instanceof Number || value instanceof Boolean) return 32;
+    if (value == null) {
+      return 4;
+    }
+    if (depth > 16) {
+      return 65536;
+    }
+    if (value instanceof String) {
+      return ((String) value).length() * 6L + 2;
+    }
+    if (value instanceof Number || value instanceof Boolean) {
+      return 32;
+    }
     long bytes = 2;
-    if (value instanceof Map)
-      for (Map.Entry<?, ?> entry : ((Map<?, ?>) value).entrySet())
+    if (value instanceof Map) {
+      for (Map.Entry<?, ?> entry : ((Map<?, ?>) value).entrySet()) {
         bytes += estimate(entry.getKey(), depth + 1) + estimate(entry.getValue(), depth + 1) + 2;
-    else if (value instanceof Iterable)
-      for (Object entry : (Iterable<?>) value) bytes += estimate(entry, depth + 1) + 1;
+      }
+    } else if (value instanceof Iterable) {
+      for (Object entry : (Iterable<?>) value) {
+        bytes += estimate(entry, depth + 1) + 1;
+      }
+    }
     return bytes;
   }
 
@@ -654,7 +742,9 @@ public final class RuntimeLedger {
           "ssrf",
           "http_request_input",
           "path_traversal"
-        }) result.put(rule, Settings.enabled("beacon.security.rules." + rule + ".enabled", true));
+        }) {
+      result.put(rule, Settings.enabled("beacon.security.rules." + rule + ".enabled", true));
+    }
     return result;
   }
 
@@ -683,23 +773,33 @@ public final class RuntimeLedger {
   }
 
   private static void validateExceptions(Object value) throws IOException {
-    if (value == null) return;
-    if (!(value instanceof List) || ((List<?>) value).size() > 128)
+    if (value == null) {
+      return;
+    }
+    if (!(value instanceof List) || ((List<?>) value).size() > 128) {
       throw new IOException("invalid_exceptions");
+    }
     for (Object entry : (List<?>) value) {
-      if (!(entry instanceof Map)) throw new IOException("invalid_exception");
+      if (!(entry instanceof Map)) {
+        throw new IOException("invalid_exception");
+      }
       Map<?, ?> exception = (Map<?, ?>) entry;
-      if (!(exception.get("scope") instanceof Map))
+      if (!(exception.get("scope") instanceof Map)) {
         throw new IOException("exception_scope_required");
+      }
       Map<?, ?> scope = (Map<?, ?>) exception.get("scope");
-      for (String field : new String[] {"application_id", "finding_id"})
-        if (!(scope.get(field) instanceof String) || ((String) scope.get(field)).isEmpty())
+      for (String field : new String[] {"application_id", "finding_id"}) {
+        if (!(scope.get(field) instanceof String) || ((String) scope.get(field)).isEmpty()) {
           throw new IOException("exception_scope_required");
+        }
+      }
       if (!(exception.get("reason") instanceof String)
-          || ((String) exception.get("reason")).trim().isEmpty())
+          || ((String) exception.get("reason")).trim().isEmpty()) {
         throw new IOException("exception_reason_required");
-      if (!asList("accepted_risk", "false_positive").contains(exception.get("decision")))
+      }
+      if (!asList("accepted_risk", "false_positive").contains(exception.get("decision"))) {
         throw new IOException("invalid_exception_decision");
+      }
       try {
         Instant.parse(String.valueOf(exception.get("expires_at")));
       } catch (DateTimeParseException error) {
@@ -712,14 +812,17 @@ public final class RuntimeLedger {
   @SuppressWarnings("unchecked")
   private Map<String, Object> triage(String findingId) {
     Object value = policy.get("exceptions");
-    if (value instanceof List)
+    if (value instanceof List) {
       for (Object item : (List<?>) value) {
         Map<String, Object> entry = (Map<String, Object>) item;
         Map<?, ?> scope = (Map<?, ?>) entry.get("scope");
         if (Identity.applicationId().equals(scope.get("application_id"))
             && findingId.equals(scope.get("finding_id"))
-            && validUntil(entry.get("expires_at"))) return new LinkedHashMap<>(entry);
+            && validUntil(entry.get("expires_at"))) {
+          return new LinkedHashMap<>(entry);
+        }
       }
+    }
     return map("decision", "unreviewed");
   }
 

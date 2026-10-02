@@ -45,7 +45,9 @@ final class SourceCapture {
           || cls.startsWith("io.beacon.security.")
           || cls.startsWith("io.opentelemetry.")
           || cls.startsWith("org.apache.")
-          || cls.startsWith("org.springframework.")) continue;
+          || cls.startsWith("org.springframework.")) {
+        continue;
+      }
       location =
           cls
               + "#"
@@ -73,21 +75,28 @@ final class SourceCapture {
     }
 
     void visit(Object value, String name, int depth) {
-      if (value == null) return;
+      if (value == null) {
+        return;
+      }
       if (depth > 8 || ++count > 512) {
         state.gap("source_traversal_limit");
         return;
       }
-      if (visited.put(value, true) != null) return;
+      if (visited.put(value, true) != null) {
+        return;
+      }
       if (value instanceof String) {
         state.source(value, type, name, location);
         return;
       }
       if (value instanceof Object[]) {
         Object[] values = (Object[]) value;
-        if (values.length > 128) state.gap("source_traversal_limit");
-        for (int i = 0; i < Math.min(values.length, 128); i++)
+        if (values.length > 128) {
+          state.gap("source_traversal_limit");
+        }
+        for (int i = 0; i < Math.min(values.length, 128); i++) {
           visit(values[i], name + "[" + i + "]", depth + 1);
+        }
       } else if (value instanceof Map) {
         int i = 0;
         for (Object item : ((Map<?, ?>) value).entrySet()) {
@@ -96,14 +105,18 @@ final class SourceCapture {
             break;
           }
           Map.Entry<?, ?> entry = (Map.Entry<?, ?>) item;
-          if (entry.getKey() instanceof String)
+          if (entry.getKey() instanceof String) {
             visit(entry.getValue(), name + "." + entry.getKey(), depth + 1);
+          }
         }
       } else if (value instanceof List) {
         List<?> values = (List<?>) value;
-        if (values.size() > 128) state.gap("source_traversal_limit");
-        for (int i = 0; i < Math.min(values.size(), 128); i++)
+        if (values.size() > 128) {
+          state.gap("source_traversal_limit");
+        }
+        for (int i = 0; i < Math.min(values.size(), 128); i++) {
           visit(values.get(i), name + "[" + i + "]", depth + 1);
+        }
       } else if (type.equals("http.request.body")
           && !value.getClass().getName().startsWith("java.")) {
         for (Class<?> cls = value.getClass();
@@ -114,7 +127,9 @@ final class SourceCapture {
               state.gap("source_traversal_limit");
               return;
             }
-            if (Modifier.isStatic(field.getModifiers()) || field.isSynthetic()) continue;
+            if (Modifier.isStatic(field.getModifiers()) || field.isSynthetic()) {
+              continue;
+            }
             try {
               field.setAccessible(true);
               visit(field.get(value), name + "." + field.getName(), depth + 1);

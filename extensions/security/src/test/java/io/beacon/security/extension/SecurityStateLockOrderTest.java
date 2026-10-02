@@ -194,7 +194,9 @@ class SecurityStateLockOrderTest {
           && info.getLockName().startsWith(lockPrefix)) {
         return true;
       }
-      if (info == null || info.getThreadState() == Thread.State.TERMINATED) return false;
+      if (info == null || info.getThreadState() == Thread.State.TERMINATED) {
+        return false;
+      }
       Thread.sleep(10L);
     }
     return false;

@@ -93,7 +93,9 @@ final class ArchiveScanner {
       int count;
       while ((count = input.read(buffer)) >= 0) {
         bytes += count;
-        if (bytes > maxBytes) throw new IOException("scan limit");
+        if (bytes > maxBytes) {
+          throw new IOException("scan limit");
+        }
         digest.update(buffer, 0, count);
       }
     }
@@ -121,7 +123,9 @@ final class ArchiveScanner {
           break;
         }
         String name = entry.getName();
-        if (entry.isDirectory()) continue;
+        if (entry.isDirectory()) {
+          continue;
+        }
         boolean nested =
             name.endsWith(".jar")
                 && (name.startsWith("BOOT-INF/lib/")
@@ -146,28 +150,39 @@ final class ArchiveScanner {
           continue;
         }
         byte[] data = read(zip, nested ? maxNested : bom ? 1024 * 1024 : 256 * 1024);
-        if (data == null) break;
-        if (nested)
+        if (data == null) {
+          break;
+        }
+        if (nested) {
           scanArchive(
               new ByteArrayInputStream(data),
               location + "!/" + name,
               Component.digest(data),
               depth + 1);
-        else if (metadata) {
+        } else if (metadata) {
           Properties props = new Properties();
           props.load(new ByteArrayInputStream(data));
-          if (props.getProperty("artifactId") != null) coordinates.add(props);
+          if (props.getProperty("artifactId") != null) {
+            coordinates.add(props);
+          }
         } else if (manifest) {
           Manifest values = new Manifest(new ByteArrayInputStream(data));
           title = values.getMainAttributes().getValue("Implementation-Title");
           version = values.getMainAttributes().getValue("Implementation-Version");
-          if (title == null) title = values.getMainAttributes().getValue("Bundle-SymbolicName");
-          if (version == null) version = values.getMainAttributes().getValue("Bundle-Version");
-        } else if (pom) licenses.addAll(licenses(data));
-        else {
+          if (title == null) {
+            title = values.getMainAttributes().getValue("Bundle-SymbolicName");
+          }
+          if (version == null) {
+            version = values.getMainAttributes().getValue("Bundle-Version");
+          }
+        } else if (pom) {
+          licenses.addAll(licenses(data));
+        } else {
           try {
             Map<String, Object> value = json.readValue(data, Map.class);
-            if ("CycloneDX".equals(value.get("bomFormat"))) imported.add(value);
+            if ("CycloneDX".equals(value.get("bomFormat"))) {
+              imported.add(value);
+            }
           } catch (IOException error) {
             receiver.incomplete("invalid_embedded_sbom");
           }
@@ -195,7 +210,9 @@ final class ArchiveScanner {
               hash,
               title == null ? "artifact-file" : "manifest",
               location);
-      if (coordinates.isEmpty()) outer.licenses.addAll(licenses);
+      if (coordinates.isEmpty()) {
+        outer.licenses.addAll(licenses);
+      }
       receiver.component(outer, location, true);
       receiver.incomplete(
           coordinates.isEmpty() ? "missing_maven_identity" : "shaded_component_identity_partial");
@@ -211,7 +228,9 @@ final class ArchiveScanner {
         receiver.component(component, location, false);
       }
     }
-    for (Map<String, Object> bom : imported) receiver.imported(location, bom);
+    for (Map<String, Object> bom : imported) {
+      receiver.imported(location, bom);
+    }
   }
 
   private byte[] read(InputStream input, int limit) throws IOException {
@@ -241,9 +260,11 @@ final class ArchiveScanner {
       NodeList nodes = document.getElementsByTagName("license");
       for (int i = 0; i < Math.min(nodes.getLength(), 16); i++) {
         NodeList children = nodes.item(i).getChildNodes();
-        for (int j = 0; j < children.getLength(); j++)
-          if (children.item(j).getNodeName().equals("name"))
+        for (int j = 0; j < children.getLength(); j++) {
+          if (children.item(j).getNodeName().equals("name")) {
             result.add(children.item(j).getTextContent().trim());
+          }
+        }
       }
     } catch (Exception ignored) {
       receiver.incomplete("license_metadata_unreadable");

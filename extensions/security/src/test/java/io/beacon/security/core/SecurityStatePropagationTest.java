@@ -41,7 +41,9 @@ class SecurityStatePropagationTest {
       Object[] wide = new Object[128];
       for (int i = 0; i < wide.length; i++) {
         Object[] row = new Object[128];
-        for (int j = 0; j < row.length; j++) row[j] = new Object();
+        for (int j = 0; j < row.length; j++) {
+          row[j] = new Object();
+        }
         wide[i] = row;
       }
       new Call(state, "test", "call", "", null, new Object[] {wide}, "test");
@@ -80,8 +82,11 @@ class SecurityStatePropagationTest {
     } finally {
       first.close();
       third.close();
-      if (requestLimit == null) System.clearProperty("beacon.security.max.tracked.bytes");
-      else System.setProperty("beacon.security.max.tracked.bytes", requestLimit);
+      if (requestLimit == null) {
+        System.clearProperty("beacon.security.max.tracked.bytes");
+      } else {
+        System.setProperty("beacon.security.max.tracked.bytes", requestLimit);
+      }
     }
   }
 
@@ -400,8 +405,11 @@ class SecurityStatePropagationTest {
       assertEquals(4096, ((Number) counts.get("objects")).intValue());
       assertEquals(1366, sources.size());
     } finally {
-      if (previous == null) System.clearProperty("beacon.security.max.tracked.bytes");
-      else System.setProperty("beacon.security.max.tracked.bytes", previous);
+      if (previous == null) {
+        System.clearProperty("beacon.security.max.tracked.bytes");
+      } else {
+        System.setProperty("beacon.security.max.tracked.bytes", previous);
+      }
     }
   }
 

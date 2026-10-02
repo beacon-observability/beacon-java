@@ -65,7 +65,9 @@ public final class Call {
       return;
     }
     Integer previousDepth = visited.get(value);
-    if (previousDepth != null && previousDepth <= depth) return;
+    if (previousDepth != null && previousDepth <= depth) {
+      return;
+    }
     visited.put(value, depth);
     if (previousDepth == null) {
       for (Mark mark : state.marks(value)) {
@@ -78,9 +80,15 @@ public final class Call {
     }
     if (value instanceof Object[]) {
       Object[] values = (Object[]) value;
-      if (values.length == 0) return;
-      if (depth >= 3 || values.length > 128) state.gap("call_input_traversal_limit");
-      if (depth >= 3) return;
+      if (values.length == 0) {
+        return;
+      }
+      if (depth >= 3 || values.length > 128) {
+        state.gap("call_input_traversal_limit");
+      }
+      if (depth >= 3) {
+        return;
+      }
       for (int i = 0; i < Math.min(values.length, 128) && marks.size() < 64; i++) {
         if (remaining[0] <= 0) {
           state.gap("call_input_traversal_limit");
@@ -93,7 +101,9 @@ public final class Call {
 
   public List<Mark> allMarks() {
     List<Mark> marks = new ArrayList<>(receiverMarks);
-    for (List<Mark> part : argumentMarks) marks.addAll(part);
+    for (List<Mark> part : argumentMarks) {
+      marks.addAll(part);
+    }
     return marks;
   }
 

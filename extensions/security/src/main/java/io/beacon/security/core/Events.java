@@ -45,13 +45,19 @@ public final class Events {
   public static Map<String, Object> sink(
       String rule, String role, String function, String location) {
     String normalized = role;
-    if (role.equals("template")) normalized = "sql_template";
-    else if (role.equals("shell") || role.equals("shell_command")) normalized = "shell_script";
-    else if (role.equals("argv") || role.equals("ordinary_argument")) normalized = "argument";
-    else if (role.equals("unknown_target")) normalized = "destination_unknown";
-    else if (role.equals("request_path")
+    if (role.equals("template")) {
+      normalized = "sql_template";
+    } else if (role.equals("shell") || role.equals("shell_command")) {
+      normalized = "shell_script";
+    } else if (role.equals("argv") || role.equals("ordinary_argument")) {
+      normalized = "argument";
+    } else if (role.equals("unknown_target")) {
+      normalized = "destination_unknown";
+    } else if (role.equals("request_path")
         || role.equals("request_query")
-        || role.equals("path_query")) normalized = "path_or_query";
+        || role.equals("path_query")) {
+      normalized = "path_or_query";
+    }
     Map<String, Object> sink =
         map(
             "function",
@@ -66,33 +72,42 @@ public final class Events {
             "",
             "input_part",
             "");
-    if (rule.equals("http_request_input"))
+    if (rule.equals("http_request_input")) {
       sink.put(
           "input_part",
           role.equals("request_path")
               ? "path"
               : role.equals("request_query") ? "query" : "path_or_query");
+    }
     if (rule.equals("path_traversal")) {
       sink.put("role", "file_path");
       String name = function.toLowerCase(Locale.ROOT);
       String operation = "unknown";
-      if (name.matches(".*(?:copy|\\.cp(?:sync)?$|\\.link(?:sync)?$).*")) operation = "copy";
-      else if (name.matches(".*(?:rename|\\.move$).*")) operation = "rename";
-      else if (name.matches(".*(?:delete|unlink|rmdir|\\.rm(?:sync)?$).*")) operation = "delete";
-      else if (asList("read", "write", "delete", "rename").contains(role)) operation = role;
-      else if (role.equals("source")
-          || name.matches(".*(?:inputstream|reader|directorystream|\\.read).*")) operation = "read";
-      else if (role.equals("target") || name.matches(".*(?:outputstream|writer|\\.write).*"))
+      if (name.matches(".*(?:copy|\\.cp(?:sync)?$|\\.link(?:sync)?$).*")) {
+        operation = "copy";
+      } else if (name.matches(".*(?:rename|\\.move$).*")) {
+        operation = "rename";
+      } else if (name.matches(".*(?:delete|unlink|rmdir|\\.rm(?:sync)?$).*")) {
+        operation = "delete";
+      } else if (asList("read", "write", "delete", "rename").contains(role)) {
+        operation = role;
+      } else if (role.equals("source")
+          || name.matches(".*(?:inputstream|reader|directorystream|\\.read).*")) {
+        operation = "read";
+      } else if (role.equals("target") || name.matches(".*(?:outputstream|writer|\\.write).*")) {
         operation = "write";
+      }
       sink.put("operation", operation);
       String pathRole = "unknown";
-      if (role.equals("source") || role.equals("read")) pathRole = "source";
-      else if (asList("target", "write", "delete", "destination_path").contains(role))
-        pathRole = "target";
-      else if (role.equals("file_path") && asList("copy", "rename", "read").contains(operation))
+      if (role.equals("source") || role.equals("read")) {
         pathRole = "source";
-      else if (role.equals("file_path") && asList("write", "delete").contains(operation))
+      } else if (asList("target", "write", "delete", "destination_path").contains(role)) {
         pathRole = "target";
+      } else if (role.equals("file_path") && asList("copy", "rename", "read").contains(operation)) {
+        pathRole = "source";
+      } else if (role.equals("file_path") && asList("write", "delete").contains(operation)) {
+        pathRole = "target";
+      }
       sink.put("path_role", pathRole);
     }
     return sink;
@@ -108,10 +123,13 @@ public final class Events {
       MessageDigest hash = MessageDigest.getInstance("SHA-256");
       List<String> parts = new ArrayList<>(asList("1", applicationId, language, rule));
       for (String field :
-          asList("role", "function", "location", "operation", "path_role", "input_part"))
+          asList("role", "function", "location", "operation", "path_role", "input_part")) {
         parts.add(String.valueOf(sink.get(field)));
+      }
       TreeSet<String> sorted = new TreeSet<>();
-      for (String signature : signatures) sorted.add(signature);
+      for (String signature : signatures) {
+        sorted.add(signature);
+      }
       parts.addAll(sorted);
       for (String part : parts) {
         byte[] value = unicode(part).getBytes(UTF_8);
@@ -119,10 +137,11 @@ public final class Events {
         hash.update(value);
       }
       StringBuilder result = new StringBuilder("finding-");
-      for (byte value : hash.digest())
+      for (byte value : hash.digest()) {
         result
             .append(Character.forDigit((value >>> 4) & 15, 16))
             .append(Character.forDigit(value & 15, 16));
+      }
       return result.toString();
     } catch (NoSuchAlgorithmException error) {
       throw new IllegalStateException(error);
@@ -135,9 +154,11 @@ public final class Events {
       char c = value.charAt(i);
       if (Character.isHighSurrogate(c)
           && i + 1 < value.length()
-          && Character.isLowSurrogate(value.charAt(i + 1)))
+          && Character.isLowSurrogate(value.charAt(i + 1))) {
         result.append(c).append(value.charAt(++i));
-      else result.append(Character.isSurrogate(c) ? '\uFFFD' : c);
+      } else {
+        result.append(Character.isSurrogate(c) ? (char) 0xfffd : c);
+      }
     }
     return result.toString();
   }
@@ -148,7 +169,9 @@ public final class Events {
   }
 
   public static Map<String, Object> component(Map<String, Object> value, String applicationId) {
-    if (value == null) value = emptyMap();
+    if (value == null) {
+      value = emptyMap();
+    }
     return map(
         "status",
         value.getOrDefault("status", "unresolved"),
@@ -192,7 +215,9 @@ public final class Events {
             "",
             "error_type",
             "");
-    if (value != null) request.putAll(value);
+    if (value != null) {
+      request.putAll(value);
+    }
     return request;
   }
 
@@ -202,7 +227,9 @@ public final class Events {
     Map<String, Object> event = new LinkedHashMap<>(input);
     Map<String, Object> identity = new LinkedHashMap<>(Identity.context());
     Object nested = event.remove("identity");
-    if (nested instanceof Map) identity.putAll((Map<String, Object>) nested);
+    if (nested instanceof Map) {
+      identity.putAll((Map<String, Object>) nested);
+    }
     identity.forEach(event::putIfAbsent);
     event.put("schema_version", SCHEMA_VERSION);
     event.putIfAbsent("observed_at", now());
@@ -248,8 +275,9 @@ public final class Events {
               null,
               "retained_bytes",
               null);
-      if (event.get("counts") instanceof Map)
+      if (event.get("counts") instanceof Map) {
         counts.putAll((Map<String, Object>) event.get("counts"));
+      }
       event.put("counts", counts);
       event.putIfAbsent("collection_status", "unknown");
     }

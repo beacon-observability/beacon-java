@@ -66,12 +66,19 @@ public final class Identity {
 
   public static Map<String, Object> runtime() {
     String os = System.getProperty("os.name", "unknown").toLowerCase(Locale.ROOT);
-    if (os.startsWith("windows")) os = "win32";
-    else if (os.startsWith("mac")) os = "darwin";
+    if (os.startsWith("windows")) {
+      os = "win32";
+    } else if (os.startsWith("mac")) {
+      os = "darwin";
+    }
     String arch = System.getProperty("os.arch", "unknown").toLowerCase(Locale.ROOT);
-    if (arch.equals("aarch64")) arch = "arm64";
-    else if (arch.equals("amd64") || arch.equals("x86_64")) arch = "x64";
-    else if (arch.equals("x86") || arch.matches("i[3-6]86")) arch = "ia32";
+    if (arch.equals("aarch64")) {
+      arch = "arm64";
+    } else if (arch.equals("amd64") || arch.equals("x86_64")) {
+      arch = "x64";
+    } else if (arch.equals("x86") || arch.matches("i[3-6]86")) {
+      arch = "ia32";
+    }
     return Values.map(
         "language",
         "java",
@@ -98,7 +105,9 @@ public final class Identity {
         Properties properties = new Properties();
         properties.load(input);
         String value = properties.getProperty("version", "").trim();
-        if (!value.isEmpty()) return value;
+        if (!value.isEmpty()) {
+          return value;
+        }
       }
     } catch (IOException ignored) {
       // Development classpaths without processed resources use the explicit fallback below.

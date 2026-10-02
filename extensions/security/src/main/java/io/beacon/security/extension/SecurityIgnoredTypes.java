@@ -12,7 +12,9 @@ import io.opentelemetry.javaagent.extension.ignore.IgnoredTypesConfigurer;
 public final class SecurityIgnoredTypes implements IgnoredTypesConfigurer {
   @Override
   public void configure(IgnoredTypesBuilder builder) {
-    if (!Settings.enabled("beacon.security.enabled", false)) return;
+    if (!Settings.enabled("beacon.security.enabled", false)) {
+      return;
+    }
     // The agent excludes these framework paths as an optimization. They contain
     // the binding and execution boundaries used by this security extension.
     builder

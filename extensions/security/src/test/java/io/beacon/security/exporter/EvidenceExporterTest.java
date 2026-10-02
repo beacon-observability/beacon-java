@@ -76,7 +76,9 @@ class EvidenceExporterTest {
 
   @BeforeEach
   void captureSettings() {
-    for (String key : SETTINGS) previousSettings.put(key, System.getProperty(key));
+    for (String key : SETTINGS) {
+      previousSettings.put(key, System.getProperty(key));
+    }
     System.setProperty("beacon.security.local-output.enabled", "true");
     GlobalOpenTelemetry.resetForTest();
   }
@@ -86,8 +88,11 @@ class EvidenceExporterTest {
     GlobalOpenTelemetry.resetForTest();
     for (String key : SETTINGS) {
       String value = previousSettings.get(key);
-      if (value == null) System.clearProperty(key);
-      else System.setProperty(key, value);
+      if (value == null) {
+        System.clearProperty(key);
+      } else {
+        System.setProperty(key, value);
+      }
     }
   }
 
@@ -338,8 +343,9 @@ class EvidenceExporterTest {
           assertEquals(body.get("event_name"), log.getEventName());
           assertEquals(body.get("event_name"), log.getAttributes().get(stringKey("event.name")));
           assertTrue(log.getBodyValue().asString().getBytes(UTF_8).length <= maxBytes);
-          if (maxBytes == 65536) assertEquals(item[0], body.get("event_name"));
-          else {
+          if (maxBytes == 65536) {
+            assertEquals(item[0], body.get("event_name"));
+          } else {
             assertEquals("beacon.security.export.truncated", body.get("event_name"));
             assertEquals(maxBytes == 256 ? item[0] : null, body.get("original_event"));
           }
@@ -360,7 +366,9 @@ class EvidenceExporterTest {
     EvidenceExporter exporter = new EvidenceExporter();
     try {
       List<String> large = new ArrayList<>();
-      for (int i = 0; i < 80; i++) large.add("secret-value-" + i + repeat('x', 80));
+      for (int i = 0; i < 80; i++) {
+        large.add("secret-value-" + i + repeat('x', 80));
+      }
       exporter.emit(
           map(
               "event_name",
@@ -573,14 +581,18 @@ class EvidenceExporterTest {
 
   private static String repeat(char value, int count) {
     StringBuilder result = new StringBuilder(count);
-    for (int i = 0; i < count; i++) result.append(value);
+    for (int i = 0; i < count; i++) {
+      result.append(value);
+    }
     return result.toString();
   }
 
   @SuppressWarnings("unchecked")
   private static long counter(Map<String, Object> delivery, String key) {
     Object counters = delivery.get("counters");
-    if (!(counters instanceof Map)) return 0;
+    if (!(counters instanceof Map)) {
+      return 0;
+    }
     Object value = ((Map<String, Object>) counters).get(key);
     return value instanceof Number ? ((Number) value).longValue() : 0;
   }
@@ -589,7 +601,9 @@ class EvidenceExporterTest {
       throws InterruptedException {
     long deadline = System.nanoTime() + MILLISECONDS.toNanos(timeoutMillis);
     do {
-      if (condition.getAsBoolean()) return true;
+      if (condition.getAsBoolean()) {
+        return true;
+      }
       Thread.sleep(25);
     } while (System.nanoTime() < deadline);
     return condition.getAsBoolean();
@@ -616,7 +630,9 @@ class EvidenceExporterTest {
 
     synchronized List<String> bodies() {
       List<String> result = new ArrayList<>();
-      for (LogRecordData record : records) result.add(record.getBodyValue().asString());
+      for (LogRecordData record : records) {
+        result.add(record.getBodyValue().asString());
+      }
       return result;
     }
   }
@@ -657,7 +673,9 @@ class EvidenceExporterTest {
         security |= body.contains("beacon.security.block");
         sbom |= body.contains("beacon.security.sbom.snapshot");
       }
-      if (sbom) sbomReceived.countDown();
+      if (sbom) {
+        sbomReceived.countDown();
+      }
       if (security && blockOnce.compareAndSet(false, true)) {
         securityStarted.countDown();
         try {

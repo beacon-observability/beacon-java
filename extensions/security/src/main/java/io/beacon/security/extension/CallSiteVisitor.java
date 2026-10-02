@@ -40,7 +40,9 @@ final class CallSiteVisitor extends AsmVisitorWrapper.AbstractBase {
   static CallSiteVisitor forClass(TypeDescription type, ClassLoader loader) throws IOException {
     ClassFileLocator.Resolution resolution =
         ClassFileLocator.ForClassLoader.of(loader).locate(type.getName());
-    if (!resolution.isResolved()) return null;
+    if (!resolution.isResolved()) {
+      return null;
+    }
     Map<String, Integer> scratch = new HashMap<>();
     new ClassReader(resolution.resolve())
         .accept(
@@ -51,8 +53,9 @@ final class CallSiteVisitor extends AsmVisitorWrapper.AbstractBase {
                 return new MethodVisitor(Opcodes.ASM9) {
                   void reserve(String descriptor) {
                     int size = 8;
-                    for (Type argument : Type.getArgumentTypes(descriptor))
+                    for (Type argument : Type.getArgumentTypes(descriptor)) {
                       size += argument.getSize();
+                    }
                     scratch.merge(name + desc, size, Math::max);
                   }
 
@@ -63,14 +66,17 @@ final class CallSiteVisitor extends AsmVisitorWrapper.AbstractBase {
                       String method,
                       String descriptor,
                       boolean isInterface) {
-                    if (CallSites.matches(owner, method)) reserve(descriptor);
+                    if (CallSites.matches(owner, method)) {
+                      reserve(descriptor);
+                    }
                   }
 
                   @Override
                   public void visitInvokeDynamicInsn(
                       String method, String descriptor, Handle bootstrap, Object... arguments) {
-                    if (bootstrap.getOwner().equals("java/lang/invoke/StringConcatFactory"))
+                    if (bootstrap.getOwner().equals("java/lang/invoke/StringConcatFactory")) {
                       reserve(descriptor);
+                    }
                   }
                 };
               }
@@ -112,12 +118,17 @@ final class CallSiteVisitor extends AsmVisitorWrapper.AbstractBase {
       public MethodVisitor visitMethod(
           int access, String name, String descriptor, String signature, String[] exceptions) {
         MethodVisitor original = super.visitMethod(access, name, descriptor, signature, exceptions);
-        if (original == null || (access & (Opcodes.ACC_ABSTRACT | Opcodes.ACC_NATIVE)) != 0)
+        if (original == null || (access & (Opcodes.ACC_ABSTRACT | Opcodes.ACC_NATIVE)) != 0) {
           return original;
+        }
         Integer reserve = scratch.get(name + descriptor);
-        if (reserve == null) return original;
+        if (reserve == null) {
+          return original;
+        }
         int first = (access & Opcodes.ACC_STATIC) == 0 ? 1 : 0;
-        for (Type argument : Type.getArgumentTypes(descriptor)) first += argument.getSize();
+        for (Type argument : Type.getArgumentTypes(descriptor)) {
+          first += argument.getSize();
+        }
         return new Calls(
             original,
             first,
@@ -157,8 +168,9 @@ final class CallSiteVisitor extends AsmVisitorWrapper.AbstractBase {
       this.scratch = scratch;
       this.methodLocation = location;
       this.file = file;
-      if ((access & Opcodes.ACC_STATIC) == 0)
+      if ((access & Opcodes.ACC_STATIC) == 0) {
         frameLocals.add(name.equals("<init>") ? Opcodes.UNINITIALIZED_THIS : owner);
+      }
       for (Type arg : Type.getArgumentTypes(descriptor)) {
         switch (arg.getSort()) {
           case Type.LONG:
@@ -212,7 +224,9 @@ final class CallSiteVisitor extends AsmVisitorWrapper.AbstractBase {
         String desc,
         boolean visible) {
       int[] mapped = index.clone();
-      for (int i = 0; i < mapped.length; i++) mapped[i] = remap(mapped[i]);
+      for (int i = 0; i < mapped.length; i++) {
+        mapped[i] = remap(mapped[i]);
+      }
       return mv.visitLocalVariableAnnotation(ref, path, start, end, mapped, desc, visible);
     }
 
@@ -233,16 +247,26 @@ final class CallSiteVisitor extends AsmVisitorWrapper.AbstractBase {
       // them. Track the original frame and emit a full frame with dead scratch locals.
       if (type == Opcodes.F_NEW || type == Opcodes.F_FULL) {
         frameLocals.clear();
-        for (int i = 0; i < count; i++) frameLocals.add(locals[i]);
+        for (int i = 0; i < count; i++) {
+          frameLocals.add(locals[i]);
+        }
       } else if (type == Opcodes.F_APPEND) {
-        for (int i = 0; i < count; i++) frameLocals.add(locals[i]);
+        for (int i = 0; i < count; i++) {
+          frameLocals.add(locals[i]);
+        }
       } else if (type == Opcodes.F_CHOP) {
-        for (int i = 0; i < count; i++) frameLocals.remove(frameLocals.size() - 1);
+        for (int i = 0; i < count; i++) {
+          frameLocals.remove(frameLocals.size() - 1);
+        }
       }
       List<Object> mapped = new ArrayList<>();
       int slot = 0;
       for (Object value : frameLocals) {
-        if (slot == first) for (int j = 0; j < scratch; j++) mapped.add(Opcodes.TOP);
+        if (slot == first) {
+          for (int j = 0; j < scratch; j++) {
+            mapped.add(Opcodes.TOP);
+          }
+        }
         mapped.add(value);
         slot += value == Opcodes.LONG || value == Opcodes.DOUBLE ? 2 : 1;
       }
@@ -274,13 +298,19 @@ final class CallSiteVisitor extends AsmVisitorWrapper.AbstractBase {
         for (char ch : ((String) arguments[0]).toCharArray()) {
           if (ch == '\u0002' && constant < arguments.length) {
             for (char literal : String.valueOf(arguments[constant++]).toCharArray()) {
-              if (literal == '\u0001' || literal == '\u0002') recipe.append('\u0002');
+              if (literal == '\u0001' || literal == '\u0002') {
+                recipe.append('\u0002');
+              }
               recipe.append(literal);
             }
-          } else recipe.append(ch);
+          } else {
+            recipe.append(ch);
+          }
         }
       } else {
-        for (Type unused : Type.getArgumentTypes(descriptor)) recipe.append('\u0001');
+        for (Type unused : Type.getArgumentTypes(descriptor)) {
+          recipe.append('\u0001');
+        }
       }
       instrument(
           Opcodes.INVOKESTATIC,
@@ -314,11 +344,14 @@ final class CallSiteVisitor extends AsmVisitorWrapper.AbstractBase {
       int array = next++;
       int token = next++;
       int result = next;
-      for (int i = args.length - 1; i >= 0; i--)
+      for (int i = args.length - 1; i >= 0; i--) {
         mv.visitVarInsn(args[i].getOpcode(Opcodes.ISTORE), slots[i]);
+      }
       boolean instance = opcode != Opcodes.INVOKESTATIC;
       boolean constructor = name.equals("<init>");
-      if (instance && !constructor) mv.visitVarInsn(Opcodes.ASTORE, receiver);
+      if (instance && !constructor) {
+        mv.visitVarInsn(Opcodes.ASTORE, receiver);
+      }
       push(args.length);
       mv.visitTypeInsn(Opcodes.ANEWARRAY, "java/lang/Object");
       for (int i = 0; i < args.length; i++) {
@@ -332,8 +365,11 @@ final class CallSiteVisitor extends AsmVisitorWrapper.AbstractBase {
       mv.visitLdcInsn(owner);
       mv.visitLdcInsn(name);
       mv.visitLdcInsn(recipe == null ? desc : recipe);
-      if (instance && !constructor) mv.visitVarInsn(Opcodes.ALOAD, receiver);
-      else mv.visitInsn(Opcodes.ACONST_NULL);
+      if (instance && !constructor) {
+        mv.visitVarInsn(Opcodes.ALOAD, receiver);
+      } else {
+        mv.visitInsn(Opcodes.ACONST_NULL);
+      }
       mv.visitVarInsn(Opcodes.ALOAD, array);
       mv.visitLdcInsn(methodLocation + "(" + file + (line < 0 ? "" : ":" + line) + ")");
       mv.visitLdcInsn(
@@ -346,12 +382,19 @@ final class CallSiteVisitor extends AsmVisitorWrapper.AbstractBase {
           "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Object;[Ljava/lang/Object;Ljava/lang/String;Ljava/lang/Class;)Ljava/lang/Object;",
           false);
       mv.visitVarInsn(Opcodes.ASTORE, token);
-      if (constructor) mv.visitInsn(Opcodes.DUP);
-      else if (instance) mv.visitVarInsn(Opcodes.ALOAD, receiver);
-      for (int i = 0; i < args.length; i++)
+      if (constructor) {
+        mv.visitInsn(Opcodes.DUP);
+      } else if (instance) {
+        mv.visitVarInsn(Opcodes.ALOAD, receiver);
+      }
+      for (int i = 0; i < args.length; i++) {
         mv.visitVarInsn(args[i].getOpcode(Opcodes.ILOAD), slots[i]);
-      if (bootstrap == null) mv.visitMethodInsn(opcode, owner, name, desc, isInterface);
-      else mv.visitInvokeDynamicInsn(name, desc, bootstrap, constants);
+      }
+      if (bootstrap == null) {
+        mv.visitMethodInsn(opcode, owner, name, desc, isInterface);
+      } else {
+        mv.visitInvokeDynamicInsn(name, desc, bootstrap, constants);
+      }
       if (constructor) {
         mv.visitVarInsn(Opcodes.ALOAD, token);
         mv.visitMethodInsn(
@@ -362,18 +405,23 @@ final class CallSiteVisitor extends AsmVisitorWrapper.AbstractBase {
             false);
         return;
       }
-      if (returned.getSort() != Type.VOID)
+      if (returned.getSort() != Type.VOID) {
         mv.visitVarInsn(returned.getOpcode(Opcodes.ISTORE), result);
+      }
       mv.visitVarInsn(Opcodes.ALOAD, token);
       if (returned.getSort() != Type.VOID) {
         mv.visitVarInsn(returned.getOpcode(Opcodes.ILOAD), result);
         box(returned);
-      } else if (instance) mv.visitVarInsn(Opcodes.ALOAD, receiver);
-      else mv.visitInsn(Opcodes.ACONST_NULL);
+      } else if (instance) {
+        mv.visitVarInsn(Opcodes.ALOAD, receiver);
+      } else {
+        mv.visitInsn(Opcodes.ACONST_NULL);
+      }
       mv.visitMethodInsn(
           Opcodes.INVOKESTATIC, BRIDGE, "after", "(Ljava/lang/Object;Ljava/lang/Object;)V", false);
-      if (returned.getSort() != Type.VOID)
+      if (returned.getSort() != Type.VOID) {
         mv.visitVarInsn(returned.getOpcode(Opcodes.ILOAD), result);
+      }
     }
 
     private void push(int number) {

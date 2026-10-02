@@ -54,9 +54,12 @@ final class SinkRules {
       return;
     }
     if (isFileSink(owner, method)) {
-      if (c.arguments.length > 0) emit.accept(new Finding("path_traversal", "file_path", c.arg(0)));
-      if (method.equals("copy") || method.equals("move"))
+      if (c.arguments.length > 0) {
+        emit.accept(new Finding("path_traversal", "file_path", c.arg(0)));
+      }
+      if (method.equals("copy") || method.equals("move")) {
         emit.accept(new Finding("path_traversal", "destination_path", c.arg(1)));
+      }
       return;
     }
     if (isHttpSink(owner, method)) {
@@ -70,8 +73,9 @@ final class SinkRules {
       }
       if (restTemplate
           && c.arguments[0] instanceof String
-          && ((String) c.arguments[0]).indexOf('{') >= 0)
+          && ((String) c.arguments[0]).indexOf('{') >= 0) {
         c.state.gap("rest_template_uri_template_unmodeled");
+      }
       if (marks.isEmpty()) {
         emit.accept(new Finding("ssrf", "destination_unknown", marks));
         emit.accept(new Finding("http_request_input", "path_or_query", marks));
@@ -82,11 +86,12 @@ final class SinkRules {
         Object target = c.arguments[0];
         destination = target instanceof String ? (String) target : target.toString();
       } else {
-        for (Object arg : c.arguments)
+        for (Object arg : c.arguments) {
           if (c.state.destination(arg) != null) {
             destination = c.state.destination(arg);
             break;
           }
+        }
       }
       String role = "destination_unknown";
       if (destination != null) {
@@ -122,7 +127,9 @@ final class SinkRules {
     if ((owner.equals("java/io/FileInputStream")
             || owner.equals("java/io/FileOutputStream")
             || owner.equals("java/io/RandomAccessFile"))
-        && method.equals("<init>")) return true;
+        && method.equals("<init>")) {
+      return true;
+    }
     return owner.equals("java/nio/file/Files")
         && (method.startsWith("read")
             || method.startsWith("write")
@@ -133,17 +140,24 @@ final class SinkRules {
   }
 
   static boolean isHttpSink(String owner, String method) {
-    if (CallSites.isRestTemplateCall(owner, method)) return true;
-    if (owner.startsWith("java/net/") && owner.contains("URLConnection"))
+    if (CallSites.isRestTemplateCall(owner, method)) {
+      return true;
+    }
+    if (owner.startsWith("java/net/") && owner.contains("URLConnection")) {
       return method.equals("connect")
           || method.equals("getInputStream")
           || method.equals("getOutputStream")
           || method.equals("getResponseCode");
-    if (owner.equals("java/net/URL"))
+    }
+    if (owner.equals("java/net/URL")) {
       return method.equals("openStream") || method.equals("getContent");
-    if (owner.startsWith("java/net/http/"))
+    }
+    if (owner.startsWith("java/net/http/")) {
       return method.equals("send") || method.equals("sendAsync");
-    if (owner.startsWith("okhttp3/")) return method.equals("execute") || method.equals("enqueue");
+    }
+    if (owner.startsWith("okhttp3/")) {
+      return method.equals("execute") || method.equals("enqueue");
+    }
     return (owner.startsWith("org/apache/http/") || owner.startsWith("org/apache/hc/"))
         && method.startsWith("execute");
   }
@@ -151,17 +165,24 @@ final class SinkRules {
   private static void command(Call c, Consumer<Finding> emit) {
     List<String> args;
     boolean flat = false;
-    if (c.receiver instanceof ProcessBuilder) args = ((ProcessBuilder) c.receiver).command();
-    else if (c.arguments.length > 0 && c.arguments[0] instanceof String[])
+    if (c.receiver instanceof ProcessBuilder) {
+      args = ((ProcessBuilder) c.receiver).command();
+    } else if (c.arguments.length > 0 && c.arguments[0] instanceof String[]) {
       args = asList((String[]) c.arguments[0]);
-    else if (c.arguments.length > 0 && c.arguments[0] instanceof String) {
+    } else if (c.arguments.length > 0 && c.arguments[0] instanceof String) {
       String input = (String) c.arguments[0];
       args = new ArrayList<>();
       StringTokenizer tokens = new StringTokenizer(input);
-      while (tokens.hasMoreTokens() && args.size() < 128) args.add(tokens.nextToken());
+      while (tokens.hasMoreTokens() && args.size() < 128) {
+        args.add(tokens.nextToken());
+      }
       flat = true;
-    } else return;
-    if (args.isEmpty()) return;
+    } else {
+      return;
+    }
+    if (args.isEmpty()) {
+      return;
+    }
     String executable = args.get(0).replace('\\', '/');
     executable = executable.substring(executable.lastIndexOf('/') + 1).toLowerCase(Locale.ROOT);
     int shellIndex = shellCommandIndex(executable, args);
@@ -173,10 +194,16 @@ final class SinkRules {
       List<Mark> scriptMarks = new ArrayList<>();
       List<Mark> argumentMarks = new ArrayList<>();
       while (offset < input.length() && token < 128) {
-        while (offset < input.length() && " \t\n\r\f".indexOf(input.charAt(offset)) >= 0) offset++;
+        while (offset < input.length() && " \t\n\r\f".indexOf(input.charAt(offset)) >= 0) {
+          offset++;
+        }
         int from = offset;
-        while (offset < input.length() && " \t\n\r\f".indexOf(input.charAt(offset)) < 0) offset++;
-        if (from == offset) break;
+        while (offset < input.length() && " \t\n\r\f".indexOf(input.charAt(offset)) < 0) {
+          offset++;
+        }
+        if (from == offset) {
+          break;
+        }
         List<Mark> target =
             token == 0
                 ? executableMarks
@@ -184,8 +211,11 @@ final class SinkRules {
                         && (token == shellIndex || (commandTail(executable) && token > shellIndex))
                     ? scriptMarks
                     : argumentMarks;
-        for (Mark mark : c.arg(0))
-          if (mark.start < offset && mark.end > from && !target.contains(mark)) target.add(mark);
+        for (Mark mark : c.arg(0)) {
+          if (mark.start < offset && mark.end > from && !target.contains(mark)) {
+            target.add(mark);
+          }
+        }
         token++;
       }
       emit.accept(new Finding("command_execution", "executable", executableMarks));
@@ -214,30 +244,40 @@ final class SinkRules {
       boolean command = false;
       for (int i = 1; i < args.size(); i++) {
         String option = args.get(i);
-        if (option.equals("--") || option.equals("-"))
+        if (option.equals("--") || option.equals("-")) {
           return command && i + 1 < args.size() ? i + 1 : -1;
+        }
         // The first non-option is command text only if -c was already parsed;
         // otherwise it is a script filename and later -c tokens belong to that script.
-        if (option.equals("+") || !(option.startsWith("-") || option.startsWith("+")))
+        if (option.equals("+") || !(option.startsWith("-") || option.startsWith("+"))) {
           return command ? i : -1;
+        }
         if (option.startsWith("--")) {
           if (option.equals("--rcfile")
               || option.equals("--init-file")
-              || option.equals("--emulate")) i++;
+              || option.equals("--emulate")) {
+            i++;
+          }
           continue;
         }
-        if (option.charAt(0) == '-' && option.indexOf('c', 1) >= 0) command = true;
+        if (option.charAt(0) == '-' && option.indexOf('c', 1) >= 0) {
+          command = true;
+        }
         for (int flag = 1; flag < option.length(); flag++) {
           char value = option.charAt(flag);
           if ((value == 'o' || value == 'O')
               && i + 1 < args.size()
-              && !(args.get(i + 1).startsWith("-") || args.get(i + 1).startsWith("+"))) i++;
+              && !(args.get(i + 1).startsWith("-") || args.get(i + 1).startsWith("+"))) {
+            i++;
+          }
         }
       }
     } else if (commandTail(executable)) {
       for (int i = 1; i < args.size() - 1; i++) {
         String option = args.get(i).toLowerCase(Locale.ROOT);
-        if (option.equals("/c") || option.equals("-c") || option.equals("-command")) return i + 1;
+        if (option.equals("/c") || option.equals("-c") || option.equals("-command")) {
+          return i + 1;
+        }
       }
     }
     return -1;

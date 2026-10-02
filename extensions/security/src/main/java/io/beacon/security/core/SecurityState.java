@@ -66,11 +66,15 @@ public final class SecurityState implements AutoCloseable {
       truncated = true;
       return;
     }
-    if (sinkSites.add(rule + "|" + site)) sinks.put(rule, sinks.getOrDefault(rule, 0) + 1);
+    if (sinkSites.add(rule + "|" + site)) {
+      sinks.put(rule, sinks.getOrDefault(rule, 0) + 1);
+    }
   }
 
   public synchronized void pending(Map<String, Object> event) {
-    if (pending.size() < maxFindings) pending.add(event);
+    if (pending.size() < maxFindings) {
+      pending.add(event);
+    }
   }
 
   public synchronized List<Map<String, Object>> pending() {
@@ -79,7 +83,9 @@ public final class SecurityState implements AutoCloseable {
 
   public synchronized List<String> findingIds() {
     Set<String> ids = new LinkedHashSet<>();
-    for (Map<String, Object> event : pending) ids.add(String.valueOf(event.get("finding_id")));
+    for (Map<String, Object> event : pending) {
+      ids.add(String.valueOf(event.get("finding_id")));
+    }
     return new ArrayList<>(ids);
   }
 
@@ -98,14 +104,19 @@ public final class SecurityState implements AutoCloseable {
   }
 
   public synchronized void gap(String reason) {
-    if (gaps.size() < 32) gaps.add(reason);
+    if (gaps.size() < 32) {
+      gaps.add(reason);
+    }
   }
 
   public synchronized void container(Object object, String method, String name, String location) {
-    if (closed || object == null) return;
+    if (closed || object == null) {
+      return;
+    }
     RequestTracking.Entry tracked = track(object);
-    if (tracked != null)
+    if (tracked != null) {
       update(tracked, tracked.marks, tracked.destination, new String[] {method, name, location});
+    }
   }
 
   @Nullable
@@ -116,7 +127,9 @@ public final class SecurityState implements AutoCloseable {
 
   @Nullable
   public synchronized Map<String, Object> diagnostics() {
-    if (!truncated && gaps.isEmpty() && collectionEnabled) return null;
+    if (!truncated && gaps.isEmpty() && collectionEnabled) {
+      return null;
+    }
     return map(
         "event_name",
         "beacon.security.collection.incomplete",
@@ -160,9 +173,13 @@ public final class SecurityState implements AutoCloseable {
   }
 
   public synchronized void destination(Object object, String value) {
-    if (closed || object == null) return;
+    if (closed || object == null) {
+      return;
+    }
     RequestTracking.Entry tracked = value == null ? objects.get(object) : track(object);
-    if (tracked != null) update(tracked, tracked.marks, value, tracked.container);
+    if (tracked != null) {
+      update(tracked, tracked.marks, value, tracked.container);
+    }
   }
 
   public synchronized List<String> types() {
@@ -174,7 +191,9 @@ public final class SecurityState implements AutoCloseable {
   }
 
   public synchronized List<Mark> marks(Object object) {
-    if (closed || object == null) return emptyList();
+    if (closed || object == null) {
+      return emptyList();
+    }
     RequestTracking.Entry result = objects.get(object);
     return result == null ? emptyList() : result.marks;
   }
@@ -183,12 +202,16 @@ public final class SecurityState implements AutoCloseable {
     if (closed
         || !(object instanceof String)
         || ((String) object).isEmpty()
-        || !marks(object).isEmpty()) return;
+        || !marks(object).isEmpty()) {
+      return;
+    }
     if (nodes >= maxNodes) {
       truncated = true;
       return;
     }
-    if (!reserveNode("source", location, 1024)) return;
+    if (!reserveNode("source", location, 1024)) {
+      return;
+    }
     Map<String, Object> source =
         map(
             "id",
@@ -216,7 +239,9 @@ public final class SecurityState implements AutoCloseable {
       int clipStart,
       int clipEnd,
       boolean exact) {
-    if (closed || inputs.isEmpty()) return emptyList();
+    if (closed || inputs.isEmpty()) {
+      return emptyList();
+    }
     List<Mark> result = new ArrayList<>();
     for (Mark mark : inputs) {
       if (result.size() >= maxMarks || nodes >= maxNodes) {
@@ -225,8 +250,12 @@ public final class SecurityState implements AutoCloseable {
       }
       int start = Math.max(mark.start, clipStart);
       int end = Math.min(mark.end, clipEnd);
-      if (exact && start >= end) continue;
-      if (!reserveNode(operation, location, 0)) break;
+      if (exact && start >= end) {
+        continue;
+      }
+      if (!reserveNode(operation, location, 0)) {
+        break;
+      }
       Mark.Node node = new Mark.Node(++nodes, mark.node, mark.node.source, operation, location);
       result.add(
           new Mark(
@@ -239,31 +268,42 @@ public final class SecurityState implements AutoCloseable {
   }
 
   public void put(Object object, List<Mark> marks) {
-    if (object == null) return;
+    if (object == null) {
+      return;
+    }
     // StringBuffer.length acquires a business-owned monitor. Never acquire it
     // while holding request state: business code can acquire these locks in reverse.
     int length = marks.isEmpty() ? -1 : Values.length(object);
     synchronized (this) {
-      if (closed) return;
-      if (marks.isEmpty()) {
-        RequestTracking.Entry tracked = objects.get(object);
-        if (tracked != null) update(tracked, emptyList(), tracked.destination, tracked.container);
+      if (closed) {
         return;
       }
-      if (marks.size() > maxMarks) truncated = true;
+      if (marks.isEmpty()) {
+        RequestTracking.Entry tracked = objects.get(object);
+        if (tracked != null) {
+          update(tracked, emptyList(), tracked.destination, tracked.container);
+        }
+        return;
+      }
+      if (marks.size() > maxMarks) {
+        truncated = true;
+      }
       List<Mark> bounded = new ArrayList<>();
       for (Mark mark : marks.subList(0, Math.min(marks.size(), maxMarks))) {
         int end = length >= 0 ? Math.min(length, mark.end) : mark.end;
-        if (mark.start < end) bounded.add(new Mark(mark.node, mark.start, end, mark.exact));
+        if (mark.start < end) {
+          bounded.add(new Mark(mark.node, mark.start, end, mark.exact));
+        }
       }
       if (bounded.isEmpty()) {
         put(object, emptyList());
         return;
       }
       RequestTracking.Entry tracked = track(object);
-      if (tracked != null)
+      if (tracked != null) {
         update(
             tracked, Collections.unmodifiableList(bounded), tracked.destination, tracked.container);
+      }
     }
   }
 
@@ -290,7 +330,9 @@ public final class SecurityState implements AutoCloseable {
         128L
             + extra
             + 2L * (operation == null ? 0 : operation.length())
-            + 2L * (location == null ? 0 : location.length()))) return true;
+            + 2L * (location == null ? 0 : location.length()))) {
+      return true;
+    }
     truncated = true;
     gap("tracking_byte_budget");
     return false;
@@ -306,18 +348,24 @@ public final class SecurityState implements AutoCloseable {
       String currentSpanId) {
     if (closed
         || marks.isEmpty()
-        || !Settings.enabled("beacon.security.rules." + rule + ".enabled", true)) return null;
+        || !Settings.enabled("beacon.security.rules." + rule + ".enabled", true)) {
+      return null;
+    }
     if (marks.size() > maxMarks) {
       marks = marks.subList(0, maxMarks);
       truncated = true;
     }
     Map<String, Object> sourceMap = new LinkedHashMap<>();
-    for (Mark mark : marks) sourceMap.put((String) mark.node.source.get("id"), mark.node.source);
+    for (Mark mark : marks) {
+      sourceMap.put((String) mark.node.source.get("id"), mark.node.source);
+    }
     Map<String, Object> sinkFields = Events.sink(rule, role, sink, Values.bounded(location, 1024));
     String key =
         Events.fingerprint(
             Identity.applicationId(), "java", rule, sinkFields, sourceSignature(sourceMap));
-    if (seen.contains(key)) return null;
+    if (seen.contains(key)) {
+      return null;
+    }
     if (evidenceIds.size() >= maxFindings) {
       truncated = true;
       return null;
@@ -353,7 +401,7 @@ public final class SecurityState implements AutoCloseable {
       }
     }
     List<Object> ranges = new ArrayList<>();
-    for (Mark mark : marks)
+    for (Mark mark : marks) {
       ranges.add(
           map(
               "source_id",
@@ -366,6 +414,7 @@ public final class SecurityState implements AutoCloseable {
               mark.exact,
               "unit",
               "utf16_code_unit"));
+    }
     return Events.record(
         map(
             "schema_version",

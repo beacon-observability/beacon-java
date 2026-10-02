@@ -17,6 +17,7 @@ val beaconVersion = Properties().apply {
       .asText.get().reader()
   )
 }.getProperty("version") ?: error("Missing Beacon product version")
+version = beaconVersion
 val securitySpec = Properties().apply {
   load(
     providers.fileContents(rootProject.layout.projectDirectory.file("beacon/security-spec.properties"))

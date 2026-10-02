@@ -3,7 +3,7 @@ import com.github.jk1.license.filter.LicenseBundleNormalizer
 import com.github.jk1.license.render.InventoryMarkdownReportRenderer
 import org.spdx.sbom.gradle.SpdxSbomTask
 import java.nio.file.Files
-import java.util.UUID
+import java.util.Properties
 import java.util.regex.Pattern
 
 plugins {
@@ -359,20 +359,37 @@ with(components["java"] as AdhocComponentWithVariants) {
   }
 }
 
+// Keep Beacon product packaging separate from upstream module/dependency versions. Applying this
+// before the SBOM configuration also makes the embedded extension dependencies available below.
+apply(from = rootProject.file("beacon/agent.gradle.kts"))
+
+val beaconProductVersion = Properties().apply {
+  load(rootProject.file("beacon/version.properties").reader())
+}.getProperty("version") ?: error("Missing Beacon product version")
+
 spdxSbom {
   targets {
     // Create a target to match the published jar name.
     // This is used for the task name (spdxSbomFor<SbomName>)
     // and output file (<sbomName>.spdx.json).
-    create("opentelemetry-javaagent") {
-      configurations.set(listOf("baseJavaagentLibs"))
+    create("beacon-javaagent") {
+      configurations.set(listOf("baseJavaagentLibs", "beaconSecurityDependencies"))
       scm {
-        uri.set("https://github.com/" + System.getenv("GITHUB_REPOSITORY"))
-        revision.set(System.getenv("GITHUB_SHA"))
+        uri.set("https://github.com/beacon-observability/beacon-java")
+        revision.set(System.getenv("GITHUB_SHA") ?: "local")
       }
       document {
-        name.set("opentelemetry-javaagent")
-        namespace.set("https://opentelemetry.io/spdx/" + UUID.randomUUID())
+        name.set("beacon-javaagent")
+        namespace.set(
+          "https://beacon-observability.github.io/spdx/beacon-javaagent/" +
+            beaconProductVersion + "/" + (System.getenv("GITHUB_SHA") ?: "local")
+        )
+        packageSupplier.set("Organization: Beacon Observability")
+        uberPackage {
+          name.set("beacon-javaagent")
+          version.set(beaconProductVersion)
+          supplier.set("Organization: Beacon Observability")
+        }
       }
     }
   }
@@ -385,7 +402,7 @@ project.afterEvaluate {
     mustRunAfter(tasks.withType<SpdxSbomTask>())
   }
   tasks.withType<PublishToMavenLocal>().configureEach {
-    this.publication.artifact("${layout.buildDirectory.get()}/spdx/opentelemetry-javaagent.spdx.json") {
+    this.publication.artifact("${layout.buildDirectory.get()}/spdx/beacon-javaagent.spdx.json") {
       classifier = "spdx"
       extension = "json"
     }
@@ -442,9 +459,6 @@ fun ShadowJar.excludeBootstrapClasses() {
   // exclude the bootstrap part of the javaagent-extension-api
   exclude("io/opentelemetry/javaagent/bootstrap/**")
 }
-
-// Keep Beacon product packaging separate from upstream module/dependency versions.
-apply(from = rootProject.file("beacon/agent.gradle.kts"))
 
 class JavaagentProvider(
   @Input

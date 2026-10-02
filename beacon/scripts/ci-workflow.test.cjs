@@ -79,6 +79,11 @@ test('only artifact-producing build disables dependency caches', () => {
   assert.equal(setupGradleSteps.filter((step) => /^          cache-read-only: true$/m.test(step)).length, 3);
 });
 
+test('the packaged-agent path includes embedded Security acceptance', () => {
+  assert.match(source, /-p beacon\/testing\/security-smoke-fixture shadowJar --no-build-cache/);
+  assert.match(source, /node beacon\/scripts\/security-smoke\.cjs "\$agent"/);
+});
+
 test('main pushes use the lightweight build and smoke-test path', () => {
   assert.match(source, /LIGHTWEIGHT:.*github\.event_name == 'push'.*refs\/heads\/main/);
   assert.equal(

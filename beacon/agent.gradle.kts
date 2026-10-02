@@ -81,6 +81,14 @@ val beaconSecurityExtension = beaconSecurityProject?.let {
     )
   }
 }
+val beaconSecurityDependencies = beaconSecurityProject?.let {
+  configurations.create("beaconSecurityDependencies") {
+    isCanBeResolved = true
+    isCanBeConsumed = false
+  }.also { configuration ->
+    dependencies.add(configuration.name, dependencies.project(mapOf("path" to it.path)))
+  }
+}
 val beaconAgent = tasks.named<Jar>("shadowJar") {
   // Explicit file name prevents upstream archive conventions from adding an OTel prefix.
   archiveFileName.set(beaconFileName)

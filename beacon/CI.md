@@ -10,7 +10,7 @@ The product development branch is `main`. [Beacon CI](../.github/workflows/beaco
 | Upstream synchronization, shared build, or agent core changes | JDK 8 with classic transformation, JDK 17 with Indy, and JDK 21 with both modes, each across 4 partitions, for 16 test jobs | 4 Muzzle partitions |
 | Manual `full` selection | JDK 8/11/17/21/25/26 × 4 partitions × 2 Indy modes, for 48 test jobs | Muzzle, latest-dependency tests, and upstream Linux container smoke tests |
 
-All three pull-request and manual tiers build the complete agent; validate the Beacon file name, Manifest, and provenance; run maintainer-script and packaging regression tests; run packaged-agent HTTP instrumentation, TraceContext, and OTLP trace export smoke tests; and run formatting, package-name, other static checks, and license-list checks. Module tests reuse upstream `listTestsInPartition` without excluding test modules by directory. Tests wired into Gradle for Beacon-specific enhancements are included. A module without tests does not automatically gain functional acceptance.
+All three pull-request and manual tiers build the complete agent; validate the Beacon file name, Manifest, and provenance; run maintainer-script and packaging regression tests; run packaged-agent HTTP instrumentation, TraceContext, OTLP trace export, and embedded-Security smoke tests; and run formatting, package-name, other static checks, and license-list checks. Module tests reuse upstream `listTestsInPartition` without excluding test modules by directory. Tests wired into Gradle for Beacon-specific enhancements are included. A module without tests does not automatically gain functional acceptance.
 
 After a pull request has passed its selected tier and is merged, the `main` push runs only the clean agent build, packaging verification, and packaged-agent smoke test. The merge ruleset prevents direct pushes, so repeating the complete pull-request matrix on the resulting merge commit would add substantial latency without testing different file content. Manual `full` validation remains available when release acceptance or an explicit post-merge rerun is required.
 
@@ -42,7 +42,7 @@ Job-level repository conditions restrict inherited main-branch and pull-request 
 
 These restrictions preserve the original job implementations and their existing conditions; they do not rely on missing secrets to prevent execution. Restricted jobs are skipped in Beacon and ordinary downstream repositories, although their workflows or skipped runs may remain visible in the UI. Inherited FOSSA configuration generation and upstream bot lock-file regeneration checks are not Beacon merge gates. License-list and workflow security checks remain enabled.
 
-Reusable release and failure-notification jobs are also restricted. CodeQL scanning remains enabled, while its inherited scheduled-failure Issue notification runs only upstream. Beacon has not enabled automated releases, automated upstream upgrades, or pull-request and Issue management bots.
+Reusable inherited release and failure-notification jobs are also restricted. CodeQL scanning remains enabled, while its inherited scheduled-failure Issue notification runs only upstream. Beacon uses its own manually dispatched preparation and release workflows; it has not enabled automated upstream upgrades or inherited pull-request and Issue management bots.
 
 Inherited `*.lock.yml` generated files are also protected by repository conditions. When regenerating or merging upstream versions, review those conditions again; do not overwrite them with generated output that re-enables the jobs. Adapt workflows individually as needed rather than removing repository restrictions wholesale.
 
@@ -56,8 +56,9 @@ Inherited `*.lock.yml` generated files are also protected by repository conditio
 
 ## Items still to confirm
 
-- Formal release approvers and a GitHub Environment. `main` does not currently require code-owner approval.
-- Long-term artifact hosting and signing policy. GitHub Releases currently hosts the release JAR and SHA-256 digest. The product version, file name, and Manifest are managed by the [Beacon packaging configuration](agent.gradle.kts).
+- Long-term artifact hosting and signing policy beyond GitHub Releases and GitHub's OIDC-backed
+  build-provenance attestation. The product version, file name, and Manifest are managed by the
+  [Beacon packaging configuration](agent.gradle.kts).
 - The actual support matrix and build and runtime acceptance results.
 
 Until these items are complete, do not expand support claims beyond the evidence attached to each published release. See the [release process](RELEASING.md) for publication order.

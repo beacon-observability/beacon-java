@@ -34,6 +34,7 @@ test('publish promotes the uploaded candidate without rebuilding it', () => {
   assert.match(publish, /release-metadata\.cjs verify-artifact/);
   assert.match(publish, /actions\/attest-build-provenance@/);
   assert.match(publish, /gh release create/);
+  assert.match(publish, /--title "\$TAG"/);
   assert.match(publish, /gh release download/);
   assert.doesNotMatch(publish, /\.\/gradlew|assemble|spdxSbom/);
 });

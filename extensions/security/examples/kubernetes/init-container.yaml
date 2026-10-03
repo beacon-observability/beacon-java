@@ -20,7 +20,7 @@ spec:
         fsGroup: 65532
       initContainers:
         - name: beacon-javaagent
-          image: registry.example.com/observability/beacon-javaagent:1.0.0
+          image: registry.example.com/observability/beacon-javaagent:1.1.0
           command: ["cp", "/javaagent.jar", "/beacon/javaagent.jar"]
           resources:
             requests:

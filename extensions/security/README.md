@@ -18,14 +18,31 @@ embeds that record under `META-INF/beacon/` and exposes the versions in its Mani
 
 ## Current status
 
-The embedded extension, runtime data-flow observation, security finding events, local diagnostic
-snapshots, and runtime CycloneDX SBOM are implemented and locally validated. They have not yet been
-published as part of an accepted Beacon Java release. Findings are runtime observations or
-candidate risks; they are not claims that a vulnerability has been confirmed.
+Beacon Java 1.1.0 publishes the embedded extension, runtime data-flow observation, security finding
+events, local diagnostic snapshots, and runtime CycloneDX SBOM in the complete Agent. Findings are
+runtime observations or candidate risks; they are not claims that a vulnerability has been
+confirmed. See the
+[Beacon Java 1.1.0 release](https://github.com/beacon-observability/beacon-java/releases/tag/v1.1.0)
+for the immutable Agent, checksum, SPDX SBOM, provenance, licenses, and attestations.
 
 Security is disabled by default. Enabling it also enables the runtime SBOM unless explicitly
 disabled. Production delivery uses the Java agent's OpenTelemetry Logs pipeline. Local JSON files
 are diagnostic output and remain disabled by default.
+
+## Download the released Agent
+
+Download and verify the complete Agent before deploying it:
+
+```bash
+version=1.1.0
+release="https://github.com/beacon-observability/beacon-java/releases/download/v$version"
+curl --fail --location --remote-name "$release/beacon-javaagent-$version.jar"
+curl --fail --location --remote-name "$release/beacon-javaagent-$version.jar.sha256"
+sha256sum --check "beacon-javaagent-$version.jar.sha256"
+```
+
+The checksum file covers the Agent JAR. The same release also publishes the SPDX SBOM, provenance,
+license, and third-party notices. There is no separate Security JAR to install.
 
 ## Build and verify
 
@@ -41,7 +58,7 @@ export PATH="$JAVA_HOME/bin:$PATH"
 The application-facing artifact is:
 
 ```text
-javaagent/build/libs/beacon-javaagent-1.0.0.jar
+javaagent/build/libs/beacon-javaagent-1.1.0.jar
 ```
 
 The internal `extensions/beacon-security-extension.jar` entry in that artifact is a packaging
@@ -57,14 +74,14 @@ OTEL_SERVICE_NAME=orders \
 OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf \
 OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318 \
 OTEL_LOGS_EXPORTER=otlp \
-java -javaagent:/opt/beacon/beacon-javaagent-1.0.0.jar -jar orders.jar
+java -javaagent:/opt/beacon/beacon-javaagent-1.1.0.jar -jar orders.jar
 ```
 
 The equivalent JVM-property form is useful for local debugging:
 
 ```bash
 java \
-  -javaagent:/opt/beacon/beacon-javaagent-1.0.0.jar \
+  -javaagent:/opt/beacon/beacon-javaagent-1.1.0.jar \
   -Dbeacon.security.enabled=true \
   -Dotel.service.name=orders \
   -Dotel.exporter.otlp.protocol=http/protobuf \
@@ -101,7 +118,7 @@ BEACON_SECURITY_EVIDENCE_FILE=/tmp/beacon-security/evidence.jsonl \
 OTEL_TRACES_EXPORTER=none \
 OTEL_METRICS_EXPORTER=none \
 OTEL_LOGS_EXPORTER=none \
-java -javaagent:javaagent/build/libs/beacon-javaagent-1.0.0.jar -jar app.jar
+java -javaagent:javaagent/build/libs/beacon-javaagent-1.1.0.jar -jar app.jar
 ```
 
 This produces `findings.json`, `health.json`, `runs.json`, and `application.cdx.json`. These files
@@ -110,16 +127,16 @@ are per-process diagnostics, not a Kubernetes aggregation or durable delivery me
 ## Kubernetes
 
 The checked-in [Dockerfile](../../beacon/docker/javaagent/Dockerfile) packages the complete Agent as
-an init image. No registry image is published by this change. Build a local or private-registry
+an init image. No registry image is published by this release. Build a local or private-registry
 image from the repository root:
 
 ```bash
 docker build \
   -f beacon/docker/javaagent/Dockerfile \
-  --build-arg AGENT_JAR=beacon-javaagent-1.0.0.jar \
-  -t registry.example.com/observability/beacon-javaagent:1.0.0 \
+  --build-arg AGENT_JAR=beacon-javaagent-1.1.0.jar \
+  -t registry.example.com/observability/beacon-javaagent:1.1.0 \
   javaagent/build/libs
-docker push registry.example.com/observability/beacon-javaagent:1.0.0
+docker push registry.example.com/observability/beacon-javaagent:1.1.0
 ```
 
 Replace the two image placeholders and Collector endpoint in the

@@ -1,6 +1,7 @@
 display_name: Spring AI
 description: >
-  This instrumentation creates GenAI client spans for Spring AI ChatModel calls.
+  This instrumentation creates GenAI client spans for Spring AI ChatModel calls and streams,
+  marking streaming requests with gen_ai.request.stream.
 library_link: https://spring.io/projects/spring-ai
 semantic_conventions:
   - GENAI_CLIENT_SPANS

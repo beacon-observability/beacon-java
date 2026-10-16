@@ -47,7 +47,7 @@ class ChatModelInstrumentation implements TypeInstrumentation {
     @Advice.OnMethodEnter(suppress = Throwable.class, inline = false)
     public static Context onEnter(
         @Advice.This Object chatModel, @Advice.Argument(0) Prompt prompt) {
-      SpringAiRequest request = SpringAiRequest.create(prompt, chatModel);
+      SpringAiRequest request = SpringAiRequest.create(prompt, chatModel, false);
       Context parentContext = Context.current();
       if (!instrumenter().shouldStart(parentContext, request)) {
         return null;
@@ -67,7 +67,7 @@ class ChatModelInstrumentation implements TypeInstrumentation {
         @Advice.Return ChatResponse response,
         @Advice.Thrown Throwable throwable) {
       if (context != null) {
-        SpringAiRequest request = SpringAiRequest.create(prompt, chatModel);
+        SpringAiRequest request = SpringAiRequest.create(prompt, chatModel, false);
         SpringAiMessageAttributes.setOutputMessages(context, response, null);
         SpringAiMessageEvents.emitResponseEvents(context, request, response, null);
         instrumenter().end(context, request, response, throwable);
@@ -86,7 +86,7 @@ class ChatModelInstrumentation implements TypeInstrumentation {
       if (publisher == null) {
         return publisher;
       }
-      return SpringAiStreamTracing.wrap(publisher, SpringAiRequest.create(prompt, chatModel));
+      return SpringAiStreamTracing.wrap(publisher, SpringAiRequest.create(prompt, chatModel, true));
     }
   }
 }

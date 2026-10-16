@@ -38,6 +38,11 @@ final class SpringAiAttributesGetter
   }
 
   @Override
+  public boolean isRequestStreaming(SpringAiRequest request) {
+    return request.isStreaming();
+  }
+
+  @Override
   public Long getRequestSeed(SpringAiRequest request) {
     return null;
   }

@@ -13,6 +13,7 @@ import static io.opentelemetry.sdk.testing.assertj.OpenTelemetryAssertions.equal
 import static io.opentelemetry.semconv.incubating.GenAiIncubatingAttributes.GEN_AI_OPERATION_NAME;
 import static io.opentelemetry.semconv.incubating.GenAiIncubatingAttributes.GEN_AI_PROVIDER_NAME;
 import static io.opentelemetry.semconv.incubating.GenAiIncubatingAttributes.GEN_AI_REQUEST_MODEL;
+import static io.opentelemetry.semconv.incubating.GenAiIncubatingAttributes.GEN_AI_REQUEST_STREAM;
 import static io.opentelemetry.semconv.incubating.GenAiIncubatingAttributes.GEN_AI_RESPONSE_FINISH_REASONS;
 import static io.opentelemetry.semconv.incubating.GenAiIncubatingAttributes.GEN_AI_RESPONSE_ID;
 import static io.opentelemetry.semconv.incubating.GenAiIncubatingAttributes.GEN_AI_RESPONSE_MODEL;
@@ -38,7 +39,7 @@ import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.prompt.DefaultChatOptions;
 import org.springframework.ai.chat.prompt.Prompt;
 
-@SuppressWarnings({"OtelDeprecatedApiUsage", "PublicApiNamedStreamShouldReturnStream"})
+@SuppressWarnings({"deprecation", "PublicApiNamedStreamShouldReturnStream"})
 class ChatModelTest {
 
   private static final String MODEL = "test-model";
@@ -56,7 +57,7 @@ class ChatModelTest {
     testing.runWithSpan("parent", () -> chatModel.call(prompt()));
 
     SpanContext spanContext = testing.waitForTraces(1).get(0).get(1).getSpanContext();
-    assertTraces();
+    assertTraces(false);
     assertMessageEvents(spanContext);
   }
 
@@ -65,7 +66,7 @@ class ChatModelTest {
     testing.runWithSpan("parent", () -> chatModel.stream(prompt()).blockLast());
 
     SpanContext spanContext = testing.waitForTraces(1).get(0).get(1).getSpanContext();
-    assertTraces();
+    assertTraces(true);
     assertMessageEvents(spanContext);
   }
 
@@ -143,7 +144,7 @@ class ChatModelTest {
                 "[{\"role\":\"assistant\",\"parts\":[{\"type\":\"text\",\"content\":\"first\\n\\\"quoted\\\"\"}],\"finish_reason\":\"stop\"}]"));
   }
 
-  private static void assertTraces() {
+  private static void assertTraces(boolean streaming) {
     testing.waitAndAssertTraces(
         trace ->
             trace.hasSpansSatisfyingExactly(
@@ -156,6 +157,7 @@ class ChatModelTest {
                             equalTo(GEN_AI_PROVIDER_NAME, "test"),
                             equalTo(GEN_AI_OPERATION_NAME, CHAT),
                             equalTo(GEN_AI_REQUEST_MODEL, MODEL),
+                            equalTo(GEN_AI_REQUEST_STREAM, streaming ? true : null),
                             equalTo(GEN_AI_RESPONSE_FINISH_REASONS, singletonList("stop")),
                             equalTo(GEN_AI_RESPONSE_ID, "response-id"),
                             equalTo(GEN_AI_RESPONSE_MODEL, MODEL),

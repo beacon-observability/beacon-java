@@ -4,11 +4,36 @@ This file records Beacon product changes only. The root [CHANGELOG.md](../CHANGE
 
 ## Unreleased
 
-- Adapted Spring AI to the upstream GenAI SPI and mark streaming requests with `gen_ai.request.stream`.
-
-- Building Beacon Java now requires JDK 25, matching the adopted upstream build.
+## Version 1.2.0 (2026-10-16)
 
 - Integrated official OTel Java Instrumentation [v2.32.0](https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/tag/v2.32.0), pinned to `1b8644f8eb11d90295b1c313391aa84edeeec6e2`, with its SDK and build constraints. Review the root upstream changelog for compatibility and migration notes; Beacon product versioning remains independent.
+
+### Upstream synchronization
+
+- Updated the adopted baseline from OTel Java Instrumentation v2.31.1 to
+  [v2.32.0](https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/tag/v2.32.0),
+  pinned to `1b8644f8eb11d90295b1c313391aa84edeeec6e2`, with SDK 1.66.0 and the matching build constraints.
+  Beacon product versioning remains independent of the upstream version.
+- Preserved Beacon's JDBC, experimental Profiling, Spring AI / Alibaba Agent, and embedded Security
+  enhancements. Security remains opt-in and is distributed in the complete Agent JAR.
+
+### Compatibility and build requirements
+
+- Building from source now requires **JDK 25**, matching the upstream build. This is a build
+  requirement and does not by itself change or expand the supported application runtime matrix.
+- Adapted Spring AI instrumentation to the new GenAI streaming interface. Streaming requests emit
+  `gen_ai.request.stream=true`; ordinary calls omit that attribute.
+- Before upgrading, review the v2.32.0 entry in the root [upstream changelog](../CHANGELOG.md),
+  especially unstable API changes, the JMX SPI, and configuration deprecations. Validate custom
+  extensions and affected configuration against the new baseline.
+- Profiling remains experimental. Runtime support and release acceptance remain tied to the
+  published artifact's validation evidence; no new platform support is claimed by this update.
+
+### Release preparation
+
+- Prepared the independent Beacon 1.2.0 product version in the upstream synchronization PR.
+  Formal publication still requires full Beacon CI on the exact merge commit and the controlled
+  candidate build and approval process.
 
 ## Version 1.1.0 (2026-10-02)
 

@@ -19,7 +19,7 @@ permissions:
 jobs:
   build:
     if: github.repository == 'open-telemetry/opentelemetry-java-instrumentation'
-    uses: ./.github/workflows/reusable-pr-smoke-test-images.yml
+    uses: $/.github/workflows/reusable-pr-smoke-test-images.yml
     with:
       project: ":smoke-tests:images:grpc"
       cache-read-only: true

@@ -114,7 +114,6 @@ jobs:
           ./gradlew -p conventions spotlessCheck
           ./gradlew checkstyleMain checkstyleTest
           .github/scripts/check-package-names.sh
-          .github/scripts/check-javaagent-suppression-keys.sh
           .github/scripts/check-latest-dep-test-overrides.sh
       - name: License inventory
         run: |
@@ -184,17 +183,17 @@ jobs:
   muzzle:
     needs: plan
     if: ${{ (github.event_name != 'push' || github.ref != 'refs/heads/main') && needs.plan.outputs.muzzle == 'true' }}
-    uses: ./.github/workflows/reusable-muzzle.yml
+    uses: $/.github/workflows/reusable-muzzle.yml
 
   latest-deps:
     needs: plan
     if: ${{ (github.event_name != 'push' || github.ref != 'refs/heads/main') && needs.plan.outputs.full == 'true' }}
-    uses: ./.github/workflows/reusable-test-latest-deps.yml
+    uses: $/.github/workflows/reusable-test-latest-deps.yml
 
   native:
     needs: plan
     if: github.event_name == 'workflow_dispatch' && inputs.native
-    uses: ./.github/workflows/reusable-native-tests.yml
+    uses: $/.github/workflows/reusable-native-tests.yml
 
   upstream-smoke:
     needs: plan

@@ -57,7 +57,7 @@ jobs:
     needs:
       - crawl
     if: ${{ github.repository == 'open-telemetry/opentelemetry-java-instrumentation' && (needs.crawl.result == 'success') }}
-    uses: ./.github/workflows/reusable-workflow-notification.yml
+    uses: $/.github/workflows/reusable-workflow-notification.yml
     with:
       success: ${{ needs.crawl.outputs.success == 'true' }}
       title: "Documentation sync needed: opentelemetry.io site out of sync"
@@ -69,6 +69,6 @@ jobs:
     needs:
       - crawl
     if: ${{ github.repository == 'open-telemetry/opentelemetry-java-instrumentation' && (always()) }}
-    uses: ./.github/workflows/reusable-workflow-notification.yml
+    uses: $/.github/workflows/reusable-workflow-notification.yml
     with:
       success: ${{ needs.crawl.result == 'success' }}

@@ -12,23 +12,23 @@ permissions:
 jobs:
   common:
     if: ${{ github.repository == 'open-telemetry/opentelemetry-java-instrumentation' }}
-    uses: ./.github/workflows/build-common.yml
+    uses: $/.github/workflows/build-common.yml
     secrets:
       DEVELOCITY_ACCESS_KEY: ${{ secrets.DEVELOCITY_ACCESS_KEY }}
 
   test-latest-deps:
     if: ${{ github.repository == 'open-telemetry/opentelemetry-java-instrumentation' }}
-    uses: ./.github/workflows/reusable-test-latest-deps.yml
+    uses: $/.github/workflows/reusable-test-latest-deps.yml
     secrets:
       DEVELOCITY_ACCESS_KEY: ${{ secrets.DEVELOCITY_ACCESS_KEY }}
 
   muzzle:
     if: ${{ github.repository == 'open-telemetry/opentelemetry-java-instrumentation' }}
-    uses: ./.github/workflows/reusable-muzzle.yml
+    uses: $/.github/workflows/reusable-muzzle.yml
 
   lint:
     if: ${{ github.repository == 'open-telemetry/opentelemetry-java-instrumentation' }}
-    uses: ./.github/workflows/reusable-lint-check.yml
+    uses: $/.github/workflows/reusable-lint-check.yml
 
   publish-snapshots:
     if: ${{ github.repository == 'open-telemetry/opentelemetry-java-instrumentation' }}
@@ -86,7 +86,7 @@ jobs:
       - lint
       - publish-snapshots
     if: ${{ github.repository == 'open-telemetry/opentelemetry-java-instrumentation' && (always()) }}
-    uses: ./.github/workflows/reusable-workflow-notification.yml
+    uses: $/.github/workflows/reusable-workflow-notification.yml
     with:
       success: >-
         ${{

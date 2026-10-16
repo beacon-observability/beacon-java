@@ -7,6 +7,7 @@ package io.opentelemetry.javaagent.instrumentation.rediscala.v1_8;
 
 import static java.util.Arrays.asList;
 
+import io.opentelemetry.instrumentation.api.incubator.semconv.db.internal.RedisServerTarget;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -35,40 +36,44 @@ class RediscalaRequest {
   private final String operationName;
   private final String stableOperationName;
   @Nullable private final Long batchSize;
-  @Nullable private final String host;
-  @Nullable private final Integer port;
+  @Nullable private final ServerEndpoint endpoint;
+  @Nullable private final RedisServerTarget serverTarget;
 
   static RediscalaRequest create(
-      RedisCommand<?, ?> command, @Nullable String host, @Nullable Integer port) {
+      RedisCommand<?, ?> command,
+      @Nullable ServerEndpoint endpoint,
+      @Nullable RedisServerTarget serverTarget) {
     return new RediscalaRequest(
         operationName(command, /* stable= */ false),
         operationName(command, /* stable= */ true),
         null,
-        host,
-        port);
+        endpoint,
+        serverTarget);
   }
 
   static RediscalaRequest createTransaction(
-      Queue<Operation<?, ?>> operations, @Nullable String host, @Nullable Integer port) {
+      Queue<Operation<?, ?>> operations,
+      @Nullable ServerEndpoint endpoint,
+      @Nullable RedisServerTarget serverTarget) {
     return new RediscalaRequest(
         transactionOperationName(operations, /* stable= */ false),
         transactionOperationName(operations, /* stable= */ true),
         batchSize(operations),
-        host,
-        port);
+        endpoint,
+        serverTarget);
   }
 
   private RediscalaRequest(
       String operationName,
       String stableOperationName,
       @Nullable Long batchSize,
-      @Nullable String host,
-      @Nullable Integer port) {
+      @Nullable ServerEndpoint endpoint,
+      @Nullable RedisServerTarget serverTarget) {
     this.operationName = operationName;
     this.stableOperationName = stableOperationName;
     this.batchSize = batchSize;
-    this.host = host;
-    this.port = port;
+    this.endpoint = endpoint;
+    this.serverTarget = serverTarget;
   }
 
   String getOperationName() {
@@ -86,12 +91,22 @@ class RediscalaRequest {
 
   @Nullable
   String getHost() {
-    return host;
+    return endpoint != null ? endpoint.getHost() : null;
   }
 
   @Nullable
   Integer getPort() {
-    return port;
+    return endpoint != null ? endpoint.getPort() : null;
+  }
+
+  @Nullable
+  Integer getDatabaseIndex() {
+    return endpoint != null ? endpoint.getDatabaseIndex() : null;
+  }
+
+  @Nullable
+  RedisServerTarget getServerTarget() {
+    return serverTarget;
   }
 
   private static String transactionOperationName(

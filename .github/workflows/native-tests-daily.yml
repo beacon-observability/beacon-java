@@ -12,7 +12,7 @@ permissions:
 jobs:
   graalvm-native-tests:
     if: ${{ github.repository == 'open-telemetry/opentelemetry-java-instrumentation' }}
-    uses: ./.github/workflows/reusable-native-tests.yml
+    uses: $/.github/workflows/reusable-native-tests.yml
     with:
       test-latest-deps: true
 
@@ -23,7 +23,7 @@ jobs:
     needs:
       - graalvm-native-tests
     if: ${{ github.repository == 'open-telemetry/opentelemetry-java-instrumentation' && (always()) }}
-    uses: ./.github/workflows/reusable-workflow-notification.yml
+    uses: $/.github/workflows/reusable-workflow-notification.yml
     with:
       success: ${{ needs.graalvm-native-tests.result == 'success' }}
       failure-notification-after-attempts: 2

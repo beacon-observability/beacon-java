@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 const assert = require('node:assert/strict');
-const { readFileSync, readdirSync } = require('node:fs');
+const { readFileSync, readdirSync, statSync } = require('node:fs');
 const { resolve } = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { test } = require('node:test');
@@ -138,4 +138,28 @@ test('requested native tests must succeed', () => {
   assert.equal(check(needs, true).status, 1);
   needs.native.result = 'success';
   assert.equal(check(needs, true).status, 0);
+});
+
+
+test('Beacon CI references executable repository scripts', () => {
+  const scripts = [...source.matchAll(/(?:^\s*|run:\s*)(\.github\/scripts\/[\w.-]+\.sh)(?=\s|$)/gm)]
+    .map((match) => match[1]);
+  assert(scripts.length > 0, 'Expected repository script checks in Beacon CI');
+  for (const script of scripts) {
+    const info = statSync(resolve(root, script));
+    assert(info.isFile(), `${script} must exist after an upstream upgrade`);
+    assert(info.mode & 0o111, `${script} must be executable`);
+  }
+});
+
+test('same-repository reusable workflows use pinned self-repository references', () => {
+  for (const file of readdirSync(workflows).filter((name) => /\.ya?ml$/.test(name))) {
+    const contents = readFileSync(resolve(workflows, file), 'utf8');
+    for (const match of contents.matchAll(/^    uses: ([.$]\/\.github\/workflows\/[^\s]+)$/gm)) {
+      const reference = match[1];
+      assert(reference.startsWith('$/'), `${file}: use the self-repository syntax`);
+      assert(!reference.includes('@'), `${file}: local references use the caller commit`);
+      assert(statSync(resolve(root, reference.slice(2))).isFile(), `${file}: missing workflow`);
+    }
+  }
 });

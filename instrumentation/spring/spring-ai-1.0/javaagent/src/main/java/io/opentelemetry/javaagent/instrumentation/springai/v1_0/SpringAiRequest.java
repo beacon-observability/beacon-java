@@ -11,14 +11,16 @@ import org.springframework.ai.chat.prompt.Prompt;
 public final class SpringAiRequest {
   private final Prompt prompt;
   private final String provider;
+  private final boolean streaming;
 
-  public static SpringAiRequest create(Prompt prompt, Object chatModel) {
-    return new SpringAiRequest(prompt, providerName(chatModel));
+  public static SpringAiRequest create(Prompt prompt, Object chatModel, boolean streaming) {
+    return new SpringAiRequest(prompt, providerName(chatModel), streaming);
   }
 
-  private SpringAiRequest(Prompt prompt, String provider) {
+  private SpringAiRequest(Prompt prompt, String provider, boolean streaming) {
     this.prompt = prompt;
     this.provider = provider;
+    this.streaming = streaming;
   }
 
   public Prompt prompt() {
@@ -27,6 +29,10 @@ public final class SpringAiRequest {
 
   public String provider() {
     return provider;
+  }
+
+  public boolean isStreaming() {
+    return streaming;
   }
 
   private static String providerName(Object chatModel) {

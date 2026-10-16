@@ -4,6 +4,10 @@ This file records Beacon product changes only. The root [CHANGELOG.md](../CHANGE
 
 ## Unreleased
 
+- Building Beacon Java now requires JDK 25, matching the adopted upstream build.
+
+- Integrated official OTel Java Instrumentation [v2.32.0](https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/tag/v2.32.0), pinned to `1b8644f8eb11d90295b1c313391aa84edeeec6e2`, with its SDK and build constraints. Review the root upstream changelog for compatibility and migration notes; Beacon product versioning remains independent.
+
 ## Version 1.1.0 (2026-10-02)
 
 This release adds Beacon Security to the complete Beacon Java agent as an opt-in capability. The

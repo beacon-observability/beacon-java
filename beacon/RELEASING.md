@@ -31,7 +31,7 @@ bypass an environment review.
 ## Building a release candidate
 
 The publication workflow is the formal candidate builder. For local diagnosis from a clean release
-commit with JDK 21, run the following commands at the repository root:
+commit with JDK 25, run the following commands at the repository root:
 
 ```bash
 ./gradlew :javaagent:assemble :javaagent:verifyBeaconAgent :javaagent:spdxSbom

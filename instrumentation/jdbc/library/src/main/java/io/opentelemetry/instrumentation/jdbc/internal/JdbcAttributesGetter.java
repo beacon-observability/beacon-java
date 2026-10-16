@@ -6,9 +6,12 @@
 package io.opentelemetry.instrumentation.jdbc.internal;
 
 import static io.opentelemetry.instrumentation.api.incubator.semconv.db.internal.SqlDialectUtil.fromDbSystemName;
+import static io.opentelemetry.instrumentation.api.internal.SemconvStability.emitStableDatabaseSemconv;
 
 import io.opentelemetry.instrumentation.api.incubator.semconv.db.SqlClientAttributesGetter;
 import io.opentelemetry.instrumentation.api.incubator.semconv.db.SqlDialect;
+import io.opentelemetry.instrumentation.api.incubator.semconv.db.internal.DbServerTarget;
+import io.opentelemetry.instrumentation.jdbc.internal.dbinfo.DbInfo;
 import java.sql.SQLException;
 import java.util.Collection;
 import java.util.Map;
@@ -78,8 +81,16 @@ public final class JdbcAttributesGetter implements SqlClientAttributesGetter<DbR
   public String getErrorType(
       DbRequest request, @Nullable Void response, @Nullable Throwable error) {
     if (error instanceof SQLException) {
-      int errorCode = ((SQLException) error).getErrorCode();
-      return errorCode == 0 ? null : Integer.toString(errorCode);
+      SQLException sqlException = (SQLException) error;
+      int errorCode = sqlException.getErrorCode();
+      if (errorCode != 0) {
+        return Integer.toString(errorCode);
+      }
+      String sqlState = sqlException.getSQLState();
+      if (sqlState == null || sqlState.isEmpty() || sqlState.equals("00000")) {
+        return null;
+      }
+      return sqlState;
     }
     return null;
   }
@@ -98,12 +109,22 @@ public final class JdbcAttributesGetter implements SqlClientAttributesGetter<DbR
   @Nullable
   @Override
   public String getServerAddress(DbRequest request) {
-    return request.getDbInfo().getServerAddress();
+    DbInfo dbInfo = request.getDbInfo();
+    if (!emitStableDatabaseSemconv()) {
+      return dbInfo.getLegacyServerAddress();
+    }
+    DbServerTarget target = dbInfo.getConfiguredServerTarget();
+    return target == null ? null : target.getAddress();
   }
 
   @Nullable
   @Override
   public Integer getServerPort(DbRequest request) {
-    return request.getDbInfo().getServerPort();
+    DbInfo dbInfo = request.getDbInfo();
+    if (!emitStableDatabaseSemconv()) {
+      return dbInfo.getLegacyServerPort();
+    }
+    DbServerTarget target = dbInfo.getConfiguredServerTarget();
+    return target == null ? null : target.getPort();
   }
 }

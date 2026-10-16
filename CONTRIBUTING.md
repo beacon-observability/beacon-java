@@ -4,7 +4,7 @@ Beacon Java features, bugs, and pull requests are handled in this repository. Pu
 
 ## Development setup
 
-Use a full Git clone and JDK 21, and run the following commands from the repository root. Configuring a remote alone does not fetch history or change the GitHub default branch.
+Use a full Git clone and JDK 25, and run the following commands from the repository root. Configuring a remote alone does not fetch history or change the GitHub default branch.
 
 ```bash
 java -version

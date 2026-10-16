@@ -14,6 +14,8 @@ jobs:
   common:
     if: github.repository == 'open-telemetry/opentelemetry-java-instrumentation'
     uses: ./.github/workflows/build-common.yml
+    with:
+      cache-read-only: ${{ github.event_name != 'push' || github.ref != 'refs/heads/main' }}
     secrets:
       DEVELOCITY_ACCESS_KEY: ${{ secrets.DEVELOCITY_ACCESS_KEY }}
 

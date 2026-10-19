@@ -4,6 +4,7 @@ This file records Beacon product changes only. The root [CHANGELOG.md](../CHANGE
 
 ## Unreleased
 
+- Use `beacon-java` as the Gradle root project name in build output and CI summaries.
 - Security now exports a finding occurrence for every request that triggers it, preserving trace
   correlation independently of full-evidence sampling. Sampled-out evidence is explicitly marked;
   consumers must honor `evidence_sampled` and `truncated`. Log volume can increase for repeated findings.

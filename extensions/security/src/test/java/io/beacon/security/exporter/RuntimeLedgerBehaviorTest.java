@@ -6,6 +6,7 @@
 package io.beacon.security.exporter;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
+import static java.util.Collections.emptyList;
 import static java.util.Collections.emptyMap;
 import static java.util.Collections.singletonList;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
@@ -135,7 +136,10 @@ class RuntimeLedgerBehaviorTest {
 
     assertEquals(1, firstSample.size(), "the first occurrence is the representative sample");
     assertEquals(expectedRequest, firstSample.get(0).get("request"));
-    assertTrue(secondSample.isEmpty(), "the same run does not emit another full evidence sample");
+    assertEquals(1, secondSample.size());
+    assertEquals(false, secondSample.get(0).get("evidence_sampled"));
+    assertEquals(true, secondSample.get(0).get("truncated"));
+    assertEquals(emptyList(), secondSample.get(0).get("propagation"));
     assertEquals(firstSample.get(0).get("finding_id"), secondFindingId(second));
 
     ledger.tick(emptyMap(), ignored -> {}, true);

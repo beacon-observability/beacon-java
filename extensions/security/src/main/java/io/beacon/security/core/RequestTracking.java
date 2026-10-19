@@ -65,6 +65,7 @@ final class RequestTracking {
   static final class Entry extends Key {
     List<Mark> marks = emptyList();
     String destination;
+    AttackEvidence preparedEvidence;
     String[] container;
     final long baseBytes;
     long bytes;
@@ -107,7 +108,11 @@ final class RequestTracking {
   }
 
   boolean update(Entry entry, List<Mark> marks, String destination, String[] container) {
-    long next = entry.baseBytes + marks.size() * 48L + stringBytes(destination);
+    long next =
+        entry.baseBytes
+            + marks.size() * 48L
+            + stringBytes(destination)
+            + (entry.preparedEvidence == null ? 0 : 128);
     if (container != null) {
       for (String part : container) {
         next += stringBytes(part);
@@ -120,7 +125,10 @@ final class RequestTracking {
     entry.marks = marks;
     entry.destination = destination;
     entry.container = container;
-    if (marks.isEmpty() && destination == null && container == null) {
+    if (marks.isEmpty()
+        && destination == null
+        && container == null
+        && entry.preparedEvidence == null) {
       remove(entry);
     }
     return true;

@@ -15,11 +15,36 @@ public final class Propagation {
     if (result == null || !c.state.active()) {
       return;
     }
-    if (c.owner.equals("java/lang/String") && c.method.equals("substring")) {
+    if (c.owner.equals("java/lang/String")
+        && (c.method.equals("substring") || c.method.equals("subSequence"))) {
       int start = c.integer(0, 0);
       int end = c.integer(1, c.receiverLength);
       c.state.put(result, c.step(c.receiverMarks, -start, start, end, true));
       return;
+    }
+    if (c.owner.equals("java/lang/String")
+        && c.receiver instanceof String
+        && result instanceof String) {
+      String input = (String) c.receiver;
+      if (c.method.equals("trim")) {
+        int start = 0;
+        int end = input.length();
+        while (start < end && input.charAt(start) <= ' ') {
+          start++;
+        }
+        while (end > start && input.charAt(end - 1) <= ' ') {
+          end--;
+        }
+        c.state.put(result, c.step(c.receiverMarks, -start, start, end, true));
+        return;
+      }
+      if (c.method.equals("replace")
+          && c.arguments.length == 2
+          && c.arguments[0] instanceof Character
+          && c.arguments[1] instanceof Character) {
+        c.state.put(result, c.step(c.receiverMarks, 0, 0, input.length(), true));
+        return;
+      }
     }
     if (c.owner.equals("java/lang/String") && c.method.equals("concat")) {
       List<Mark> marks = new ArrayList<>(c.step(c.receiverMarks, 0, 0, Integer.MAX_VALUE, true));

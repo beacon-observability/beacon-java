@@ -13,6 +13,7 @@ import static java.util.Collections.emptyList;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.NANOSECONDS;
 import static java.util.concurrent.TimeUnit.SECONDS;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -24,6 +25,10 @@ import io.beacon.security.core.Identity;
 import io.beacon.security.core.SecurityState;
 import io.opentelemetry.api.GlobalOpenTelemetry;
 import io.opentelemetry.api.logs.Severity;
+import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.api.trace.SpanContext;
+import io.opentelemetry.api.trace.TraceFlags;
+import io.opentelemetry.api.trace.TraceState;
 import io.opentelemetry.context.Context;
 import io.opentelemetry.sdk.OpenTelemetrySdk;
 import io.opentelemetry.sdk.common.CompletableResultCode;
@@ -42,6 +47,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
@@ -56,6 +62,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 class EvidenceExporterTest {
   private static final String[] SETTINGS = {
+    "beacon.security.enabled",
     "beacon.security.export.queue.size",
     "beacon.security.export.sbom.queue.size",
     "beacon.security.export.security.events-per-second",
@@ -131,6 +138,61 @@ class EvidenceExporterTest {
     assertTrue(Files.exists(file));
     assertTrue(
         Files.readAllLines(file, UTF_8).stream().anyMatch(line -> line.contains("ev-always-off")));
+  }
+
+  @Test
+  void sampledOccurrencesKeepNativeAndBodyTraceCorrelation(@TempDir Path temp) throws IOException {
+    System.setProperty("beacon.security.enabled", "true");
+    System.setProperty("beacon.security.output", temp.toString());
+    CapturingExporter logs = new CapturingExporter();
+    OpenTelemetrySdk sdk = installLogs(logs);
+    EvidenceExporter exporter = new EvidenceExporter();
+    RuntimeLedger ledger = new RuntimeLedger(() -> 1000000L);
+    try {
+      for (int i = 1; i <= 3; i++) {
+        String traceId = String.format(Locale.ROOT, "%032x", i);
+        SpanContext span =
+            SpanContext.create(
+                traceId, "1111111111111111", TraceFlags.getDefault(), TraceState.getDefault());
+        Context context = Context.root().with(Span.wrap(span));
+        try (SecurityState state = new SecurityState()) {
+          ledger.begin(state);
+          state.traceId = traceId;
+          state.serverSpanId = span.getSpanId();
+          String input = new String("guest");
+          state.source(input, "http.parameter", "value", "fixture:source");
+          state.pending(
+              state.evidence(
+                  "sql_injection",
+                  "sql_template",
+                  "Statement.executeQuery",
+                  "fixture:sql",
+                  state.marks(input),
+                  span.getSpanId()));
+          for (Map<String, Object> event : ledger.end(state)) {
+            exporter.emit(event, context, true);
+          }
+        }
+      }
+    } finally {
+      exporter.close();
+      sdk.close();
+    }
+    List<LogRecordData> occurrences = new ArrayList<>();
+    for (LogRecordData log : logs.records) {
+      if ("beacon.security.finding".equals(log.getEventName())) {
+        occurrences.add(log);
+      }
+    }
+    assertThat(occurrences).hasSize(3);
+    for (int i = 0; i < occurrences.size(); i++) {
+      LogRecordData log = occurrences.get(i);
+      Map<?, ?> body = json.readValue(log.getBodyValue().asString(), Map.class);
+      assertThat(body.get("trace_id")).isEqualTo(String.format(Locale.ROOT, "%032x", i + 1));
+      assertThat(log.getSpanContext().getTraceId()).isEqualTo(body.get("trace_id"));
+      assertThat(log.getSpanContext().isSampled()).isFalse();
+      assertThat(body.get("evidence_sampled")).isEqualTo(i == 0);
+    }
   }
 
   @Test

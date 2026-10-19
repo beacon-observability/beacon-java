@@ -172,7 +172,8 @@ public final class SecurityRuntime {
             finding.marks,
             call.state.traceId.equals(Span.fromContext(context).getSpanContext().getTraceId())
                 ? Span.fromContext(context).getSpanContext().getSpanId()
-                : "");
+                : "",
+            finding.attackEvidence);
     if (event == null) {
       return;
     }
@@ -285,6 +286,15 @@ public final class SecurityRuntime {
     if (call.receiver instanceof Connection
         && (call.method.equals("prepareStatement") || call.method.equals("prepareCall"))) {
       call.state.put(result, call.step(call.arg(0), 0, 0, Integer.MAX_VALUE, true));
+      if (!call.arg(0).isEmpty()) {
+        call.state.preparedEvidence(
+            result,
+            AttackAnalysis.sql(
+                call.arguments.length > 0 && call.arguments[0] instanceof String
+                    ? (String) call.arguments[0]
+                    : null,
+                call.arg(0)));
+      }
       return;
     }
     if (SinkRules.isFileSink(call.owner, call.method)

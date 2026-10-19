@@ -7,6 +7,7 @@ package io.beacon.security.extension;
 
 import static java.util.Arrays.asList;
 
+import io.beacon.security.core.AttackEvidence;
 import io.beacon.security.core.Call;
 import io.beacon.security.core.Mark;
 import java.net.URI;
@@ -24,8 +25,20 @@ final class SinkRules {
     final String rule;
     final String role;
     final List<Mark> marks;
+    final AttackEvidence attackEvidence;
 
     Finding(String rule, String role, List<Mark> marks) {
+      this(
+          rule,
+          role,
+          marks,
+          role.equals("path_or_query") || role.equals("ordinary_argument")
+              ? AttackEvidence.none("non_control_argument")
+              : AttackEvidence.unknown("boundary_policy_unavailable"));
+    }
+
+    Finding(String rule, String role, List<Mark> marks, AttackEvidence attackEvidence) {
+      this.attackEvidence = attackEvidence;
       this.rule = rule;
       this.role = role;
       this.marks = marks;
@@ -45,7 +58,10 @@ final class SinkRules {
               "sql_template",
               c.arguments.length > 0 && c.arguments[0] instanceof String
                   ? c.arg(0)
-                  : c.receiverMarks));
+                  : c.receiverMarks,
+              c.arguments.length > 0 && c.arguments[0] instanceof String
+                  ? AttackAnalysis.sql((String) c.arguments[0], c.arg(0))
+                  : c.state.preparedEvidence(c.receiver)));
       return;
     }
     if ((owner.equals("java/lang/Runtime") && method.equals("exec"))
@@ -219,7 +235,14 @@ final class SinkRules {
         token++;
       }
       emit.accept(new Finding("command_execution", "executable", executableMarks));
-      emit.accept(new Finding("command_injection", "shell_command", scriptMarks));
+      // Runtime.exec(String) tokenizes before invoking the shell. Offsets in the original
+      // command line are not offsets in the resulting script; preserve uncertainty here.
+      emit.accept(
+          new Finding(
+              "command_injection",
+              "shell_command",
+              scriptMarks,
+              AttackEvidence.unknown("tokenized_shell_script")));
       emit.accept(new Finding("command_execution", "ordinary_argument", argumentMarks));
     } else {
       for (int i = 0; i < Math.min(args.size(), 128); i++) {
@@ -234,7 +257,14 @@ final class SinkRules {
             new Finding(
                 role.equals("shell_command") ? "command_injection" : "command_execution",
                 role,
-                c.state.marks(args.get(i))));
+                c.state.marks(args.get(i)),
+                role.equals("shell_command")
+                    ? commandTail(executable)
+                        ? AttackEvidence.unknown("shell_dialect_unsupported")
+                        : AttackAnalysis.shell(executable, args.get(i), c.state.marks(args.get(i)))
+                    : role.equals("ordinary_argument")
+                        ? AttackEvidence.none("non_control_argument")
+                        : AttackEvidence.unknown("executable_policy_unavailable")));
       }
     }
   }

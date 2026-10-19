@@ -52,6 +52,18 @@ class SqlController {
     }
   }
 
+  @GetMapping("/dynamic-prepared")
+  Map<String, Object> dynamicPreparedSql(@RequestParam(defaultValue = "guest") String value)
+      throws Exception {
+    String sql = "SELECT COUNT(*) FROM demo_users WHERE name = '" + value + "'";
+    try (Connection connection = dataSource.getConnection();
+        PreparedStatement statement = connection.prepareStatement(sql);
+        ResultSet resultSet = statement.executeQuery()) {
+      resultSet.next();
+      return result("dynamic-prepared-sql", sql, resultSet.getInt(1));
+    }
+  }
+
   @GetMapping("/constant")
   Map<String, Object> constantSql() throws Exception {
     String sql = "SELECT COUNT(*) FROM demo_users";

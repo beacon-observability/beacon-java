@@ -24,7 +24,7 @@ import javax.annotation.Nullable;
 public final class SecurityState implements AutoCloseable {
   private final RequestTracking objects = new RequestTracking();
   private final Set<String> gaps = new LinkedHashSet<>();
-  private final Set<String> seen = new LinkedHashSet<>();
+  private final Map<String, Map<String, Object>> seen = new LinkedHashMap<>();
   private final Set<String> types = new LinkedHashSet<>();
   private final List<String> evidenceIds = new ArrayList<>();
   private final int maxObjects = Settings.limit("beacon.security.max.objects", 4096);
@@ -72,6 +72,15 @@ public final class SecurityState implements AutoCloseable {
   }
 
   public synchronized void pending(Map<String, Object> event) {
+    for (int i = 0; i < pending.size(); i++) {
+      Map<String, Object> previous = pending.get(i);
+      if (previous.get("finding_id").equals(event.get("finding_id"))) {
+        if (AttackEvidence.rank(event) > AttackEvidence.rank(previous)) {
+          pending.set(i, event);
+        }
+        return;
+      }
+    }
     if (pending.size() < maxFindings) {
       pending.add(event);
     }
@@ -346,6 +355,25 @@ public final class SecurityState implements AutoCloseable {
       String location,
       List<Mark> marks,
       String currentSpanId) {
+    return evidence(
+        rule,
+        role,
+        sink,
+        location,
+        marks,
+        currentSpanId,
+        AttackEvidence.unknown("analysis_unavailable"));
+  }
+
+  @Nullable
+  public synchronized Map<String, Object> evidence(
+      String rule,
+      String role,
+      String sink,
+      String location,
+      List<Mark> marks,
+      String currentSpanId,
+      AttackEvidence attackEvidence) {
     if (closed
         || marks.isEmpty()
         || !Settings.enabled("beacon.security.rules." + rule + ".enabled", true)) {
@@ -363,16 +391,19 @@ public final class SecurityState implements AutoCloseable {
     String key =
         Events.fingerprint(
             Identity.applicationId(), "java", rule, sinkFields, sourceSignature(sourceMap));
-    if (seen.contains(key)) {
+    Map<String, Object> previous = seen.get(key);
+    Map<String, Object> attack = map("attack_evidence", attackEvidence.fields());
+    if (previous != null && AttackEvidence.rank(attack) <= AttackEvidence.rank(previous)) {
       return null;
     }
-    if (evidenceIds.size() >= maxFindings) {
+    if (previous == null && evidenceIds.size() >= maxFindings) {
       truncated = true;
       return null;
     }
-    seen.add(key);
-    String id = "ev-" + UUID.randomUUID();
-    evidenceIds.add(id);
+    String id = previous == null ? "ev-" + UUID.randomUUID() : (String) previous.get("evidence_id");
+    if (previous == null) {
+      evidenceIds.add(id);
+    }
     types.add(rule);
     Map<Integer, Object> graph = new LinkedHashMap<>();
     boolean exact = true;
@@ -415,58 +446,80 @@ public final class SecurityState implements AutoCloseable {
               "unit",
               "utf16_code_unit"));
     }
-    return Events.record(
-        map(
-            "schema_version",
-            1,
-            "source",
-            "beacon_security",
-            "event_name",
-            "beacon.security.finding",
-            "evidence_id",
-            id,
-            "finding_id",
-            key,
-            "fingerprint_version",
-            Events.FINGERPRINT_VERSION,
-            "rule",
-            rule,
-            "assessment",
-            candidate(rule, role) ? "candidate_risk" : "observation",
-            "validation",
-            "unvalidated",
-            "severity",
-            "unassigned",
-            "confidence",
-            exact ? "modeled_flow" : "conservative_flow",
-            "observed_at",
-            Events.now(),
-            "execution_observation",
-            "invocation_attempt",
-            "precision",
-            exact ? "exact" : "conservative",
-            "trace_id",
-            traceId,
-            "server_span_id",
-            serverSpanId,
-            "current_span_id",
-            currentSpanId,
-            "trace_flags",
-            traceFlags,
-            "sources",
-            new ArrayList<>(sourceMap.values()),
-            "propagation",
-            new ArrayList<>(graph.values()),
-            "ranges",
-            ranges,
-            "sink",
-            sinkFields,
-            "truncated",
-            truncated,
-            "coverage",
-            "modeled_calls_only",
-            "coverage_gaps",
-            new ArrayList<>(gaps)));
+    Map<String, Object> event =
+        Events.record(
+            map(
+                "attack_evidence",
+                attackEvidence.fields(),
+                "schema_version",
+                1,
+                "source",
+                "beacon_security",
+                "event_name",
+                "beacon.security.finding",
+                "evidence_id",
+                id,
+                "finding_id",
+                key,
+                "fingerprint_version",
+                Events.FINGERPRINT_VERSION,
+                "rule",
+                rule,
+                "assessment",
+                candidate(rule, role) ? "candidate_risk" : "observation",
+                "validation",
+                "unvalidated",
+                "severity",
+                "unassigned",
+                "confidence",
+                exact ? "modeled_flow" : "conservative_flow",
+                "observed_at",
+                Events.now(),
+                "execution_observation",
+                "invocation_attempt",
+                "precision",
+                exact ? "exact" : "conservative",
+                "trace_id",
+                traceId,
+                "server_span_id",
+                serverSpanId,
+                "current_span_id",
+                currentSpanId,
+                "trace_flags",
+                traceFlags,
+                "sources",
+                new ArrayList<>(sourceMap.values()),
+                "propagation",
+                new ArrayList<>(graph.values()),
+                "ranges",
+                ranges,
+                "sink",
+                sinkFields,
+                "truncated",
+                truncated,
+                "coverage",
+                "modeled_calls_only",
+                "coverage_gaps",
+                new ArrayList<>(gaps)));
+    seen.put(key, event);
+    return event;
+  }
+
+  public synchronized void preparedEvidence(Object statement, AttackEvidence evidence) {
+    if (!closed && statement != null) {
+      RequestTracking.Entry tracked = track(statement);
+      if (tracked != null) {
+        tracked.preparedEvidence = evidence;
+        update(tracked, tracked.marks, tracked.destination, tracked.container);
+      }
+    }
+  }
+
+  public synchronized AttackEvidence preparedEvidence(Object statement) {
+    RequestTracking.Entry tracked = closed ? null : objects.get(statement);
+    return tracked == null || tracked.preparedEvidence == null
+        ? AttackEvidence.unknown("sql_template_unavailable")
+        : tracked.preparedEvidence;
   }
 
   private static boolean candidate(String rule, String role) {

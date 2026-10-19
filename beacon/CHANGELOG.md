@@ -4,6 +4,14 @@ This file records Beacon product changes only. The root [CHANGELOG.md](../CHANGE
 
 ## Unreleased
 
+- Security now exports a finding occurrence for every request that triggers it, preserving trace
+  correlation independently of full-evidence sampling. Sampled-out evidence is explicitly marked;
+  consumers must honor `evidence_sampled` and `truncated`. Log volume can increase for repeated findings.
+- Security findings now carry request-specific attack evidence independently of code risk. Bounded
+  analysis supports an opt-in ANSI SQL lexical subset and simple POSIX shell scripts; unsupported
+  syntax, imprecise taint, and missing boundary policies remain unknown. No result claims successful
+  exploitation. Stronger evidence bypasses ordinary sampling and is retained across later ordinary requests.
+
 ## Version 1.2.0 (2026-10-16)
 
 - Integrated official OTel Java Instrumentation [v2.32.0](https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/tag/v2.32.0), pinned to `1b8644f8eb11d90295b1c313391aa84edeeec6e2`, with its SDK and build constraints. Review the root upstream changelog for compatibility and migration notes; Beacon product versioning remains independent.

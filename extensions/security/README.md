@@ -124,6 +124,77 @@ java -javaagent:javaagent/build/libs/beacon-javaagent-1.1.0.jar -jar app.jar
 This produces `findings.json`, `health.json`, `runs.json`, and `application.cdx.json`. These files
 are per-process diagnostics, not a Kubernetes aggregation or durable delivery mechanism.
 
+## Finding occurrences and attack evidence
+
+Every request that triggers a finding now exports an occurrence, even inside the full-evidence
+sampling interval. The fingerprint remains stable; `occurrence_id` equals the request's unique
+`evidence_id`. Repeated detections of that fingerprint within one request are deduplicated, with
+stronger evidence allowed to upgrade the record without incrementing its count.
+
+The optional `attack_evidence` object separates request evidence from code risk:
+
+| Status | Meaning |
+| --- | --- |
+| `unknown` | Analysis is unavailable, unsupported, imprecise, or requires missing policy. |
+| `no_evidence` | Supported analysis found no attack evidence. This does not establish safety. |
+| `suspected` | Input influences potentially dangerous syntax in a supported context. This does not prove intent or successful exploitation. |
+
+`assessment` remains `observation` or `candidate_risk`, and `validation` remains `unvalidated`.
+`attack_evidence.outcome` is always `not_assessed`. Raw SQL, shell scripts, and request values are
+not added to exported evidence. Prepared statements retain only the bounded assessment of their
+SQL template in request state, not the raw template. Fixed SQL parameter binding remains separate
+from concatenation into a template before preparation.
+
+### Analysis support and limits
+
+SQL analysis is opt-in using `BEACON_SECURITY_ANALYSIS_SQL_DIALECT=ansi` (JVM property
+`beacon.security.analysis.sql.dialect`). The default `unknown` preserves uncertainty when the
+application's dialect is not specified. Enable `ansi` only for compatible SQL: it analyzes a
+lexical subset with single-quoted strings, doubled quote escapes, quoted identifiers, decimal
+numbers, operators, parentheses, and comments. It identifies tainted structural operators or
+comment delimiters, not keyword matches. This is not a complete SQL parser. Backslash escapes,
+dollar quoting, backticks, bracket quoting, incomplete quotes, and unsupported syntax remain
+unknown. Tainted identifiers alone remain unknown. Mixed-dialect applications should leave the
+setting unknown until they can provide an appropriate per-connection dialect model.
+
+Shell analysis supports simple POSIX scripts passed as an individual argument to `sh`, `bash`,
+`dash`, `ksh`, or `zsh`: quotes, backslash escapes, and control separators. Expansions, substitutions,
+redirections, compound constructs, Windows shells, and scripts reconstructed from
+`Runtime.exec(String)` remain unknown. Ordinary argv input is not classified as shell injection;
+this does not exclude application-specific argument risks.
+
+Each analysis examines at most 8,192 UTF-16 code units and 64 exact taint ranges. Larger inputs,
+imprecise ranges, unsupported syntax, or missing inputs return unknown with a reason. It performs
+no network requests, command execution, replay, JDBC metadata calls, or filesystem resolution.
+SSRF destination control, executable selection, and file paths remain unknown for attack
+assessment without an applicable boundary policy. Fixed-host path/query input remains an
+observation; `normalize()` alone never establishes path safety. This release does not implement
+network allowlists or filesystem root policies. `trim`, `subSequence`, and character replacement
+preserve taint offsets where modeled; replacement is not treated as universal sanitization.
+
+### Sampling, aggregation, and migration
+
+| JVM property | Environment variable | Default | Meaning |
+| --- | --- | --- | --- |
+| `beacon.security.findings.sample.seconds` | `BEACON_SECURITY_FINDINGS_SAMPLE_SECONDS` | `300` | Full-evidence interval per finding; occurrence records are still exported. Positive integers only; zero falls back to the default. |
+| `beacon.security.findings.flush.seconds` | `BEACON_SECURITY_FINDINGS_FLUSH_SECONDS` | `30` | Aggregate summary interval. |
+| `beacon.security.analysis.sql.dialect` | `BEACON_SECURITY_ANALYSIS_SQL_DIALECT` | `unknown` | `ansi` enables the documented SQL lexical subset; other values remain unknown. |
+
+A sampled-out record has `evidence_sampled=false`, a sampling reason, `truncated=true`, and empty
+`sources`, `propagation`, `ranges`, and `stack` arrays. Those empty arrays do not mean no taint was
+observed. Request metadata, finding identity, trace correlation, and attack assessment remain.
+First samples and stronger evidence bypass the ordinary interval. Later ordinary samples cannot
+replace a stronger retained representative; `last_trace_id` may differ from its trace ID.
+Summaries expose separate `unknown`, `no_evidence`, and `suspected` occurrence counters in
+`attack_evidence_counts`. These are not confirmed attack counts.
+
+Consumers must honor sampling/truncation fields and must not assume every finding contains full
+evidence. Existing required fields and fingerprint v1 remain unchanged; new fields are additive.
+Repeated findings produce more log records than before. Queue and byte limits still apply and
+loss counters remain authoritative. A full aggregation table no longer suppresses the occurrence:
+`aggregation_status=capacity_exceeded` omits `occurrences_total`. There is no guarantee that a
+correlated trace was exported, nor a guarantee of lossless event delivery.
+
 ## Kubernetes
 
 The checked-in [Dockerfile](../../beacon/docker/javaagent/Dockerfile) packages the complete Agent as
@@ -172,10 +243,13 @@ node beacon/scripts/security-smoke.cjs \
   beacon/testing/security-smoke-fixture/build/libs/beacon-security-smoke-fixture.jar
 ```
 
-It verifies that dynamic SQL produces one `sql_injection` finding, parameterized and constant SQL
-do not produce findings, runtime SBOM is present, product version is resolved, and delivery reports
-no local loss.
+It verifies separate trace correlation for repeated dynamic-SQL requests, immediate export of
+stronger evidence inside the sampling window, and independent classification of later ordinary
+requests. It also verifies that a dynamically concatenated prepared template retains its risk,
+fixed parameterized and constant SQL do not produce findings, runtime SBOM is present, the product
+version is resolved, and delivery reports no local loss.
 
-Local acceptance on 2026-10-01 ran that complete scenario with JDK 8u461, 11.0.18, 17.0.6, and
-21.0.3. All four passed. This is local compatibility evidence, not a substitute for the release
-acceptance matrix or a published support commitment.
+Local acceptance on 2026-10-01 ran the earlier single-request scenario with JDK 8u461, 11.0.18,
+17.0.6, and 21.0.3. All four passed. That historical result predates the occurrence and attack-evidence
+assertions above. See the implementation PR for their validation results and the release acceptance
+matrix for supported-runtime coverage.

@@ -7,11 +7,13 @@ package io.beacon.security.exporter;
 
 import static io.beacon.security.core.Values.map;
 import static java.util.Arrays.asList;
+import static java.util.Collections.emptyList;
 import static java.util.Collections.emptyMap;
 import static java.util.logging.Level.WARNING;
 
 import com.fasterxml.jackson.core.StreamReadConstraints;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.beacon.security.core.AttackEvidence;
 import io.beacon.security.core.Events;
 import io.beacon.security.core.Identity;
 import io.beacon.security.core.SecurityState;
@@ -35,6 +37,7 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
+import java.util.function.LongSupplier;
 import java.util.logging.Logger;
 
 /**
@@ -45,6 +48,7 @@ public final class RuntimeLedger {
   private static final Logger logger = Logger.getLogger(RuntimeLedger.class.getName());
 
   private final ObjectMapper json = new ObjectMapper();
+  private final LongSupplier clock;
   private final boolean localOutputEnabled =
       Settings.enabled("beacon.security.local-output.enabled", false);
   private final Path output =
@@ -90,6 +94,11 @@ public final class RuntimeLedger {
   private int requestsThisSecond;
 
   public RuntimeLedger() {
+    this(System::currentTimeMillis);
+  }
+
+  RuntimeLedger(LongSupplier clock) {
+    this.clock = clock;
     json.getFactory()
         .setStreamReadConstraints(
             StreamReadConstraints.builder().maxNestingDepth(16).maxStringLength(4096).build());
@@ -210,6 +219,11 @@ public final class RuntimeLedger {
       if (finding == null) {
         if (findings.size() >= maxFindings) {
           count("finding_capacity_dropped");
+          event.put("aggregation_status", "capacity_exceeded");
+          event.put("evidence_sampled", false);
+          event.put("evidence_sample_reason", "finding_capacity");
+          omitEvidence(event);
+          result.add(event);
           continue;
         }
         finding =
@@ -226,6 +240,8 @@ public final class RuntimeLedger {
                 event.get("sink"),
                 "first_seen",
                 event.get("observed_at"),
+                "attack_evidence_counts",
+                map("unknown", 0L, "no_evidence", 0L, "suspected", 0L),
                 "occurrences",
                 0L,
                 "last_sample_millis",
@@ -233,6 +249,10 @@ public final class RuntimeLedger {
         findings.put(id, finding);
       }
       increment(finding, "occurrences", 1);
+      @SuppressWarnings("unchecked") // Created above with the three bounded status counters.
+      Map<String, Object> evidenceCounts =
+          (Map<String, Object>) finding.get("attack_evidence_counts");
+      increment(evidenceCounts, AttackEvidence.status(event), 1);
       finding.put("last_seen", event.get("observed_at"));
       finding.put("last_trace_id", event.get("trace_id"));
       finding.put("last_evidence_id", event.get("evidence_id"));
@@ -242,41 +262,56 @@ public final class RuntimeLedger {
       finding.put("component", event.get("component"));
       finding.put("triage", triage(id));
       event.put("triage", finding.get("triage"));
+      long now = clock.getAsLong();
       long lastSample = ((Number) finding.get("last_sample_millis")).longValue();
       String runId = String.valueOf(state.run.getOrDefault("run_id", ""));
-      if (System.currentTimeMillis() - lastSample >= sampleMillis
-          || !runId.equals(finding.get("sample_run_id"))) {
-        finding.put("last_sample_millis", System.currentTimeMillis());
+      int rank = AttackEvidence.rank(event);
+      int strongest = ((Number) finding.getOrDefault("strongest_evidence_rank", -1)).intValue();
+      boolean upgrade = rank > strongest;
+      boolean sample =
+          upgrade
+              || now - lastSample >= sampleMillis
+              || !runId.equals(finding.get("sample_run_id"));
+      event.put("occurrences_total", finding.get("occurrences"));
+      event.put("aggregation_status", "tracked");
+      event.put("evidence_sampled", sample);
+      event.put(
+          "evidence_sample_reason",
+          upgrade ? "evidence_upgrade" : sample ? "interval_or_run" : "interval");
+      if (upgrade) {
+        finding.put("strongest_evidence_rank", rank);
+        finding.put("strongest_attack_evidence", event.get("attack_evidence"));
+        finding.put("assessment", event.get("assessment"));
+      }
+      if (sample) {
+        finding.put("last_sample_millis", now);
         finding.put("sample_run_id", runId);
-        Map<String, Object> representative = new LinkedHashMap<>(event);
-        long estimate = estimate(representative, 0);
-        long previous = ((Number) finding.getOrDefault("representative_bytes", 0L)).longValue();
-        if (estimate > Settings.limit("beacon.security.evidence.max.bytes", 65536)
-            || findingBytes - previous + estimate > maxFindingBytes) {
-          representative.remove("propagation");
-          representative.remove("ranges");
-          representative.remove("sources");
-          representative.remove("stack");
-          representative.put("truncated", true);
-          representative.put("truncation_reason", "finding_snapshot_byte_budget");
-          estimate = estimate(representative, 0);
-          count("finding_sample_truncated");
+        // Export this request's sample, but never replace stronger retained evidence with weaker
+        // data.
+        if (rank >= strongest) {
+          Map<String, Object> representative = new LinkedHashMap<>(event);
+          long estimate = estimate(representative, 0);
+          long previous = ((Number) finding.getOrDefault("representative_bytes", 0L)).longValue();
+          if (estimate > Settings.limit("beacon.security.evidence.max.bytes", 65536)
+              || findingBytes - previous + estimate > maxFindingBytes) {
+            omitEvidence(representative);
+            representative.put("truncation_reason", "finding_snapshot_byte_budget");
+            estimate = estimate(representative, 0);
+            count("finding_sample_truncated");
+          }
+          if (findingBytes - previous + estimate <= maxFindingBytes) {
+            findingBytes += estimate - previous;
+            finding.put("representative_bytes", estimate);
+            finding.put("representative", representative);
+          } else {
+            count("finding_sample_dropped");
+          }
         }
-        if (findingBytes - previous + estimate <= maxFindingBytes) {
-          findingBytes += estimate - previous;
-          finding.put("representative_bytes", estimate);
-          finding.put("representative", representative);
-        } else {
-          count("finding_sample_dropped");
-          finding.remove("representative");
-          findingBytes -= previous;
-          finding.put("representative_bytes", 0L);
-        }
-        event.put("occurrences_total", finding.get("occurrences"));
-        result.add(event);
       } else {
         count("representative_samples_suppressed");
+        omitEvidence(event);
       }
+      result.add(event);
       finding.put("dirty", true);
     }
     Map<String, Object> diagnostic = state.diagnostics();
@@ -325,6 +360,15 @@ public final class RuntimeLedger {
       finishIfIdle(run);
     }
     return result;
+  }
+
+  private static void omitEvidence(Map<String, Object> event) {
+    for (String field : new String[] {"propagation", "ranges", "sources", "stack"}) {
+      event.put(field, emptyList());
+    }
+    event.put("evidence_sampled", false);
+    event.put("truncated", true);
+    event.put("truncation_reason", "evidence_sampled_out");
   }
 
   private static long deliveryLoss(Map<String, Object> delivery) {
@@ -491,6 +535,8 @@ public final class RuntimeLedger {
                   Identity.context(),
                   "finding_id",
                   finding.get("finding_id"),
+                  "attack_evidence_counts",
+                  new LinkedHashMap<>((Map<?, ?>) finding.get("attack_evidence_counts")),
                   "occurrences_total",
                   finding.get("occurrences"),
                   "first_seen",
@@ -507,9 +553,18 @@ public final class RuntimeLedger {
       for (Map<String, Object> finding : findings.values()) {
         Map<String, Object> copy = new LinkedHashMap<>(finding);
         for (String key :
-            new String[] {"dirty", "last_sample_millis", "sample_run_id", "representative_bytes"}) {
+            new String[] {
+              "dirty",
+              "last_sample_millis",
+              "sample_run_id",
+              "representative_bytes",
+              "strongest_evidence_rank"
+            }) {
           copy.remove(key);
         }
+        copy.put(
+            "attack_evidence_counts",
+            new LinkedHashMap<>((Map<?, ?>) finding.get("attack_evidence_counts")));
         findingCopy.add(copy);
       }
       for (Map<String, Object> run : runs.values()) {

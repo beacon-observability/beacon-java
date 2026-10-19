@@ -8,6 +8,7 @@ package io.beacon.security.exporter;
 import static io.beacon.security.core.Values.map;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Arrays.asList;
+import static java.util.Collections.emptyList;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.NANOSECONDS;
 import static java.util.concurrent.TimeUnit.SECONDS;
@@ -281,9 +282,17 @@ public final class EvidenceExporter implements AutoCloseable {
     boolean truncated = encoded.length > maxBytes;
     if (encoded.length > maxBytes) {
       event = new LinkedHashMap<>(event);
-      event.remove("propagation");
-      event.remove("ranges");
-      event.remove("sources");
+      if ("beacon.security.finding".equals(event.get("event_name"))) {
+        for (String field : new String[] {"propagation", "ranges", "sources", "stack"}) {
+          event.put(field, emptyList());
+        }
+        event.put("evidence_sampled", false);
+        event.put("evidence_sample_reason", "record_byte_limit");
+      } else {
+        event.remove("propagation");
+        event.remove("ranges");
+        event.remove("sources");
+      }
       event.put("truncated", true);
       event.put("truncation_reason", "record_byte_limit");
       encoded = json.writeValueAsBytes(event);
@@ -304,6 +313,15 @@ public final class EvidenceExporter implements AutoCloseable {
                 event.get("sbom_id"),
                 "truncated",
                 true);
+        for (String field :
+            new String[] {
+              "finding_id", "occurrence_id", "trace_id", "server_span_id", "current_span_id"
+            }) {
+          Object value = input.get(field);
+          if (value instanceof String && !((String) value).isEmpty()) {
+            event.put(field, value);
+          }
+        }
         encoded = json.writeValueAsBytes(event);
       }
     }

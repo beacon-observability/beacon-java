@@ -255,6 +255,7 @@ public final class Events {
       event.put("trace_availability", "not_guaranteed_by_trace_id");
     }
     if (name.equals("beacon.security.finding")) {
+      event.putIfAbsent("attack_evidence", AttackEvidence.unknown("analysis_unavailable").fields());
       event.put(
           "component",
           component(

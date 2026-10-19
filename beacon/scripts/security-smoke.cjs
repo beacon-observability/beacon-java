@@ -112,6 +112,7 @@ async function main() {
       env: {
         ...process.env,
         BEACON_SECURITY_ENABLED: 'true',
+        BEACON_SECURITY_ANALYSIS_SQL_DIALECT: 'ansi',
         BEACON_SECURITY_LOCAL_OUTPUT_ENABLED: 'true',
         BEACON_SECURITY_OUTPUT: output,
         BEACON_SECURITY_EVIDENCE_FILE: join(output, 'evidence.jsonl'),
@@ -142,7 +143,10 @@ async function main() {
       )).operation,
       'constant-sql',
     );
-    assert.equal((await request(port, '/api/sql?value=guest')).operation, 'dynamic-sql');
+    for (const value of ['guest', 'alice', "' OR '1'='1", 'guest']) {
+      assert.equal((await request(port, `/api/sql?value=${encodeURIComponent(value)}`)).operation,
+        'dynamic-sql');
+    }
     assert.equal(
       (await request(port, '/api/sql/parameterized?value=guest')).operation,
       'parameterized-sql',
@@ -150,6 +154,7 @@ async function main() {
     const findings = await eventually(() => {
       const value = JSON.parse(readFileSync(join(output, 'findings.json'), 'utf8'));
       assert.equal(value.findings.length, 1);
+      assert.equal(value.findings[0].occurrences, 4);
       return value;
     }, 'one dynamic-SQL finding and no prepared-statement finding');
     const finding = findings.findings[0];
@@ -157,6 +162,9 @@ async function main() {
     assert.equal(findings.source, 'beacon_security');
     assert.equal(findings.identity.service['service.name'], 'beacon-security-smoke');
     assert.equal(finding.rule, 'sql_injection');
+    assert.deepEqual(finding.attack_evidence_counts, { unknown: 0, no_evidence: 3, suspected: 1 });
+    assert.equal(finding.representative.attack_evidence.status, 'suspected');
+    assert.equal(finding.representative.attack_evidence.outcome, 'not_assessed');
     assert.equal(finding.request.route, '/api/sql');
     assert.equal(finding.representative.event_name, 'beacon.security.finding');
     assert.equal(finding.representative.fingerprint_version, 1);
@@ -171,14 +179,32 @@ async function main() {
     assert.equal(sbom.bomFormat, 'CycloneDX');
     assert.ok(sbom.components.length > 0, 'Runtime SBOM must contain observed components');
 
-    const evidence = readFileSync(join(output, 'evidence.jsonl'), 'utf8')
-      .trim().split('\n').map((line) => JSON.parse(line));
-    assert.equal(
-      evidence.filter((event) => event.event_name === 'beacon.security.finding').length,
-      1,
-    );
+    assert.equal((await request(port,
+      `/api/sql/dynamic-prepared?value=${encodeURIComponent("' OR '1'='1")}`)).operation,
+    'dynamic-prepared-sql');
+    const evidence = await eventually(() => {
+      const records = readFileSync(join(output, 'evidence.jsonl'), 'utf8')
+        .trim().split('\n').map((line) => JSON.parse(line));
+      assert.equal(records.filter((event) => event.event_name === 'beacon.security.finding').length, 5);
+      return records;
+    }, 'all five request occurrences');
+    const prepared = evidence.find((event) => event.event_name === 'beacon.security.finding'
+      && event.request.route === '/api/sql/dynamic-prepared');
+    assert.equal(prepared.attack_evidence.status, 'suspected');
+    assert.equal(prepared.attack_evidence.outcome, 'not_assessed');
+    const occurrences = evidence.filter((event) => event.event_name === 'beacon.security.finding'
+      && event.request.route === '/api/sql');
+    assert.equal(occurrences.length, 4);
+    assert.equal(new Set(occurrences.map((event) => event.finding_id)).size, 1);
+    assert.equal(new Set(occurrences.map((event) => event.occurrence_id)).size, 4);
+    assert.equal(new Set(occurrences.map((event) => event.trace_id)).size, 4);
+    assert(occurrences.every((event) => /^[0-9a-f]{32}$/.test(event.trace_id)));
+    assert.deepEqual(occurrences.map((event) => event.evidence_sampled), [true, false, true, false]);
+    assert.deepEqual(occurrences.map((event) => event.attack_evidence.status),
+      ['no_evidence', 'no_evidence', 'suspected', 'no_evidence']);
+    assert(occurrences.every((event) => event.execution_observation === 'invocation_attempt'));
     completed = true;
-    console.log('PASS: embedded Beacon Security detects dynamic SQL, ignores parameterized SQL, and writes runtime SBOM diagnostics.');
+    console.log('PASS: per-request correlation, evidence upgrades, ordinary SQL classification, parameter binding, and runtime SBOM.');
   } finally {
     if (application) await stop(application);
     if (!completed) console.error(`Security smoke output: ${directory}`);

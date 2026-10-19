@@ -122,7 +122,7 @@ buildCache {
   }
 }
 
-rootProject.name = "opentelemetry-java-instrumentation"
+rootProject.name = "beacon-java"
 
 includeBuild("conventions")
 

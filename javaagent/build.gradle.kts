@@ -426,7 +426,7 @@ licenseReport {
 
   excludes = arrayOf(
     "io.opentelemetry:opentelemetry-bom-alpha",
-    "opentelemetry-java-instrumentation:dependencyManagement",
+    "${rootProject.name}:dependencyManagement",
   )
 
   filters = arrayOf(LicenseBundleNormalizer("$projectDir/license-normalizer-bundle.json", true))

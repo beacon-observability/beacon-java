@@ -5,18 +5,20 @@
 
 package io.opentelemetry.instrumentation.profiling.internal;
 
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
+import static java.util.concurrent.TimeUnit.MILLISECONDS;
+
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 
 final class ProfilingScheduler implements AutoCloseable {
 
-  private final ScheduledExecutorService executor;
+  private final ScheduledThreadPoolExecutor executor;
 
   ProfilingScheduler(String threadName) {
     executor =
-        Executors.newSingleThreadScheduledExecutor(
+        new ScheduledThreadPoolExecutor(
+            1,
             new ThreadFactory() {
               @Override
               public Thread newThread(Runnable runnable) {
@@ -26,6 +28,8 @@ final class ProfilingScheduler implements AutoCloseable {
                 return thread;
               }
             });
+    executor.setExecuteExistingDelayedTasksAfterShutdownPolicy(false);
+    executor.setContinueExistingPeriodicTasksAfterShutdownPolicy(false);
   }
 
   void schedule(Runnable runnable, long delay, TimeUnit unit) {
@@ -39,5 +43,20 @@ final class ProfilingScheduler implements AutoCloseable {
   @Override
   public void close() {
     executor.shutdownNow();
+  }
+
+  boolean finish(Runnable finalExport, long timeoutMillis) {
+    // The final export shares the worker with periodic exports. Shutdown cancels delayed/periodic
+    // work, but this immediate task drains after any export that is already running.
+    executor.execute(finalExport);
+    executor.shutdown();
+    try {
+      return executor.awaitTermination(timeoutMillis, MILLISECONDS);
+    } catch (InterruptedException interrupted) {
+      Thread.currentThread().interrupt();
+      return false;
+    }
+    // Do not close the recording on the caller thread when the deadline expires. The daemon worker
+    // still owns its snapshot and will run finalExport once the in-flight exporter returns.
   }
 }

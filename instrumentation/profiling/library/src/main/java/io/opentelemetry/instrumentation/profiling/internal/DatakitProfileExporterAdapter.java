@@ -49,6 +49,15 @@ public final class DatakitProfileExporterAdapter implements ProfileExporterAdapt
 
   @Override
   public void export(ProfileSnapshot snapshot) throws IOException {
+    try (InputStream inputStream = snapshot.openStream()) {
+      if (inputStream == null) {
+        return;
+      }
+      export(snapshot, inputStream);
+    }
+  }
+
+  private void export(ProfileSnapshot snapshot, InputStream inputStream) throws IOException {
     String boundary = "----otel-profile-" + UUID.randomUUID();
     HttpURLConnection connection = (HttpURLConnection) endpoint.openConnection();
     connection.setRequestMethod("POST");
@@ -61,7 +70,7 @@ public final class DatakitProfileExporterAdapter implements ProfileExporterAdapt
 
     try {
       try (OutputStream outputStream = connection.getOutputStream()) {
-        writeMainPart(outputStream, boundary, snapshot);
+        writeMainPart(outputStream, boundary, snapshot, inputStream);
         writeEventPart(outputStream, boundary, snapshot);
         writeAscii(outputStream, "--" + boundary + "--\r\n");
       }
@@ -84,16 +93,15 @@ public final class DatakitProfileExporterAdapter implements ProfileExporterAdapt
   }
 
   private static void writeMainPart(
-      OutputStream outputStream, String boundary, ProfileSnapshot snapshot) throws IOException {
+      OutputStream outputStream, String boundary, ProfileSnapshot snapshot, InputStream inputStream)
+      throws IOException {
     String format = snapshot.getFormat().toLowerCase(Locale.ROOT);
     writeAscii(outputStream, "--" + boundary + "\r\n");
     writeAscii(
         outputStream,
         "Content-Disposition: form-data; name=\"main\"; filename=\"main." + format + "\"\r\n");
     writeAscii(outputStream, "Content-Type: application/octet-stream\r\n\r\n");
-    try (InputStream inputStream = snapshot.openStream()) {
-      copy(inputStream, outputStream);
-    }
+    copy(inputStream, outputStream);
     writeAscii(outputStream, "\r\n");
   }
 

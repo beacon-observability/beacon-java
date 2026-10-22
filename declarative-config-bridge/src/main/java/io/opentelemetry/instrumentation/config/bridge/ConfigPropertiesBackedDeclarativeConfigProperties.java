@@ -143,6 +143,17 @@ final class ConfigPropertiesBackedDeclarativeConfigProperties
   @Nullable
   @Override
   public Boolean getBoolean(String name) {
+    if (instrumentationConfig
+        && pathWithName(name).equals("java.jdbc.capture_query_parameters/development")) {
+      Boolean capture = configProperties.getBoolean(resolvePropertyKey(name));
+      Boolean compatibilityAlias = configProperties.getBoolean("otel.jdbc.sql.obfuscation");
+      if (capture == null && compatibilityAlias == null) {
+        return null;
+      }
+      // Beacon's compatibility contract is OR, including explicitly configured false values.
+      // Read both through ConfigProperties so configuration files and environment variables work.
+      return Boolean.TRUE.equals(capture) || Boolean.TRUE.equals(compatibilityAlias);
+    }
     return configProperties.getBoolean(resolvePropertyKey(name));
   }
 

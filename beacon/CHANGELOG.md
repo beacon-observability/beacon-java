@@ -4,6 +4,18 @@ This file records Beacon product changes only. The root [CHANGELOG.md](../CHANGE
 
 ## Unreleased
 
+- Profiling now serializes its final export after in-flight work, includes the remaining interval
+  after earlier successful exports, and bounds close waiting to ten seconds. Empty JFR intervals
+  produce no file or upload. Startup failures no longer interrupt the remaining agent listeners,
+  and unused exporter configuration is not parsed.
+- Profiling explicitly warns that `stack-depth` and `temp-dir` cannot configure individual JFR
+  recordings. Use JVM `-XX:FlightRecorderOptions=stackdepth=<depth>,repository=<directory>` to
+  configure these process-wide settings; the agent does not mutate other recordings' settings.
+- The JDBC `otel.jdbc.sql.obfuscation` compatibility alias now works through configuration files
+  and environment variables. Either effective flat key being true enables parameter capture,
+  including when the other key is explicitly false. The alias retains its historical meaning:
+  enabling it captures parameters and disables query sanitization.
+
 ## Version 1.3.0 (2026-10-19)
 
 - Use `beacon-java` as the Gradle root project name in build output and CI summaries.

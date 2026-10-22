@@ -13,11 +13,14 @@ import java.net.URL;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
+import java.util.logging.Logger;
 
 final class AgentProfilingConfiguration {
 
   private static final String PREFIX = "otel.profiling.";
   private static final String LEGACY_PREFIX = "otel.instrumentation.profiling.";
+  private static final Logger logger =
+      Logger.getLogger(AgentProfilingConfiguration.class.getName());
 
   private final Duration interval;
   private final Duration startupDelay;
@@ -39,6 +42,12 @@ final class AgentProfilingConfiguration {
 
   static AgentProfilingConfiguration create(ConfigProperties config) {
     String exporter = normalizeExporter(defaultString(getString(config, "exporter"), "none"));
+    if (getInt(config, "stack-depth") != null || getString(config, "temp-dir") != null) {
+      logger.warning(
+          "Profiling stack-depth and temp-dir cannot configure a per-recording JFR repository or stack depth. "
+              + "Use JVM -XX:FlightRecorderOptions=stackdepth=<depth>,repository=<directory> instead; "
+              + "these options affect all JFR recordings.");
+    }
     return new AgentProfilingConfiguration(
         defaultDuration(getDuration(config, "interval"), Duration.ofMinutes(1)),
         defaultDuration(getDuration(config, "startup-delay"), Duration.ZERO),
@@ -51,16 +60,20 @@ final class AgentProfilingConfiguration {
         getBoolean(config, "memory.allocation-sampling"),
         getBoolean(config, "memory.old-object-sampling"),
         toPathOrDefault(
-            getString(config, "experimental.file-export.path"),
+            "file".equals(exporter) ? getString(config, "experimental.file-export.path") : null,
             Paths.get(System.getProperty("java.io.tmpdir"), "otel-profiles")),
         toUrlOrDefault(
-            getString(
-                config,
-                new String[] {"endpoint", "datakit.endpoint"},
-                "OTEL_PROFILING_ENDPOINT",
-                "OTEL_PROFILING_DATAKIT_ENDPOINT"),
+            "datakit".equals(exporter)
+                ? getString(
+                    config,
+                    new String[] {"endpoint", "datakit.endpoint"},
+                    "OTEL_PROFILING_ENDPOINT",
+                    "OTEL_PROFILING_DATAKIT_ENDPOINT")
+                : null,
             "http://localhost:9529/profiling/v1/input"),
-        defaultDuration(getDuration(config, "datakit.timeout"), Duration.ofSeconds(10)));
+        defaultDuration(
+            "datakit".equals(exporter) ? getDuration(config, "datakit.timeout") : null,
+            Duration.ofSeconds(10)));
   }
 
   private AgentProfilingConfiguration(

@@ -9,6 +9,7 @@ import io.opentelemetry.instrumentation.profiling.ProfileSnapshot;
 import java.io.IOException;
 import java.io.InputStream;
 import java.time.Instant;
+import javax.annotation.Nullable;
 import jdk.jfr.Recording;
 
 final class JfrProfileSnapshot implements ProfileSnapshot {
@@ -44,6 +45,7 @@ final class JfrProfileSnapshot implements ProfileSnapshot {
   }
 
   @Override
+  @Nullable
   public InputStream openStream() throws IOException {
     return recording.getStream(startTime, endTime);
   }

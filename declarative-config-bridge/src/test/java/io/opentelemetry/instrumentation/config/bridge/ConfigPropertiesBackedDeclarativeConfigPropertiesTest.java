@@ -24,6 +24,36 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 class ConfigPropertiesBackedDeclarativeConfigPropertiesTest {
 
+  @ParameterizedTest
+  @MethodSource("jdbcCaptureCases")
+  void jdbcCompatibilityAliasUsesResolvedConfiguration(
+      String capture, String alias, Boolean expected) {
+    Map<String, String> properties = new HashMap<>();
+    if (capture != null) {
+      properties.put("otel.instrumentation.jdbc.experimental.capture-query-parameters", capture);
+    }
+    if (alias != null) {
+      properties.put("otel.jdbc.sql.obfuscation", alias);
+    }
+    DeclarativeConfigProperties jdbc =
+        ConfigPropertiesBackedDeclarativeConfigProperties.createInstrumentationConfig(
+                DefaultConfigProperties.createFromMap(properties))
+            .getStructured("java")
+            .getStructured("jdbc");
+    assertThat(jdbc.getBoolean("capture_query_parameters/development")).isEqualTo(expected);
+  }
+
+  private static Stream<Arguments> jdbcCaptureCases() {
+    return Stream.of(
+        argumentSet("neither configured", null, null, null),
+        argumentSet("alias from config file", null, "true", true),
+        argumentSet("alias false", null, "false", false),
+        argumentSet("capture only", "true", null, true),
+        argumentSet("new false does not override alias true", "false", "true", true),
+        argumentSet("alias false does not override new true", "true", "false", true),
+        argumentSet("both disabled", "false", "false", false));
+  }
+
   @Test
   void testTranslateName_regularName() {
     DeclarativeConfigProperties config =

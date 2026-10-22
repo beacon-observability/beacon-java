@@ -5,6 +5,8 @@
 
 package io.opentelemetry.javaagent.instrumentation.profiling;
 
+import static java.util.logging.Level.WARNING;
+
 import com.google.auto.service.AutoService;
 import io.opentelemetry.instrumentation.profiling.ProfileExporterAdapter;
 import io.opentelemetry.instrumentation.profiling.RuntimeProfiling;
@@ -33,6 +35,15 @@ public class ProfilingInstaller implements AgentListener {
     if (!installed.compareAndSet(false, true)) {
       return;
     }
+
+    try {
+      install(autoConfiguredSdk);
+    } catch (Throwable failure) {
+      logger.log(WARNING, "Unable to initialize profiling; continuing agent startup", failure);
+    }
+  }
+
+  private static void install(AutoConfiguredOpenTelemetrySdk autoConfiguredSdk) {
 
     ConfigProperties config = AutoConfigureUtil.getConfig(autoConfiguredSdk);
     if (config == null || !AgentProfilingConfiguration.isEnabled(config)) {

@@ -38,6 +38,15 @@ public final class FileProfileExporterAdapter implements ProfileExporterAdapter 
 
   @Override
   public void export(ProfileSnapshot snapshot) throws IOException {
+    try (InputStream inputStream = snapshot.openStream()) {
+      if (inputStream == null) {
+        return;
+      }
+      export(snapshot, inputStream);
+    }
+  }
+
+  private void export(ProfileSnapshot snapshot, InputStream inputStream) throws IOException {
     Files.createDirectories(directory);
 
     String extension = snapshot.getFormat().toLowerCase(Locale.ROOT);
@@ -53,7 +62,7 @@ public final class FileProfileExporterAdapter implements ProfileExporterAdapter 
 
     Path target = directory.resolve(filename);
     Path temporary = Files.createTempFile(directory, "profile-", ".tmp");
-    try (InputStream inputStream = snapshot.openStream()) {
+    try {
       Files.copy(inputStream, temporary, StandardCopyOption.REPLACE_EXISTING);
       Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING);
     } finally {

@@ -4,6 +4,43 @@ This file records Beacon product changes only. The root [CHANGELOG.md](../CHANGE
 
 ## Unreleased
 
+- Security call sites check collection activity before allocating argument arrays or boxing values.
+  Request settings and rules are cached, untracked string propagation avoids building call records,
+  and Java 9+ stack capture stops at bounded business frames. Request evidence preparation runs
+  outside the global ledger lock; triage decisions are indexed and cached until policy expiry.
+- Abandoned Security request states now release active-request and process-byte budgets through
+  Java 8 compatible reference cleanup. Suspected attack evidence and operational diagnostics have
+  separate bounded priority queues and reserved export budget. Recent delivery health recovers
+  after 60 seconds without hiding cumulative loss or historical incomplete requests.
+- Security detects tainted SQL quote boundaries and covers file reader/writer APIs, HTTPS connection
+  subclasses, JDBC batch and large-update sinks. Batch evidence is tracked per statement and cleared
+  after successful execution or clearBatch. Fixed prepared-statement bindings remain non-findings.
+  Logical business-site lookup continues past classes unavailable to the current context loader.
+
+- Spring AI chat and Alibaba tool spans now scope child work correctly. Optional content telemetry
+  failures no longer interrupt model calls or streams. Streaming telemetry keeps separate bounded
+  choice buffers, ignores null text, preserves finish reasons through usage-only chunks, and releases
+  spans on completion, failure, and cancellation. The new experimental Spring AI
+  `stream-content.max-length` setting defaults to 65536 total characters per stream.
+- Alibaba tool arguments and results are now omitted unless
+  `otel.instrumentation.genai.capture-message-content=true`. Opted-in payloads are limited to 8192
+  characters by default through the experimental `spring-ai-alibaba-agent.tool-content.max-length`
+  setting and report truncation. Deployments relying on tool payloads must explicitly opt in.
+
+- Profiling now serializes its final export after in-flight work, includes the remaining interval
+  after earlier successful exports, and bounds close waiting to ten seconds. Empty JFR intervals
+  produce no file or upload. Startup failures no longer interrupt the remaining agent listeners,
+  and unused exporter configuration is not parsed.
+- Profiling preserves final JFR chunks in detached temporary files before the JDK shutdown hook
+  removes its repository. `temp-dir` now selects the staging directory; files are deleted after
+  export. `stack-depth` reports that it requires JVM-wide
+  `-XX:FlightRecorderOptions=stackdepth=<depth>` configuration. The agent does not mutate other
+  recordings' global settings.
+- The JDBC `otel.jdbc.sql.obfuscation` compatibility alias now works through configuration files
+  and environment variables. Either effective flat key being true enables parameter capture,
+  including when the other key is explicitly false. The alias retains its historical meaning:
+  enabling it captures parameters and disables query sanitization.
+
 ## Version 1.3.0 (2026-10-19)
 
 - Use `beacon-java` as the Gradle root project name in build output and CI summaries.

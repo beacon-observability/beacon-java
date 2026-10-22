@@ -63,6 +63,8 @@ final class CallSites {
     }
     if (owner.startsWith("java/sql/")) {
       return method.startsWith("execute")
+          || method.equals("addBatch")
+          || method.equals("clearBatch")
           || method.equals("prepareStatement")
           || method.equals("prepareCall");
     }
@@ -100,7 +102,10 @@ final class CallSites {
     }
     if (owner.equals("java/io/FileInputStream")
         || owner.equals("java/io/FileOutputStream")
-        || owner.equals("java/io/RandomAccessFile")) {
+        || owner.equals("java/io/RandomAccessFile")
+        || owner.equals("java/io/FileReader")
+        || owner.equals("java/io/FileWriter")
+        || owner.equals("java/io/PrintWriter")) {
       return method.equals("<init>");
     }
     if (owner.equals("java/nio/file/Files")) {
@@ -109,7 +114,12 @@ final class CallSites {
           || method.startsWith("new")
           || method.startsWith("delete")
           || method.equals("copy")
-          || method.equals("move");
+          || method.equals("move")
+          || method.equals("lines")
+          || method.equals("list")
+          || method.equals("walk")
+          || method.equals("exists")
+          || method.equals("createFile");
     }
     if (owner.equals("java/net/URLEncoder") || owner.equals("java/net/URLDecoder")) {
       return true;
@@ -134,11 +144,9 @@ final class CallSites {
           || method.equals("getFile")
           || method.equals("getScheme");
     }
-    if (owner.startsWith("java/net/") && owner.contains("URLConnection")) {
-      return method.equals("connect")
-          || method.equals("getInputStream")
-          || method.equals("getOutputStream")
-          || method.equals("getResponseCode");
+    if ((owner.startsWith("java/net/") && owner.contains("URLConnection"))
+        || owner.equals("javax/net/ssl/HttpsURLConnection")) {
+      return isUrlConnectionMethod(method);
     }
     if (owner.startsWith("java/net/http/")) {
       return method.equals("send")
@@ -168,6 +176,11 @@ final class CallSites {
     return method.equals("execute")
         || method.equals("executeQuery")
         || method.equals("executeUpdate")
+        || method.equals("executeLargeUpdate")
+        || method.equals("executeBatch")
+        || method.equals("executeLargeBatch")
+        || method.equals("addBatch")
+        || method.equals("clearBatch")
         || method.equals("prepareStatement")
         || method.equals("prepareCall");
   }
@@ -180,5 +193,12 @@ final class CallSites {
     // RestTemplate convenience methods delegate here. Observing both layers
     // would count the same HTTP attempt twice.
     return method.equals("execute");
+  }
+
+  static boolean isUrlConnectionMethod(String method) {
+    return method.equals("connect")
+        || method.equals("getInputStream")
+        || method.equals("getOutputStream")
+        || method.equals("getResponseCode");
   }
 }

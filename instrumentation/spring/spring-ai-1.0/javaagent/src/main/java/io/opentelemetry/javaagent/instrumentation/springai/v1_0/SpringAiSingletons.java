@@ -9,6 +9,7 @@ import static io.opentelemetry.instrumentation.api.incubator.semconv.genai.inter
 
 import io.opentelemetry.api.GlobalOpenTelemetry;
 import io.opentelemetry.api.logs.Logger;
+import io.opentelemetry.context.ContextKey;
 import io.opentelemetry.instrumentation.api.incubator.config.internal.DeclarativeConfigUtil;
 import io.opentelemetry.instrumentation.api.incubator.semconv.genai.GenAiAttributesExtractor;
 import io.opentelemetry.instrumentation.api.incubator.semconv.genai.GenAiClientMetrics;
@@ -18,6 +19,7 @@ import io.opentelemetry.instrumentation.api.instrumenter.SpanKindExtractor;
 import org.springframework.ai.chat.model.ChatResponse;
 
 public final class SpringAiSingletons {
+  public static final ContextKey<Boolean> CHAT_ACTIVE = ContextKey.named("spring-ai-chat-active");
   private static final String INSTRUMENTATION_NAME = "io.opentelemetry.spring-ai-1.0";
   private static final int DEFAULT_MESSAGE_CONTENT_SPAN_ATTRIBUTE_MAX_LENGTH = 8192;
 
@@ -42,6 +44,16 @@ public final class SpringAiSingletons {
                           GlobalOpenTelemetry.get(), "spring_ai")
                       .get("message_content_span_attribute/development")
                       .getLong("max_length", DEFAULT_MESSAGE_CONTENT_SPAN_ATTRIBUTE_MAX_LENGTH)));
+  private static final int STREAM_CONTENT_MAX_LENGTH =
+      (int)
+          Math.min(
+              Integer.MAX_VALUE,
+              Math.max(
+                  0,
+                  DeclarativeConfigUtil.getInstrumentationConfig(
+                          GlobalOpenTelemetry.get(), "spring_ai")
+                      .get("stream_content/development")
+                      .getLong("max_length", 65536)));
 
   static {
     SpringAiAttributesGetter getter = new SpringAiAttributesGetter();
@@ -72,6 +84,10 @@ public final class SpringAiSingletons {
 
   public static int messageContentSpanAttributeMaxLength() {
     return MESSAGE_CONTENT_SPAN_ATTRIBUTE_MAX_LENGTH;
+  }
+
+  public static int streamContentMaxLength() {
+    return STREAM_CONTENT_MAX_LENGTH;
   }
 
   private SpringAiSingletons() {}

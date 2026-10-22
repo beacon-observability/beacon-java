@@ -13,6 +13,7 @@ import io.beacon.security.core.Mark;
 import io.beacon.security.core.Propagation;
 import io.beacon.security.core.SecurityState;
 import io.beacon.security.core.Settings;
+import io.beacon.security.core.StackFrames;
 import io.beacon.security.core.Values;
 import io.beacon.security.exporter.EvidenceExporter;
 import io.beacon.security.sbom.SbomInventory;
@@ -23,6 +24,7 @@ import java.lang.instrument.Instrumentation;
 import java.lang.reflect.InvocationHandler;
 import java.net.URI;
 import java.net.URL;
+import java.net.URLConnection;
 import java.sql.Connection;
 import java.sql.Statement;
 import java.util.ArrayList;
@@ -91,6 +93,12 @@ public final class SecurityRuntime {
               || !EXPORTER.ledger().enabled()) {
             return null;
           }
+          String owner = (String) values[0];
+          Object receiver = values[3];
+          Object[] arguments = (Object[]) values[4];
+          if (untrackedStringCall(state, owner, receiver, arguments)) {
+            return null;
+          }
           Call call =
               new Call(
                   state,
@@ -140,6 +148,24 @@ public final class SecurityRuntime {
     EXPORTER.ledger().begin(state);
   }
 
+  private static boolean untrackedStringCall(
+      SecurityState state, String owner, Object receiver, Object[] arguments) {
+    if (!(owner.equals("java/lang/String")
+            || owner.equals("java/lang/StringBuilder")
+            || owner.equals("java/lang/StringBuffer")
+            || owner.equals("java/lang/invoke/StringConcatFactory"))
+        || state.isTracked(receiver)) {
+      return false;
+    }
+    for (Object argument : arguments) {
+      // Nested format/concat arguments need the bounded traversal performed by Call.
+      if (argument instanceof Object[] || state.isTracked(argument)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   static void end(SecurityState state, Context context) {
     try {
       state.request.put("ended_at", Events.now());
@@ -157,7 +183,10 @@ public final class SecurityRuntime {
 
   private static void emit(Call call, SinkRules.Finding finding, ClassLoader loader) {
     Context context = Context.current();
-    String site = logicalSite(call, loader);
+    List<StackFrames.Frame> frames =
+        StackFrames.capture(
+            SecurityRuntime::evidenceFrame, call.receiver instanceof Statement ? 128 : 24);
+    String site = logicalSite(call, loader, frames);
     call.state.sink(finding.rule, site);
     Map<String, Object> event =
         call.state.evidence(
@@ -178,13 +207,8 @@ public final class SecurityRuntime {
       return;
     }
     List<String> stack = new ArrayList<>();
-    for (StackTraceElement frame : Thread.currentThread().getStackTrace()) {
-      String name = frame.getClassName();
-      if (name.startsWith("io.beacon.security.")
-          || name.startsWith("io.opentelemetry.")
-          || name.equals("java.lang.Thread")) {
-        continue;
-      }
+    for (StackFrames.Frame captured : frames) {
+      StackTraceElement frame = captured.element;
       stack.add(frame.toString());
       if (stack.size() == 24) {
         break;
@@ -209,11 +233,19 @@ public final class SecurityRuntime {
     call.state.pending(event);
   }
 
-  private static String logicalSite(Call call, ClassLoader loader) {
+  private static boolean evidenceFrame(StackTraceElement frame) {
+    String name = frame.getClassName();
+    return !name.startsWith("io.beacon.security.")
+        && !name.startsWith("io.opentelemetry.")
+        && !name.equals("java.lang.Thread");
+  }
+
+  static String logicalSite(Call call, ClassLoader loader, List<StackFrames.Frame> frames) {
     if (!(call.receiver instanceof Statement)) {
       return call.location;
     }
-    for (StackTraceElement frame : Thread.currentThread().getStackTrace()) {
+    for (StackFrames.Frame captured : frames) {
+      StackTraceElement frame = captured.element;
       String name = frame.getClassName();
       if (name.startsWith("io.beacon.security.")
           || name.startsWith("io.opentelemetry.")
@@ -225,14 +257,17 @@ public final class SecurityRuntime {
         continue;
       }
       try {
-        Class<?> type = Class.forName(name, false, loader);
+        Class<?> type = captured.type;
+        if (type == null) {
+          type = Class.forName(name, false, loader);
+        }
         if (Statement.class.isAssignableFrom(type)
             || Connection.class.isAssignableFrom(type)
             || InvocationHandler.class.isAssignableFrom(type)) {
           continue;
         }
       } catch (Throwable ignored) {
-        return call.location;
+        continue;
       }
       return name
           + "#"
@@ -297,8 +332,24 @@ public final class SecurityRuntime {
       }
       return;
     }
+    if (call.receiver instanceof Statement) {
+      if (call.method.equals("addBatch")
+          && call.arguments.length > 0
+          && call.arguments[0] instanceof String) {
+        call.state.addBatch(
+            call.receiver,
+            call.arg(0),
+            AttackAnalysis.sql((String) call.arguments[0], call.arg(0)));
+      } else if (call.method.equals("clearBatch")
+          || call.method.equals("executeBatch")
+          || call.method.equals("executeLargeBatch")) {
+        call.state.clearBatch(call.receiver);
+      }
+      return;
+    }
     if (SinkRules.isFileSink(call.owner, call.method)
         || SinkRules.isHttpSink(call.owner, call.method)
+        || (call.receiver instanceof URLConnection && CallSites.isUrlConnectionMethod(call.method))
         || call.receiver instanceof Statement
         || call.owner.equals("java/lang/ProcessBuilder")
         || call.owner.equals("java/lang/Runtime")) {
@@ -311,6 +362,8 @@ public final class SecurityRuntime {
     // Driver implementation callsites are matched by name, but unrelated execute methods
     // (for example RestTemplate.execute) do not propagate request arguments into responses.
     if (call.method.startsWith("execute")
+        || call.method.equals("addBatch")
+        || call.method.equals("clearBatch")
         || call.method.equals("prepareStatement")
         || call.method.equals("prepareCall")) {
       return;

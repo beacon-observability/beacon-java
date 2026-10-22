@@ -14,6 +14,7 @@ import io.opentelemetry.instrumentation.profiling.ProfileSnapshot;
 import io.opentelemetry.instrumentation.profiling.RuntimeProfiling;
 import java.nio.file.NoSuchFileException;
 import java.time.Instant;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Logger;
 
@@ -27,7 +28,6 @@ final class JfrRuntimeProfiling implements RuntimeProfiling {
       new ProfilingScheduler("OpenTelemetry Profiling Runner");
   private final AtomicBoolean started = new AtomicBoolean();
   private final AtomicBoolean closed = new AtomicBoolean();
-  private final AtomicBoolean exported = new AtomicBoolean();
 
   private volatile JfrRecordingSession recordingSession;
   private volatile Instant lastSnapshotStart;
@@ -39,15 +39,15 @@ final class JfrRuntimeProfiling implements RuntimeProfiling {
 
   @Override
   public void start() {
-    if (!started.compareAndSet(false, true)) {
+    if (closed.get() || !started.compareAndSet(false, true)) {
       return;
     }
 
     long startupDelayMillis = config.getStartupDelay().toMillis();
-    if (startupDelayMillis == 0) {
-      startRecording();
-    } else {
+    try {
       scheduler.schedule(this::startRecording, startupDelayMillis, MILLISECONDS);
+    } catch (RejectedExecutionException ignored) {
+      // A concurrent close owns finalization and has already stopped this scheduler.
     }
   }
 
@@ -57,11 +57,9 @@ final class JfrRuntimeProfiling implements RuntimeProfiling {
       return;
     }
 
-    scheduler.close();
-    if (exported.get()) {
-      closeRecordingSession();
-    } else {
-      exportFinalRecording();
+    if (!scheduler.finish(this::exportFinalRecording, 10000)) {
+      logger.warning(
+          "Profiling shutdown exceeded 10 seconds; pending export remains best effort on the daemon worker");
     }
   }
 
@@ -71,10 +69,12 @@ final class JfrRuntimeProfiling implements RuntimeProfiling {
     }
 
     try {
-      JfrRecordingSession session = new JfrRecordingSession(config);
-      session.start();
+      JfrRecordingSession session =
+          new JfrRecordingSession(
+              config, () -> lastSnapshotStart == null ? Instant.EPOCH : lastSnapshotStart);
       recordingSession = session;
       lastSnapshotStart = Instant.now();
+      session.start();
       long intervalMillis = config.getInterval().toMillis();
       scheduler.scheduleAtFixedRate(
           this::exportSnapshot, intervalMillis, intervalMillis, MILLISECONDS);
@@ -104,9 +104,8 @@ final class JfrRuntimeProfiling implements RuntimeProfiling {
     Instant snapshotStart = lastSnapshotStart != null ? lastSnapshotStart : Instant.now();
     try (ProfileSnapshot snapshot =
         finalExport ? session.stop(snapshotStart) : session.snapshot(snapshotStart)) {
-      lastSnapshotStart = snapshot.getEndTime().plusNanos(1);
       exporterAdapter.export(snapshot);
-      exported.set(true);
+      lastSnapshotStart = snapshot.getEndTime().plusNanos(1);
     } catch (Exception exception) {
       if (isMissingChunks(exception)) {
         logger.log(

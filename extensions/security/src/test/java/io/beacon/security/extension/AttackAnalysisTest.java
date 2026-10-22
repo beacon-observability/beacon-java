@@ -57,6 +57,11 @@ class AttackAnalysisTest {
         Arguments.of(
             "SELECT * FROM users WHERE name='OR UNION SELECT'", "OR UNION SELECT", "no_evidence"),
         Arguments.of("SELECT * FROM users WHERE name='O''Reilly'", "O''Reilly", "no_evidence"),
+        Arguments.of(
+            "SELECT id FROM t WHERE name = 'a' UNION SELECT secret FROM users WHERE 'x' LIKE 'x'",
+            "a' UNION SELECT secret FROM users WHERE 'x' LIKE 'x",
+            "suspected"),
+        Arguments.of("SELECT * FROM users WHERE name='LIKE UNION'", "LIKE UNION", "no_evidence"),
         Arguments.of("SELECT * FROM users WHERE name='O'Reilly'", "O'Reilly", "unknown"),
         Arguments.of("SELECT * FROM users WHERE name='' OR '1'='1'", "' OR '1'='1", "suspected"),
         Arguments.of("SELECT * FROM users WHERE id=1 OR 1=1", "1 OR 1=1", "suspected"),

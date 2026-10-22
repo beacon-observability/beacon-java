@@ -129,6 +129,7 @@ public final class SpringAiMessageAttributes {
     } else {
       List<Generation> generations = response.getResults();
       for (int index = 0; index < generations.size(); index++) {
+        truncated |= SpringAiResponseAccumulator.truncated(generations.get(index));
         if (index > 0) {
           result.append(',');
         }

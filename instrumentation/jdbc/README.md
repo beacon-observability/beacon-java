@@ -10,6 +10,12 @@
 
 ## Connection Pool Unwrapping
 
+The compatibility alias is resolved from system properties, environment variables
+(`OTEL_JDBC_SQL_OBFUSCATION`), and `otel.javaagent.configuration-file`, like the modern key.
+With flat configuration, either effective value being `true` enables capture, including when the
+other key is explicitly `false`. The alias retains its historical, counterintuitive meaning:
+`true` captures parameters and disables query sanitization.
+
 The instrumentation unwraps pooled connections (via java.sql.Wrapper) to cache database metadata
 against the underlying physical connection. Most connection pools support this by default.
 

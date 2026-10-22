@@ -33,12 +33,14 @@ public final class JdbcInstrumenterFactory {
   public static final String INSTRUMENTATION_NAME = "io.opentelemetry.jdbc";
 
   public static boolean captureQueryParameters(OpenTelemetry openTelemetry) {
-    boolean legacyCaptureQueryParameters =
-        SystemProperty.getBoolean(
-                "otel.instrumentation.jdbc.experimental.capture-query-parameters", false)
-            || SystemProperty.getBoolean("otel.jdbc.sql.obfuscation", false);
-    return DeclarativeConfigUtil.getInstrumentationConfig(openTelemetry, "jdbc")
-        .getBoolean("capture_query_parameters/development", legacyCaptureQueryParameters);
+    // The flat-config bridge also resolves this compatibility alias from files and environment.
+    // Keep the system-property fallback for library users without ExtendedOpenTelemetry.
+    return SystemProperty.getBoolean("otel.jdbc.sql.obfuscation", false)
+        || DeclarativeConfigUtil.getInstrumentationConfig(openTelemetry, "jdbc")
+            .getBoolean(
+                "capture_query_parameters/development",
+                SystemProperty.getBoolean(
+                    "otel.instrumentation.jdbc.experimental.capture-query-parameters", false));
   }
 
   public static Instrumenter<DbRequest, Void> createStatementInstrumenter(

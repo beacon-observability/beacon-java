@@ -14,8 +14,10 @@ import static net.bytebuddy.matcher.ElementMatchers.takesArguments;
 
 import com.alibaba.cloud.ai.graph.agent.interceptor.ToolCallResponse;
 import io.opentelemetry.context.Context;
+import io.opentelemetry.context.Scope;
 import io.opentelemetry.javaagent.extension.instrumentation.TypeInstrumentation;
 import io.opentelemetry.javaagent.extension.instrumentation.TypeTransformer;
+import javax.annotation.Nullable;
 import net.bytebuddy.asm.Advice;
 import net.bytebuddy.description.type.TypeDescription;
 import net.bytebuddy.matcher.ElementMatcher;
@@ -42,30 +44,48 @@ class AgentToolNodeInstrumentation implements TypeInstrumentation {
 
   @SuppressWarnings("unused")
   public static class ToolCallAdvice {
+    public static class AdviceScope {
+      private final ToolRequest request;
+      private final Context context;
+      private final Scope scope;
+
+      private AdviceScope(ToolRequest request, Context context) {
+        this.request = request;
+        this.context = context;
+        this.scope = context.makeCurrent();
+      }
+
+      @Nullable
+      public static AdviceScope start(ToolRequest request) {
+        Context parent = Context.current();
+        if (!toolInstrumenter().shouldStart(parent, request)) {
+          return null;
+        }
+        return new AdviceScope(request, toolInstrumenter().start(parent, request));
+      }
+
+      public void end(@Nullable ToolCallResponse response, @Nullable Throwable error) {
+        scope.close();
+        toolInstrumenter().end(context, request, response, error);
+      }
+    }
+
     @Advice.OnMethodEnter(suppress = Throwable.class, inline = false)
-    public static Context onEnter(
+    @Nullable
+    public static AdviceScope onEnter(
         @Advice.FieldValue("agentName") String agentName,
         @Advice.Argument(0) Object toolCall,
         @Advice.Argument(4) boolean parallelExecution) {
-      ToolRequest request = new ToolRequest(agentName, toolCall, parallelExecution);
-      Context parentContext = Context.current();
-      if (!toolInstrumenter().shouldStart(parentContext, request)) {
-        return null;
-      }
-      return toolInstrumenter().start(parentContext, request);
+      return AdviceScope.start(new ToolRequest(agentName, toolCall, parallelExecution));
     }
 
     @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class, inline = false)
     public static void onExit(
-        @Advice.Enter Context context,
-        @Advice.FieldValue("agentName") String agentName,
-        @Advice.Argument(0) Object toolCall,
-        @Advice.Argument(4) boolean parallelExecution,
-        @Advice.Return ToolCallResponse response,
-        @Advice.Thrown Throwable error) {
-      if (context != null) {
-        ToolRequest request = new ToolRequest(agentName, toolCall, parallelExecution);
-        toolInstrumenter().end(context, request, response, error);
+        @Advice.Enter @Nullable AdviceScope scope,
+        @Advice.Return @Nullable ToolCallResponse response,
+        @Advice.Thrown @Nullable Throwable error) {
+      if (scope != null) {
+        scope.end(response, error);
       }
     }
   }

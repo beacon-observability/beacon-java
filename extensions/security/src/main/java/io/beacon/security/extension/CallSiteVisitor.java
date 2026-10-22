@@ -6,10 +6,13 @@
 package io.beacon.security.extension;
 
 import java.io.IOException;
+import java.net.URLConnection;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import net.bytebuddy.asm.AsmVisitorWrapper;
 import net.bytebuddy.description.field.FieldDescription;
 import net.bytebuddy.description.field.FieldList;
@@ -32,9 +35,11 @@ import org.objectweb.asm.TypePath;
 final class CallSiteVisitor extends AsmVisitorWrapper.AbstractBase {
   private static final String BRIDGE = "io/beacon/security/bridge/SecurityBridge";
   private final Map<String, Integer> scratch;
+  private final Set<String> connectionOwners;
 
-  private CallSiteVisitor(Map<String, Integer> scratch) {
+  private CallSiteVisitor(Map<String, Integer> scratch, Set<String> connectionOwners) {
     this.scratch = scratch;
+    this.connectionOwners = connectionOwners;
   }
 
   static CallSiteVisitor forClass(TypeDescription type, ClassLoader loader) throws IOException {
@@ -44,6 +49,9 @@ final class CallSiteVisitor extends AsmVisitorWrapper.AbstractBase {
       return null;
     }
     Map<String, Integer> scratch = new HashMap<>();
+    Set<String> connectionOwners = new HashSet<>();
+    Map<String, Boolean> connectionTypes = new HashMap<>();
+    TypePool pool = TypePool.Default.of(loader);
     new ClassReader(resolution.resolve())
         .accept(
             new ClassVisitor(Opcodes.ASM9) {
@@ -66,7 +74,25 @@ final class CallSiteVisitor extends AsmVisitorWrapper.AbstractBase {
                       String method,
                       String descriptor,
                       boolean isInterface) {
-                    if (CallSites.matches(owner, method)) {
+                    boolean matches = CallSites.matches(owner, method);
+                    if (!matches && CallSites.isUrlConnectionMethod(method)) {
+                      matches =
+                          connectionTypes.computeIfAbsent(
+                              owner,
+                              name -> {
+                                try {
+                                  return pool.describe(name.replace('/', '.'))
+                                      .resolve()
+                                      .isAssignableTo(URLConnection.class);
+                                } catch (RuntimeException ignored) {
+                                  return false;
+                                }
+                              });
+                      if (matches) {
+                        connectionOwners.add(owner);
+                      }
+                    }
+                    if (matches) {
                       reserve(descriptor);
                     }
                   }
@@ -82,12 +108,12 @@ final class CallSiteVisitor extends AsmVisitorWrapper.AbstractBase {
               }
             },
             ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
-    return scratch.isEmpty() ? null : new CallSiteVisitor(scratch);
+    return scratch.isEmpty() ? null : new CallSiteVisitor(scratch, connectionOwners);
   }
 
   @Override
   public int mergeWriter(int flags) {
-    return flags | ClassWriter.COMPUTE_MAXS;
+    return flags | ClassWriter.COMPUTE_FRAMES;
   }
 
   @Override
@@ -138,7 +164,8 @@ final class CallSiteVisitor extends AsmVisitorWrapper.AbstractBase {
             access,
             name,
             descriptor,
-            type.getInternalName());
+            type.getInternalName(),
+            connectionOwners);
       }
     };
   }
@@ -150,6 +177,7 @@ final class CallSiteVisitor extends AsmVisitorWrapper.AbstractBase {
     private final int first;
     private final String methodLocation;
     private final String file;
+    private final Set<String> connectionOwners;
     private int line = -1;
     private final List<Object> frameLocals = new ArrayList<>();
 
@@ -162,12 +190,14 @@ final class CallSiteVisitor extends AsmVisitorWrapper.AbstractBase {
         int access,
         String name,
         String descriptor,
-        String owner) {
+        String owner,
+        Set<String> connectionOwners) {
       super(Opcodes.ASM9, visitor);
       this.first = first;
       this.scratch = scratch;
       this.methodLocation = location;
       this.file = file;
+      this.connectionOwners = connectionOwners;
       if ((access & Opcodes.ACC_STATIC) == 0) {
         frameLocals.add(name.equals("<init>") ? Opcodes.UNINITIALIZED_THIS : owner);
       }
@@ -276,7 +306,8 @@ final class CallSiteVisitor extends AsmVisitorWrapper.AbstractBase {
     @Override
     public void visitMethodInsn(
         int opcode, String owner, String name, String descriptor, boolean isInterface) {
-      if (!CallSites.matches(owner, name)) {
+      if (!CallSites.matches(owner, name)
+          && !(connectionOwners.contains(owner) && CallSites.isUrlConnectionMethod(name))) {
         mv.visitMethodInsn(opcode, owner, name, descriptor, isInterface);
         return;
       }
@@ -352,6 +383,10 @@ final class CallSiteVisitor extends AsmVisitorWrapper.AbstractBase {
       if (instance && !constructor) {
         mv.visitVarInsn(Opcodes.ASTORE, receiver);
       }
+      Label inactive = new Label();
+      Label invoke = new Label();
+      mv.visitMethodInsn(Opcodes.INVOKESTATIC, BRIDGE, "active", "()Z", false);
+      mv.visitJumpInsn(Opcodes.IFEQ, inactive);
       push(args.length);
       mv.visitTypeInsn(Opcodes.ANEWARRAY, "java/lang/Object");
       for (int i = 0; i < args.length; i++) {
@@ -382,6 +417,11 @@ final class CallSiteVisitor extends AsmVisitorWrapper.AbstractBase {
           "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Object;[Ljava/lang/Object;Ljava/lang/String;Ljava/lang/Class;)Ljava/lang/Object;",
           false);
       mv.visitVarInsn(Opcodes.ASTORE, token);
+      mv.visitJumpInsn(Opcodes.GOTO, invoke);
+      mv.visitLabel(inactive);
+      mv.visitInsn(Opcodes.ACONST_NULL);
+      mv.visitVarInsn(Opcodes.ASTORE, token);
+      mv.visitLabel(invoke);
       if (constructor) {
         mv.visitInsn(Opcodes.DUP);
       } else if (instance) {
@@ -408,6 +448,9 @@ final class CallSiteVisitor extends AsmVisitorWrapper.AbstractBase {
       if (returned.getSort() != Type.VOID) {
         mv.visitVarInsn(returned.getOpcode(Opcodes.ISTORE), result);
       }
+      Label complete = new Label();
+      mv.visitVarInsn(Opcodes.ALOAD, token);
+      mv.visitJumpInsn(Opcodes.IFNULL, complete);
       mv.visitVarInsn(Opcodes.ALOAD, token);
       if (returned.getSort() != Type.VOID) {
         mv.visitVarInsn(returned.getOpcode(Opcodes.ILOAD), result);
@@ -419,6 +462,7 @@ final class CallSiteVisitor extends AsmVisitorWrapper.AbstractBase {
       }
       mv.visitMethodInsn(
           Opcodes.INVOKESTATIC, BRIDGE, "after", "(Ljava/lang/Object;Ljava/lang/Object;)V", false);
+      mv.visitLabel(complete);
       if (returned.getSort() != Type.VOID) {
         mv.visitVarInsn(returned.getOpcode(Opcodes.ILOAD), result);
       }

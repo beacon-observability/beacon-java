@@ -40,10 +40,16 @@ public final class Call {
     this.location = location;
     receiverMarks = state.marks(receiver);
     receiverLength = Values.length(receiver);
-    int[] remaining = {512};
+    int[] remaining = null;
     for (Object arg : arguments) {
+      if (!(arg instanceof Object[])) {
+        argumentMarks.add(state.marks(arg));
+        continue;
+      }
+      if (remaining == null) {
+        remaining = new int[] {512};
+      }
       List<Mark> marks = new ArrayList<>();
-      // Each argument needs its own marks even when argument identities repeat.
       collect(state, arg, 0, marks, new IdentityHashMap<Object, Integer>(), remaining);
       argumentMarks.add(marks);
     }
@@ -118,6 +124,9 @@ public final class Call {
   }
 
   public List<Mark> step(List<Mark> marks, int shift, int from, int to, boolean exact) {
+    if (marks.isEmpty()) {
+      return emptyList();
+    }
     return state.step(
         marks, owner.replace('/', '.') + "." + method, location, shift, from, to, exact);
   }

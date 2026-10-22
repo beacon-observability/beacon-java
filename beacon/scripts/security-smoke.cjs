@@ -199,10 +199,37 @@ async function main() {
     assert.equal(new Set(occurrences.map((event) => event.occurrence_id)).size, 4);
     assert.equal(new Set(occurrences.map((event) => event.trace_id)).size, 4);
     assert(occurrences.every((event) => /^[0-9a-f]{32}$/.test(event.trace_id)));
-    assert.deepEqual(occurrences.map((event) => event.evidence_sampled), [true, false, true, false]);
-    assert.deepEqual(occurrences.map((event) => event.attack_evidence.status),
-      ['no_evidence', 'no_evidence', 'suspected', 'no_evidence']);
+    // Priority lanes deliberately permit delivery order to differ from request order.
+    const ordinary = occurrences.filter((event) => event.attack_evidence.status === 'no_evidence');
+    const attacks = occurrences.filter((event) => event.attack_evidence.status === 'suspected');
+    assert.equal(ordinary.length, 3);
+    assert.equal(ordinary.filter((event) => event.evidence_sampled).length, 1);
+    assert.equal(attacks.length, 1);
+    assert.equal(attacks[0].evidence_sampled, true);
     assert(occurrences.every((event) => event.execution_observation === 'invocation_attempt'));
+    for (const route of ['file', 'lines']) {
+      await request(port, `/api/coverage/${route}?name=sample.txt`);
+    }
+    await request(port, `/api/coverage/https?target=${encodeURIComponent('https://fixture.invalid/path')}`);
+    await request(port, '/api/coverage/batch?value=guest');
+    await request(port, '/api/coverage/large-update?value=guest');
+    await request(port, '/api/coverage/cleared-batch?value=guest');
+    await request(port, '/api/coverage/prepared-batch?value=guest');
+    await request(port, '/api/coverage/async-timeout');
+    await eventually(() => {
+      const records = readFileSync(join(output, 'evidence.jsonl'), 'utf8')
+        .trim().split('\n').map((line) => JSON.parse(line));
+      const covered = records.filter((event) => event.event_name === 'beacon.security.finding');
+      for (const [route, rule] of [['file', 'path_traversal'], ['lines', 'path_traversal'],
+        ['https', 'ssrf'], ['batch', 'sql_injection'], ['large-update', 'sql_injection']]) {
+        assert(covered.some((event) => event.request.route === `/api/coverage/${route}` && event.rule === rule),
+          `Missing coverage for ${route}`);
+      }
+      assert(!covered.some((event) => ['/api/coverage/cleared-batch', '/api/coverage/prepared-batch'].includes(event.request.route)),
+        'Cleared batches and fixed parameter binding must not produce findings');
+      const current = JSON.parse(readFileSync(join(output, 'health.json'), 'utf8'));
+      assert.equal(current.active_requests, 0, 'HTTP async timeout must release its request lease');
+    }, 'file, HTTPS, batch, large update, and async lifecycle coverage');
     completed = true;
     console.log('PASS: per-request correlation, evidence upgrades, ordinary SQL classification, parameter binding, and runtime SBOM.');
   } finally {

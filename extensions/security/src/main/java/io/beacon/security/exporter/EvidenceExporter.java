@@ -15,6 +15,7 @@ import static java.util.concurrent.TimeUnit.SECONDS;
 import static java.util.logging.Level.WARNING;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.beacon.security.core.AttackEvidence;
 import io.beacon.security.core.Events;
 import io.beacon.security.core.Identity;
 import io.beacon.security.core.Settings;
@@ -43,16 +44,23 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.LongSupplier;
 import java.util.logging.Logger;
 
 public final class EvidenceExporter implements AutoCloseable {
   private static final Logger logger = Logger.getLogger(EvidenceExporter.class.getName());
 
   private final ObjectMapper json = new ObjectMapper();
+  private final LongSupplier nanoClock;
   private final ArrayBlockingQueue<Entry> queue =
       new ArrayBlockingQueue<>(Settings.limit("beacon.security.export.queue.size", 1024));
   private final ArrayBlockingQueue<Entry> sbomQueue =
       new ArrayBlockingQueue<>(Settings.limit("beacon.security.export.sbom.queue.size", 256));
+  private final ArrayBlockingQueue<Entry> evidenceQueue =
+      new ArrayBlockingQueue<>(Settings.limit("beacon.security.export.priority.queue.size", 128));
+  private final ArrayBlockingQueue<Entry> diagnosticQueue =
+      new ArrayBlockingQueue<>(Settings.limit("beacon.security.export.diagnostic.queue.size", 64));
+  private final AtomicLong lastSecurityLoss = new AtomicLong(Long.MIN_VALUE);
   private final RuntimeLedger ledger = new RuntimeLedger();
   private final ConcurrentHashMap<String, AtomicLong> counters = new ConcurrentHashMap<>();
   private final ScheduledExecutorService monitor =
@@ -88,6 +96,11 @@ public final class EvidenceExporter implements AutoCloseable {
   private long lastError;
 
   public EvidenceExporter() {
+    this(System::nanoTime);
+  }
+
+  EvidenceExporter(LongSupplier nanoClock) {
+    this.nanoClock = nanoClock;
     String configured = Settings.text("beacon.security.evidence.file", "");
     file = configured.isEmpty() ? null : Paths.get(configured).toAbsolutePath();
     worker = new Thread(this::run, "BeaconSecurity-export");
@@ -121,12 +134,16 @@ public final class EvidenceExporter implements AutoCloseable {
                 || String.valueOf(event.get("event_name")).startsWith("beacon.security.sbom.")
             ? "sbom"
             : "security";
-    ArrayBlockingQueue<Entry> target = channel.equals("sbom") ? sbomQueue : queue;
+    int priority = channel.equals("sbom") ? 0 : priority(event);
+    ArrayBlockingQueue<Entry> target =
+        channel.equals("sbom")
+            ? sbomQueue
+            : priority == 2 ? evidenceQueue : priority == 1 ? diagnosticQueue : queue;
     if (!running) {
       loss(channel + ".closed");
       return;
     }
-    if (!target.offer(new Entry(Events.record(event), context, evidence))) {
+    if (!target.offer(new Entry(Events.record(event), context, evidence, priority))) {
       loss(channel + ".queue_full");
     } else {
       counter(channel + ".queued").incrementAndGet();
@@ -144,6 +161,9 @@ public final class EvidenceExporter implements AutoCloseable {
   private void loss(String reason) {
     dropped.incrementAndGet();
     boolean sbom = reason.startsWith("sbom.");
+    if (!sbom) {
+      lastSecurityLoss.set(nanoClock.getAsLong());
+    }
     (sbom ? sbomDropped : securityDropped).incrementAndGet();
     (sbom ? pendingSbomDropped : pendingSecurityDropped).incrementAndGet();
     counter(reason).incrementAndGet();
@@ -183,7 +203,16 @@ public final class EvidenceExporter implements AutoCloseable {
         "sbom_dropped",
         sbomDropped.get(),
         "security_queue_depth",
-        queue.size(),
+        queue.size() + evidenceQueue.size() + diagnosticQueue.size(),
+        "security_priority_queue_depth",
+        evidenceQueue.size(),
+        "security_diagnostic_queue_depth",
+        diagnosticQueue.size(),
+        "loss_window_seconds",
+        60,
+        "security_loss_recent",
+        lastSecurityLoss.get() != Long.MIN_VALUE
+            && nanoClock.getAsLong() - lastSecurityLoss.get() < SECONDS.toNanos(60),
         "sbom_queue_depth",
         sbomQueue.size(),
         "last_file_write_at",
@@ -212,6 +241,9 @@ public final class EvidenceExporter implements AutoCloseable {
     long second = 0;
     long bytes = 0;
     int events = 0;
+    int normalEvents = 0;
+    long normalBytes = 0;
+    boolean security = channel.equals("security");
     int eventLimit =
         Settings.limit(
             "beacon.security.export." + channel + ".events-per-second",
@@ -220,17 +252,27 @@ public final class EvidenceExporter implements AutoCloseable {
         Settings.limit(
             "beacon.security.export." + channel + ".bytes-per-second",
             channel.equals("security") ? 524288 : 262144);
-    while (running || !channelQueue.isEmpty()) {
+    while (running
+        || !channelQueue.isEmpty()
+        || (security && (!evidenceQueue.isEmpty() || !diagnosticQueue.isEmpty()))) {
       try {
-        Entry entry = channelQueue.poll(100, MILLISECONDS);
+        Entry entry = security ? evidenceQueue.poll() : null;
+        if (entry == null && security) {
+          entry = diagnosticQueue.poll();
+        }
+        if (entry == null) {
+          entry = channelQueue.poll(100, MILLISECONDS);
+        }
         if (entry == null) {
           continue;
         }
-        long now = System.nanoTime() / 1000000000L;
+        long now = nanoClock.getAsLong() / 1000000000L;
         if (now != second) {
           second = now;
           events = 0;
           bytes = 0;
+          normalEvents = 0;
+          normalBytes = 0;
         }
         Encoded encoded = encode(entry.event);
         if (encoded.truncated) {
@@ -239,7 +281,15 @@ public final class EvidenceExporter implements AutoCloseable {
         boolean lossDiagnostic =
             "beacon.security.export.dropped".equals(entry.event.get("event_name"))
                 || "beacon.security.sbom.export.dropped".equals(entry.event.get("event_name"));
-        if (!lossDiagnostic && (events >= eventLimit || bytes + encoded.bytes.length > byteLimit)) {
+        int reservedEvents = security && eventLimit > 1 ? Math.max(1, eventLimit / 5) : 0;
+        long reservedBytes = security ? byteLimit / 4 : 0;
+        boolean normalBudget =
+            security
+                && entry.priority == 0
+                && (normalEvents >= eventLimit - reservedEvents
+                    || normalBytes + encoded.bytes.length > byteLimit - reservedBytes);
+        if (!lossDiagnostic
+            && (normalBudget || events >= eventLimit || bytes + encoded.bytes.length > byteLimit)) {
           if (!channel.equals("sbom") || encoded.bytes.length > byteLimit) {
             loss(channel + ".budget_exceeded");
             continue;
@@ -251,7 +301,7 @@ public final class EvidenceExporter implements AutoCloseable {
               return;
             }
             Thread.sleep(25);
-            now = System.nanoTime() / 1000000000L;
+            now = nanoClock.getAsLong() / 1000000000L;
           } while (now == second);
           second = now;
           events = 0;
@@ -260,6 +310,10 @@ public final class EvidenceExporter implements AutoCloseable {
         if (!lossDiagnostic) {
           events++;
           bytes += encoded.bytes.length;
+          if (entry.priority == 0) {
+            normalEvents++;
+            normalBytes += encoded.bytes.length;
+          }
         }
         export(entry, encoded, channel);
         counter(channel + ".processed").incrementAndGet();
@@ -465,6 +519,8 @@ public final class EvidenceExporter implements AutoCloseable {
     if (shutdownIncomplete.get()) {
       running = false;
       discardPending(queue, "security");
+      discardPending(evidenceQueue, "security");
+      discardPending(diagnosticQueue, "security");
       discardPending(sbomQueue, "sbom");
     }
   }
@@ -482,6 +538,8 @@ public final class EvidenceExporter implements AutoCloseable {
         markShutdownIncomplete();
       }
       discardPending(queue, "security");
+      discardPending(evidenceQueue, "security");
+      discardPending(diagnosticQueue, "security");
       discardPending(sbomQueue, "sbom");
       boolean incomplete = shutdownIncomplete.get();
       ledger.tick(delivery(), event -> {}, true);
@@ -526,6 +584,16 @@ public final class EvidenceExporter implements AutoCloseable {
     }
   }
 
+  private static int priority(Map<String, Object> event) {
+    if ("suspected".equals(AttackEvidence.status(event))) {
+      return 2;
+    }
+    return diagnosticEvent(event)
+            && !"beacon.security.finding.summary".equals(event.get("event_name"))
+        ? 1
+        : 0;
+  }
+
   private static boolean diagnosticEvent(Map<String, Object> event) {
     return asList(
                 "beacon.security.collection.incomplete",
@@ -553,11 +621,13 @@ public final class EvidenceExporter implements AutoCloseable {
     final Map<String, Object> event;
     final Context context;
     final boolean evidence;
+    final int priority;
 
-    Entry(Map<String, Object> event, Context context, boolean evidence) {
+    Entry(Map<String, Object> event, Context context, boolean evidence, int priority) {
       this.event = event;
       this.context = context;
       this.evidence = evidence;
+      this.priority = priority;
     }
   }
 }

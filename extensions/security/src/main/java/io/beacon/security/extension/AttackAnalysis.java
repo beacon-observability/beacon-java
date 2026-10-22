@@ -102,6 +102,9 @@ final class AttackAnalysis {
           if (!shell && next == quote) {
             i++;
           } else {
+            // A tainted delimiter can escape a trusted literal without introducing '=' or ';'.
+            // Escaped SQL quote pairs above remain data; incomplete syntax still degrades below.
+            suspected |= !shell && quote == '\'' && tainted[i];
             quote = 0;
           }
         } else if (!shell && quote == '"' && tainted[i]) {
@@ -110,6 +113,7 @@ final class AttackAnalysis {
         continue;
       }
       if (ch == '\'' || ch == '"') {
+        suspected |= !shell && ch == '\'' && tainted[i];
         commandStart = false;
         quote = ch;
         continue;

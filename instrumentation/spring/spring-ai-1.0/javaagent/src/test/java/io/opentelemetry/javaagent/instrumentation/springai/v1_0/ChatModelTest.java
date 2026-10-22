@@ -23,9 +23,11 @@ import static io.opentelemetry.semconv.incubating.GenAiIncubatingAttributes.GenA
 import static java.util.Arrays.asList;
 import static java.util.Collections.singletonList;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.opentelemetry.api.common.KeyValue;
 import io.opentelemetry.api.common.Value;
+import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.SpanContext;
 import io.opentelemetry.instrumentation.testing.junit.AgentInstrumentationExtension;
 import io.opentelemetry.instrumentation.testing.junit.InstrumentationExtension;
@@ -33,9 +35,11 @@ import io.opentelemetry.javaagent.instrumentation.springai.v1_0.app.TestChatMode
 import javax.annotation.Nullable;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
+import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.DefaultChatOptions;
 import org.springframework.ai.chat.prompt.Prompt;
 
@@ -51,6 +55,62 @@ class ChatModelTest {
   static final InstrumentationExtension testing = AgentInstrumentationExtension.create();
 
   private final ChatModel chatModel = new TestChatModel();
+
+  @Test
+  void nestedModelCallsUseOneChatScopeAndParentTheChildWork() {
+    ChatModel model =
+        new TestChatModel() {
+          @Override
+          public ChatResponse call(Prompt prompt) {
+            return testing.runWithSpan("child", () -> super.call(prompt));
+          }
+        };
+    testing.runWithSpan("parent", () -> model.call(prompt()));
+    testing.waitAndAssertTraces(
+        trace ->
+            trace.hasSpansSatisfyingExactly(
+                span -> span.hasName("parent").hasNoParent(),
+                span -> span.hasName("chat " + MODEL).hasParent(trace.getSpan(0)),
+                span -> span.hasName("child").hasParent(trace.getSpan(1))));
+  }
+
+  @Test
+  void failureRestoresScopeAndPreservesTheOriginalException() {
+    IllegalStateException failure = new IllegalStateException("model failure");
+    ChatModel model =
+        new TestChatModel() {
+          @Override
+          public ChatResponse call(Prompt prompt) {
+            throw failure;
+          }
+        };
+    testing.runWithSpan(
+        "parent",
+        () -> {
+          SpanContext parent = Span.current().getSpanContext();
+          assertThatThrownBy(() -> model.call(prompt())).isSameAs(failure);
+          assertThat(Span.current().getSpanContext()).isEqualTo(parent);
+        });
+    testing.waitAndAssertTraces(
+        trace ->
+            trace.hasSpansSatisfyingExactly(
+                span -> span.hasName("parent").hasNoParent(),
+                span -> span.hasName("chat " + MODEL).hasParent(trace.getSpan(0))));
+  }
+
+  @Test
+  void nullAssistantTextDoesNotAbortTheCallOrLeakItsSpan() {
+    testing.runWithSpan(
+        "parent",
+        () ->
+            chatModel.call(
+                new Prompt(asList(new UserMessage("tool follow-up"), new AssistantMessage(null)))));
+    testing.waitAndAssertTraces(
+        trace ->
+            trace.hasSpansSatisfyingExactly(
+                span -> span.hasName("parent").hasNoParent(),
+                span -> span.hasKind(CLIENT).hasParent(trace.getSpan(0))));
+  }
 
   @Test
   void call() {

@@ -26,6 +26,7 @@ import io.opentelemetry.instrumentation.testing.junit.AgentInstrumentationExtens
 import io.opentelemetry.instrumentation.testing.junit.InstrumentationExtension;
 import io.opentelemetry.sdk.trace.data.StatusData;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
@@ -45,6 +46,8 @@ import org.springframework.ai.tool.definition.ToolDefinition;
 import reactor.core.publisher.Flux;
 
 class AgentFrameworkInstrumentationTest {
+  private static final boolean CAPTURE_TOOL_CONTENT =
+      Boolean.getBoolean("otel.instrumentation.genai.capture-message-content");
 
   @RegisterExtension
   static final InstrumentationExtension testing = AgentInstrumentationExtension.create();
@@ -111,9 +114,13 @@ class AgentFrameworkInstrumentationTest {
                             equalTo(stringKey("gen_ai.agent.name"), "test-agent"),
                             equalTo(stringKey("gen_ai.tool.name"), "weather"),
                             equalTo(stringKey("gen_ai.tool.call.id"), "tool-call-id"),
-                            equalTo(stringKey("gen_ai.tool.call.arguments"), "{}"),
+                            equalTo(
+                                stringKey("gen_ai.tool.call.arguments"),
+                                CAPTURE_TOOL_CONTENT ? "{}" : null),
                             equalTo(booleanKey("spring_ai_alibaba.tool.parallel_execution"), false),
-                            equalTo(stringKey("gen_ai.tool.call.result"), "weather is sunny"))));
+                            equalTo(
+                                stringKey("gen_ai.tool.call.result"),
+                                CAPTURE_TOOL_CONTENT ? "weather is sunny" : null))));
   }
 
   @Test
@@ -137,7 +144,9 @@ class AgentFrameworkInstrumentationTest {
                             equalTo(stringKey("gen_ai.agent.name"), "test-agent"),
                             equalTo(stringKey("gen_ai.tool.name"), "weather"),
                             equalTo(stringKey("gen_ai.tool.call.id"), "tool-call-id"),
-                            equalTo(stringKey("gen_ai.tool.call.arguments"), "{}"),
+                            equalTo(
+                                stringKey("gen_ai.tool.call.arguments"),
+                                CAPTURE_TOOL_CONTENT ? "{}" : null),
                             equalTo(
                                 booleanKey("spring_ai_alibaba.tool.parallel_execution"), false))));
   }
@@ -148,6 +157,44 @@ class AgentFrameworkInstrumentationTest {
         .toolCallbacks(singletonList(toolCallback))
         .toolExecutionExceptionProcessor(null)
         .build();
+  }
+
+  @Test
+  void toolScopeParentsChildWorkAndBoundsCapturedResult() throws Exception {
+    String largeResult = String.join("", Collections.nCopies(9000, "x"));
+    AgentToolNode node =
+        toolNode(
+            new TestTool("weather", false) {
+              @Override
+              public String call(String input, ToolContext context) {
+                return testing.runWithSpan("tool-child", () -> largeResult);
+              }
+            });
+    testing.runWithSpan(
+        "parent", () -> node.apply(state("weather"), RunnableConfig.builder().build()));
+    testing.waitAndAssertTraces(
+        trace ->
+            trace.hasSpansSatisfyingExactly(
+                span -> span.hasName("parent").hasNoParent(),
+                span ->
+                    span.hasName("execute_tool weather")
+                        .hasParent(trace.getSpan(0))
+                        .hasAttributesSatisfyingExactly(
+                            equalTo(stringKey("gen_ai.operation.name"), "execute_tool"),
+                            equalTo(stringKey("gen_ai.agent.name"), "test-agent"),
+                            equalTo(stringKey("gen_ai.tool.name"), "weather"),
+                            equalTo(stringKey("gen_ai.tool.call.id"), "tool-call-id"),
+                            equalTo(
+                                stringKey("gen_ai.tool.call.arguments"),
+                                CAPTURE_TOOL_CONTENT ? "{}" : null),
+                            equalTo(booleanKey("spring_ai_alibaba.tool.parallel_execution"), false),
+                            equalTo(
+                                stringKey("gen_ai.tool.call.result"),
+                                CAPTURE_TOOL_CONTENT ? largeResult.substring(0, 8192) : null),
+                            equalTo(
+                                booleanKey("gen_ai.tool.call.result.truncated"),
+                                CAPTURE_TOOL_CONTENT ? true : null)),
+                span -> span.hasName("tool-child").hasParent(trace.getSpan(1))));
   }
 
   private static OverAllState state(String toolName) throws ReflectiveOperationException {
@@ -214,7 +261,7 @@ class AgentFrameworkInstrumentationTest {
     }
   }
 
-  private static final class TestTool implements ToolCallback {
+  private static class TestTool implements ToolCallback {
     private final String name;
     private final boolean fail;
 

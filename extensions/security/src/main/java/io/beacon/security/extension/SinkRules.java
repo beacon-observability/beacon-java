@@ -10,7 +10,9 @@ import static java.util.Arrays.asList;
 import io.beacon.security.core.AttackEvidence;
 import io.beacon.security.core.Call;
 import io.beacon.security.core.Mark;
+import io.beacon.security.core.SecurityState;
 import java.net.URI;
+import java.net.URLConnection;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
@@ -49,9 +51,27 @@ final class SinkRules {
     String owner = c.owner;
     String method = c.method;
     if (c.receiver instanceof Statement
+        && (method.equals("executeBatch") || method.equals("executeLargeBatch"))) {
+      List<SecurityState.BatchInput> batch = c.state.batchInputs(c.receiver);
+      if (batch.isEmpty()) {
+        emit.accept(
+            new Finding(
+                "sql_injection",
+                "sql_template",
+                c.receiverMarks,
+                c.state.preparedEvidence(c.receiver)));
+      } else {
+        for (SecurityState.BatchInput input : batch) {
+          emit.accept(new Finding("sql_injection", "sql_template", input.marks, input.evidence));
+        }
+      }
+      return;
+    }
+    if (c.receiver instanceof Statement
         && (method.equals("execute")
             || method.equals("executeQuery")
-            || method.equals("executeUpdate"))) {
+            || method.equals("executeUpdate")
+            || method.equals("executeLargeUpdate"))) {
       emit.accept(
           new Finding(
               "sql_injection",
@@ -78,7 +98,8 @@ final class SinkRules {
       }
       return;
     }
-    if (isHttpSink(owner, method)) {
+    if (isHttpSink(owner, method)
+        || (c.receiver instanceof URLConnection && CallSites.isUrlConnectionMethod(method))) {
       boolean restTemplate = CallSites.isRestTemplateCall(owner, method);
       List<Mark> marks = restTemplate ? c.arg(0) : c.allMarks();
       if (restTemplate
@@ -142,7 +163,10 @@ final class SinkRules {
   static boolean isFileSink(String owner, String method) {
     if ((owner.equals("java/io/FileInputStream")
             || owner.equals("java/io/FileOutputStream")
-            || owner.equals("java/io/RandomAccessFile"))
+            || owner.equals("java/io/RandomAccessFile")
+            || owner.equals("java/io/FileReader")
+            || owner.equals("java/io/FileWriter")
+            || owner.equals("java/io/PrintWriter"))
         && method.equals("<init>")) {
       return true;
     }
@@ -152,18 +176,21 @@ final class SinkRules {
             || method.startsWith("new")
             || method.startsWith("delete")
             || method.equals("copy")
-            || method.equals("move"));
+            || method.equals("move")
+            || method.equals("lines")
+            || method.equals("list")
+            || method.equals("walk")
+            || method.equals("exists")
+            || method.equals("createFile"));
   }
 
   static boolean isHttpSink(String owner, String method) {
     if (CallSites.isRestTemplateCall(owner, method)) {
       return true;
     }
-    if (owner.startsWith("java/net/") && owner.contains("URLConnection")) {
-      return method.equals("connect")
-          || method.equals("getInputStream")
-          || method.equals("getOutputStream")
-          || method.equals("getResponseCode");
+    if ((owner.startsWith("java/net/") && owner.contains("URLConnection"))
+        || owner.equals("javax/net/ssl/HttpsURLConnection")) {
+      return CallSites.isUrlConnectionMethod(method);
     }
     if (owner.equals("java/net/URL")) {
       return method.equals("openStream") || method.equals("getContent");

@@ -46,10 +46,10 @@ license, and third-party notices. There is no separate Security JAR to install.
 
 ## Build and verify
 
-Use JDK 21 to build the complete agent:
+Use JDK 25 to build the complete agent:
 
 ```bash
-export JAVA_HOME=/path/to/jdk-21
+export JAVA_HOME=/path/to/jdk-25
 export PATH="$JAVA_HOME/bin:$PATH"
 
 ./gradlew :extensions:security:test :javaagent:assemble
@@ -107,6 +107,37 @@ not introduce a second application-name setting.
 OpenTelemetry settings such as `OTEL_EXPORTER_OTLP_ENDPOINT`,
 `OTEL_EXPORTER_OTLP_HEADERS`, and `OTEL_RESOURCE_ATTRIBUTES` configure transport and resource
 identity. Beacon does not duplicate those settings.
+
+Security settings are startup configuration. Restart the process to change enablement, budgets,
+rule settings, or instrumentation selection; mutating JVM properties during requests is not a
+runtime control interface. Local `control.json` policy revisions still support pause/resume and
+triage updates without a restart.
+
+Unreachable request states are reclaimed through a Java 8 compatible reference queue. Reclamation
+releases process byte reservations and active-request leases, reports `requests_abandoned`, and
+marks coverage incomplete. Explicit close and normal completion are idempotent. Live long-running
+requests remain counted; no arbitrary timeout closes their shared state or their nested spans.
+
+### Export budgets and priorities
+
+Security exports use three bounded queues, in order: suspected attack evidence, collection/export
+diagnostics, then ordinary occurrences and summaries. The default security limit remains 100 events
+and 524288 bytes per second. Ordinary events can use at most 80 events and three quarters of the
+byte limit; the remaining budget is reserved for higher priorities. If the configured event limit
+is one, an event reservation cannot be made. All lanes remain best effort when their own capacity
+or the total budget is exhausted. Per-request occurrence identifiers and trace correlation are
+preserved; ordinary events are not merged across requests.
+
+| JVM property | Environment variable | Default | Purpose |
+| --- | --- | --- | --- |
+| `beacon.security.export.queue.size` | `BEACON_SECURITY_EXPORT_QUEUE_SIZE` | `1024` | Ordinary occurrence queue capacity. |
+| `beacon.security.export.priority.queue.size` | `BEACON_SECURITY_EXPORT_PRIORITY_QUEUE_SIZE` | `128` | Suspected attack evidence queue capacity. |
+| `beacon.security.export.diagnostic.queue.size` | `BEACON_SECURITY_EXPORT_DIAGNOSTIC_QUEUE_SIZE` | `64` | Diagnostic queue capacity. |
+
+The existing `status=incomplete` and `delivery_loss` fields retain cumulative coverage-loss
+semantics. `current_delivery_status` separately reports loss observed during the last 60 seconds,
+using `delivery.security_loss_recent`; `no_recent_loss_observed` is not a backend acknowledgement
+or a guarantee that pending events have arrived. Historical loss remains visible after the window.
 
 For a local inspection without an OTLP backend:
 

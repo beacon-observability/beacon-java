@@ -25,7 +25,9 @@ configurations:
     default: 5m
   - name: otel.profiling.stack-depth
     description: >
-      Max JFR stack depth. Environment variable: OTEL_PROFILING_STACK_DEPTH.
+      Unsupported per-recording option; explicit configuration emits a warning.
+      Use JVM -XX:FlightRecorderOptions=stackdepth=<depth> instead; this affects all recordings.
+      Environment variable: OTEL_PROFILING_STACK_DEPTH.
     type: int
     default: 64
   - name: otel.profiling.max-size
@@ -35,7 +37,9 @@ configurations:
     default: 0
   - name: otel.profiling.temp-dir
     description: >
-      Temporary directory for intermediate profiling files. Environment variable: OTEL_PROFILING_TEMP_DIR.
+      Directory for detached final snapshots, removed after export. Defaults to the JVM temporary
+      directory. This does not change the process-wide JFR repository.
+      Environment variable: OTEL_PROFILING_TEMP_DIR.
     type: string
     default: ""
   - name: otel.profiling.memory.enabled

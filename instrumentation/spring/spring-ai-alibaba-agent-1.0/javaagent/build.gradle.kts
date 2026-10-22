@@ -22,3 +22,14 @@ dependencies {
 otelJava {
   minJavaVersionSupported.set(JavaVersion.VERSION_17)
 }
+
+tasks {
+  val testCaptureToolContent by registering(Test::class) {
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    systemProperty("otel.instrumentation.genai.capture-message-content", true)
+  }
+  check {
+    dependsOn(testCaptureToolContent)
+  }
+}

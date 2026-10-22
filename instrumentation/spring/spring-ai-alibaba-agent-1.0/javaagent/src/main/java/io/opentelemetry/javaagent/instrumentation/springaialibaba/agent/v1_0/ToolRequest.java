@@ -10,13 +10,20 @@ public final class ToolRequest {
   private final String toolName;
   private final String toolCallId;
   private final String arguments;
+  private final boolean argumentsTruncated;
   private final boolean parallelExecution;
 
   public ToolRequest(String agentName, Object toolCall, boolean parallelExecution) {
     this.agentName = agentName;
     this.toolName = extractToolName(toolCall);
     this.toolCallId = extractString(toolCall, "id");
-    this.arguments = extractString(toolCall, "arguments");
+    String content =
+        SpringAiAlibabaAgentSingletons.captureToolContent()
+            ? extractString(toolCall, "arguments")
+            : "";
+    this.arguments = SpringAiAlibabaAgentSingletons.boundContent(content);
+    this.argumentsTruncated =
+        content.length() > SpringAiAlibabaAgentSingletons.toolContentMaxLength();
     this.parallelExecution = parallelExecution;
   }
 
@@ -34,6 +41,10 @@ public final class ToolRequest {
 
   public String getArguments() {
     return arguments;
+  }
+
+  public boolean isArgumentsTruncated() {
+    return argumentsTruncated;
   }
 
   public boolean isParallelExecution() {

@@ -17,73 +17,60 @@ public final class SpringAiStreamTracing {
   public static Flux<ChatResponse> wrap(Flux<ChatResponse> source, SpringAiRequest request) {
     return Flux.defer(
         () -> {
-          Instrumenter<SpringAiRequest, ChatResponse> instrumenter =
-              SpringAiSingletons.instrumenter();
-          Context parentContext = Context.current();
-          if (!instrumenter.shouldStart(parentContext, request)) {
+          Context context;
+          try {
+            Instrumenter<SpringAiRequest, ChatResponse> instrumenter =
+                SpringAiSingletons.instrumenter();
+            Context parent = Context.current();
+            if (Boolean.TRUE.equals(parent.get(SpringAiSingletons.CHAT_ACTIVE))
+                || !instrumenter.shouldStart(parent, request)) {
+              return source;
+            }
+            context =
+                instrumenter.start(parent, request).with(SpringAiSingletons.CHAT_ACTIVE, true);
+          } catch (Throwable ignored) {
             return source;
           }
-          Context context = instrumenter.start(parentContext, request);
-          SpringAiMessageAttributes.setSystemInstructions(context, request);
-          SpringAiMessageAttributes.setInputMessages(context, request);
-          SpringAiMessageEvents.emitPromptEvents(context, request);
-          AtomicBoolean ended = new AtomicBoolean();
-          AtomicReference<ChatResponse> lastResponse = new AtomicReference<>();
-          StringBuilder streamedContent = new StringBuilder();
-          Flux<ChatResponse> traced =
-              source
-                  .doOnNext(
-                      response -> {
-                        lastResponse.set(response);
-                        SpringAiMessageEvents.appendResponseContent(streamedContent, response);
-                      })
-                  .doOnError(
-                      error ->
-                          end(
-                              instrumenter,
-                              context,
-                              request,
-                              lastResponse.get(),
-                              streamedContent.toString(),
-                              error,
-                              ended))
-                  .doOnComplete(
-                      () ->
-                          end(
-                              instrumenter,
-                              context,
-                              request,
-                              lastResponse.get(),
-                              streamedContent.toString(),
-                              null,
-                              ended))
-                  .doOnCancel(
-                      () ->
-                          end(
-                              instrumenter,
-                              context,
-                              request,
-                              lastResponse.get(),
-                              streamedContent.toString(),
-                              null,
-                              ended));
-          return ContextPropagationOperator.runWithContext(traced, context);
+          try {
+            SpringAiTelemetry.onStart(context, request);
+            boolean events = SpringAiSingletons.captureMessageContent();
+            boolean attributes = SpringAiSingletons.captureMessageContentAsSpanAttributes();
+            int budget = SpringAiSingletons.streamContentMaxLength();
+            int perChoiceLimit =
+                events ? budget : SpringAiSingletons.messageContentSpanAttributeMaxLength();
+            SpringAiResponseAccumulator responses =
+                new SpringAiResponseAccumulator(events || attributes, perChoiceLimit, budget);
+            AtomicBoolean ended = new AtomicBoolean();
+            AtomicReference<Throwable> error = new AtomicReference<>();
+            Flux<ChatResponse> traced =
+                source
+                    .doOnNext(
+                        response -> {
+                          try {
+                            responses.add(response);
+                          } catch (Throwable ignored) {
+                            // Telemetry getters must not turn a successful chunk into onError.
+                          }
+                        })
+                    .doOnError(error::set)
+                    .doFinally(
+                        signal -> {
+                          if (ended.compareAndSet(false, true)) {
+                            ChatResponse response = null;
+                            try {
+                              response = responses.response();
+                            } catch (Throwable ignored) {
+                              // Complete without response attributes if aggregation fails.
+                            }
+                            SpringAiTelemetry.onEnd(context, request, response, error.get());
+                          }
+                        });
+            return ContextPropagationOperator.runWithContext(traced, context);
+          } catch (Throwable ignored) {
+            SpringAiTelemetry.onEnd(context, request, null, null);
+            return source;
+          }
         });
-  }
-
-  private static void end(
-      Instrumenter<SpringAiRequest, ChatResponse> instrumenter,
-      Context context,
-      SpringAiRequest request,
-      ChatResponse response,
-      String streamedContent,
-      Throwable error,
-      AtomicBoolean ended) {
-    if (ended.compareAndSet(false, true)) {
-      SpringAiMessageAttributes.setOutputMessages(context, response, streamedContent);
-      SpringAiMessageEvents.emitResponseEvents(context, request, response, streamedContent);
-      instrumenter.end(context, request, response, error);
-    }
   }
 
   private SpringAiStreamTracing() {}

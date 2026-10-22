@@ -33,7 +33,7 @@ public final class SpringAiMessageEvents {
         continue;
       }
       Map<String, Value<?>> body = new HashMap<>();
-      if (SpringAiSingletons.captureMessageContent()) {
+      if (SpringAiSingletons.captureMessageContent() && message.getText() != null) {
         body.put("content", Value.of(message.getText()));
       }
       newEvent(request, eventName).setContext(context).setBody(Value.of(body)).emit();
@@ -57,12 +57,17 @@ public final class SpringAiMessageEvents {
       if (finishReason != null) {
         body.put("finish_reason", Value.of(finishReason));
       }
-      body.put("index", Value.of(index));
+      body.put("index", Value.of(SpringAiResponseAccumulator.choiceIndex(generation, index)));
       Map<String, Value<?>> message = new HashMap<>();
       if (SpringAiSingletons.captureMessageContent()) {
         String content =
             streamedContent == null ? generation.getOutput().getText() : streamedContent;
-        message.put("content", Value.of(content));
+        if (content != null) {
+          message.put("content", Value.of(content));
+        }
+        if (SpringAiResponseAccumulator.truncated(generation)) {
+          message.put("content_truncated", Value.of(true));
+        }
       }
       body.put("message", Value.of(message));
       newEvent(request, "gen_ai.choice").setContext(context).setBody(Value.of(body)).emit();
@@ -71,7 +76,10 @@ public final class SpringAiMessageEvents {
 
   public static void appendResponseContent(StringBuilder content, ChatResponse response) {
     for (Generation generation : response.getResults()) {
-      content.append(generation.getOutput().getText());
+      String text = generation.getOutput().getText();
+      if (text != null) {
+        content.append(text);
+      }
     }
   }
 

@@ -28,3 +28,10 @@ configurations:
     type: int
     default: 8192
     description: Maximum number of characters captured for each message content in a span attribute.
+  - name: otel.instrumentation.spring-ai.experimental.stream-content.max-length
+    declarative_name: java.spring_ai.stream_content/development.max_length
+    type: int
+    default: 65536
+    description: >
+      Maximum total characters retained for a stream across choices. Only retains text if a content
+      destination is enabled. Zero retains no text. Truncation is reported in captured content.

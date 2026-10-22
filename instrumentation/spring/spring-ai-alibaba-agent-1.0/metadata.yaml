@@ -3,3 +3,18 @@ description: >
   This instrumentation creates spans for Spring AI Alibaba Agent Framework agent invocations
   and tool calls.
 library_link: https://java2ai.com/en/docs/1.1.2.2/tutorials/agent-framework/quick-start
+configurations:
+  - name: otel.instrumentation.genai.capture-message-content
+    declarative_name: java.common.gen_ai.capture_message_content
+    type: boolean
+    default: false
+    description: >
+      Opts in to collecting tool arguments and successful tool results. Content can contain sensitive
+      information and is omitted by default. Tool names and call identifiers are collected independently.
+  - name: otel.instrumentation.spring-ai-alibaba-agent.experimental.tool-content.max-length
+    declarative_name: java.spring_ai_alibaba_agent.tool_content/development.max_length
+    type: int
+    default: 8192
+    description: >
+      Maximum characters captured per tool argument or result when content capture is enabled.
+      Truncation is reported with gen_ai.tool.call.arguments.truncated or gen_ai.tool.call.result.truncated.

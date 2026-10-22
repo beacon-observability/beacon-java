@@ -4,6 +4,16 @@ This file records Beacon product changes only. The root [CHANGELOG.md](../CHANGE
 
 ## Unreleased
 
+- Spring AI chat and Alibaba tool spans now scope child work correctly. Optional content telemetry
+  failures no longer interrupt model calls or streams. Streaming telemetry keeps separate bounded
+  choice buffers, ignores null text, preserves finish reasons through usage-only chunks, and releases
+  spans on completion, failure, and cancellation. The new experimental Spring AI
+  `stream-content.max-length` setting defaults to 65536 total characters per stream.
+- Alibaba tool arguments and results are now omitted unless
+  `otel.instrumentation.genai.capture-message-content=true`. Opted-in payloads are limited to 8192
+  characters by default through the experimental `spring-ai-alibaba-agent.tool-content.max-length`
+  setting and report truncation. Deployments relying on tool payloads must explicitly opt in.
+
 - Profiling now serializes its final export after in-flight work, includes the remaining interval
   after earlier successful exports, and bounds close waiting to ten seconds. Empty JFR intervals
   produce no file or upload. Startup failures no longer interrupt the remaining agent listeners,

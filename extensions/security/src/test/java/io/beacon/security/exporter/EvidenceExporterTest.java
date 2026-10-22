@@ -54,6 +54,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BooleanSupplier;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -80,6 +81,55 @@ class EvidenceExporterTest {
 
   private final Map<String, String> previousSettings = new HashMap<>();
   private final ObjectMapper json = new ObjectMapper();
+
+  @Test
+  void ordinaryOccurrencesCannotConsumeTheReservedAttackBudget() throws Exception {
+    CapturingExporter logs = new CapturingExporter();
+    OpenTelemetrySdk sdk = installLogs(logs);
+    AtomicLong clock = new AtomicLong();
+    EvidenceExporter exporter = new EvidenceExporter(clock::get);
+    try {
+      for (int i = 0; i < 120; i++) {
+        exporter.emit(
+            map("event_name", "beacon.security.finding", "evidence_id", "ordinary-" + i),
+            Context.root(),
+            true);
+      }
+      assertThat(await(() -> exporter.dropped() > 0, 5000)).isTrue();
+      exporter.emit(
+          map(
+              "event_name",
+              "beacon.security.finding",
+              "evidence_id",
+              "attack-upgrade",
+              "attack_evidence",
+              map("status", "suspected")),
+          Context.root(),
+          true);
+      assertThat(
+              await(
+                  () -> logs.bodies().stream().anyMatch(body -> body.contains("attack-upgrade")),
+                  5000))
+          .isTrue();
+      assertThat(exporter.delivery().get("security_loss_recent")).isEqualTo(true);
+      assertThat(
+              await(
+                  () -> {
+                    Map<String, Object> delivery = exporter.delivery();
+                    return ((Number) delivery.get("security_queue_depth")).longValue() == 0;
+                  },
+                  5000))
+          .isTrue();
+      // close drains the in-flight write as well as the queue before advancing the clock.
+      exporter.close();
+      clock.set(SECONDS.toNanos(61));
+      assertThat(exporter.delivery().get("security_loss_recent")).isEqualTo(false);
+      assertThat(exporter.dropped()).isPositive();
+    } finally {
+      exporter.close();
+      sdk.close();
+    }
+  }
 
   @BeforeEach
   void captureSettings() {

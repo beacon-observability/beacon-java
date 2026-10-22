@@ -38,9 +38,6 @@ public final class SecurityBridge {
       Class<?> caller) {
     try {
       BiFunction<Integer, Object[], Object> callback = handler;
-      if (!active()) {
-        return null;
-      }
       return callback == null
           ? null
           : callback.apply(

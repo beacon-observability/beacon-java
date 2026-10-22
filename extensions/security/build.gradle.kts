@@ -43,6 +43,7 @@ dependencies {
 
   testImplementation("io.opentelemetry:opentelemetry-sdk")
   testImplementation("io.opentelemetry:opentelemetry-sdk-logs")
+  testImplementation(project(":javaagent-extension-api"))
   testImplementation("org.junit.jupiter:junit-jupiter")
   testCompileOnly("com.google.code.findbugs:jsr305")
 }

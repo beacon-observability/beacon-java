@@ -66,6 +66,7 @@ final class RequestTracking {
     List<Mark> marks = emptyList();
     String destination;
     AttackEvidence preparedEvidence;
+    List<SecurityState.BatchInput> batch = emptyList();
     String[] container;
     final long baseBytes;
     long bytes;
@@ -113,6 +114,9 @@ final class RequestTracking {
             + marks.size() * 48L
             + stringBytes(destination)
             + (entry.preparedEvidence == null ? 0 : 128);
+    for (SecurityState.BatchInput input : entry.batch) {
+      next += 160 + input.marks.size() * 48L;
+    }
     if (container != null) {
       for (String part : container) {
         next += stringBytes(part);
@@ -128,7 +132,8 @@ final class RequestTracking {
     if (marks.isEmpty()
         && destination == null
         && container == null
-        && entry.preparedEvidence == null) {
+        && entry.preparedEvidence == null
+        && entry.batch.isEmpty()) {
       remove(entry);
     }
     return true;

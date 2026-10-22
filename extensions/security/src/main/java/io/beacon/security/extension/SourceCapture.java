@@ -6,6 +6,7 @@
 package io.beacon.security.extension;
 
 import io.beacon.security.core.SecurityState;
+import io.beacon.security.core.StackFrames;
 import java.io.InputStream;
 import java.io.Reader;
 import java.lang.reflect.Field;
@@ -35,30 +36,34 @@ final class SourceCapture {
       state.container(result, method, field, location);
       return;
     }
-    for (StackTraceElement frame : Thread.currentThread().getStackTrace()) {
-      String cls = frame.getClassName();
-      if (cls.startsWith("java.")
-          || cls.startsWith("javax.")
-          || cls.startsWith("jakarta.")
-          || cls.startsWith("jdk.")
-          || cls.startsWith("sun.")
-          || cls.startsWith("io.beacon.security.")
-          || cls.startsWith("io.opentelemetry.")
-          || cls.startsWith("org.apache.")
-          || cls.startsWith("org.springframework.")) {
-        continue;
-      }
+    for (StackFrames.Frame captured : StackFrames.capture(SourceCapture::businessFrame, 1)) {
+      StackTraceElement frame = captured.element;
       location =
-          cls
+          frame.getClassName()
               + "#"
               + frame.getMethodName()
               + "("
               + (frame.getFileName() == null ? "" : frame.getFileName())
               + (frame.getLineNumber() < 0 ? "" : ":" + frame.getLineNumber())
               + ")";
-      break;
     }
     new Walker(state, type, location).visit(result, field, 0);
+  }
+
+  private static boolean businessFrame(StackTraceElement frame) {
+    String cls = frame.getClassName();
+    if (cls.startsWith("java.")
+        || cls.startsWith("javax.")
+        || cls.startsWith("jakarta.")
+        || cls.startsWith("jdk.")
+        || cls.startsWith("sun.")
+        || cls.startsWith("io.beacon.security.")
+        || cls.startsWith("io.opentelemetry.")
+        || cls.startsWith("org.apache.")
+        || cls.startsWith("org.springframework.")) {
+      return false;
+    }
+    return true;
   }
 
   private static final class Walker {

@@ -23,6 +23,9 @@ import javax.annotation.Nullable;
 
 public final class SecurityState implements AutoCloseable {
   private final RequestTracking objects = new RequestTracking();
+  // The cleanup action captures tracking only. Tracking entries never reference this state.
+  private final StateCleanup cleanup = new StateCleanup(this, objects::clear);
+  private final Map<String, Boolean> ruleSettings = new LinkedHashMap<>();
   private final Set<String> gaps = new LinkedHashSet<>();
   private final Map<String, Map<String, Object>> seen = new LinkedHashMap<>();
   private final Set<String> types = new LinkedHashSet<>();
@@ -106,6 +109,18 @@ public final class SecurityState implements AutoCloseable {
 
   public synchronized boolean active() {
     return !closed;
+  }
+
+  public synchronized boolean isTracked(Object value) {
+    return !closed && value != null && objects.get(value) != null;
+  }
+
+  public boolean registerRequestCleanup(Runnable release) {
+    return cleanup.registerRequest(release);
+  }
+
+  public boolean completeRequest() {
+    return cleanup.completeRequest();
   }
 
   public synchronized boolean truncated() {
@@ -376,7 +391,8 @@ public final class SecurityState implements AutoCloseable {
       AttackEvidence attackEvidence) {
     if (closed
         || marks.isEmpty()
-        || !Settings.enabled("beacon.security.rules." + rule + ".enabled", true)) {
+        || !ruleSettings.computeIfAbsent(
+            rule, name -> Settings.enabled("beacon.security.rules." + name + ".enabled", true))) {
       return null;
     }
     if (marks.size() > maxMarks) {
@@ -522,6 +538,49 @@ public final class SecurityState implements AutoCloseable {
         : tracked.preparedEvidence;
   }
 
+  public static final class BatchInput {
+    public final List<Mark> marks;
+    public final AttackEvidence evidence;
+
+    BatchInput(List<Mark> marks, AttackEvidence evidence) {
+      this.marks = marks;
+      this.evidence = evidence;
+    }
+  }
+
+  public synchronized void addBatch(Object statement, List<Mark> marks, AttackEvidence evidence) {
+    if (closed || marks.isEmpty()) {
+      return;
+    }
+    RequestTracking.Entry entry = track(statement);
+    if (entry == null) {
+      return;
+    }
+    if (entry.batch.size() >= maxFindings) {
+      gap("batch_statement_limit");
+      truncated = true;
+      return;
+    }
+    List<BatchInput> next = new ArrayList<>(entry.batch);
+    List<Mark> bounded = new ArrayList<>(marks.subList(0, Math.min(marks.size(), maxMarks)));
+    next.add(new BatchInput(Collections.unmodifiableList(bounded), evidence));
+    entry.batch = next;
+    update(entry, entry.marks, entry.destination, entry.container);
+  }
+
+  public synchronized List<BatchInput> batchInputs(Object statement) {
+    RequestTracking.Entry entry = closed ? null : objects.get(statement);
+    return entry == null ? emptyList() : new ArrayList<>(entry.batch);
+  }
+
+  public synchronized void clearBatch(Object statement) {
+    RequestTracking.Entry entry = closed ? null : objects.get(statement);
+    if (entry != null) {
+      entry.batch = emptyList();
+      update(entry, entry.marks, entry.destination, entry.container);
+    }
+  }
+
   private static boolean candidate(String rule, String role) {
     return rule.equals("sql_injection")
         || rule.equals("command_injection")
@@ -541,7 +600,7 @@ public final class SecurityState implements AutoCloseable {
   @Override
   public synchronized void close() {
     closed = true;
-    objects.clear();
+    cleanup.run();
     seen.clear();
     pending.clear();
     sinkSites.clear();

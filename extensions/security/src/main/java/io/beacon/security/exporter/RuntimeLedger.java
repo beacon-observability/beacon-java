@@ -9,6 +9,7 @@ import static io.beacon.security.core.Values.map;
 import static java.util.Arrays.asList;
 import static java.util.Collections.emptyList;
 import static java.util.Collections.emptyMap;
+import static java.util.Collections.singletonMap;
 import static java.util.logging.Level.WARNING;
 
 import com.fasterxml.jackson.core.StreamReadConstraints;
@@ -18,6 +19,7 @@ import io.beacon.security.core.Events;
 import io.beacon.security.core.Identity;
 import io.beacon.security.core.SecurityState;
 import io.beacon.security.core.Settings;
+import io.beacon.security.core.StateCleanup;
 import io.beacon.security.core.Values;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -49,6 +51,14 @@ public final class RuntimeLedger {
 
   private final ObjectMapper json = new ObjectMapper();
   private final LongSupplier clock;
+  private final boolean configured = Settings.enabled("beacon.security.enabled", false);
+  private final int maxActiveRequests = Settings.limit("beacon.security.max.active.requests", 256);
+  private final int requestsPerSecond = Settings.limit("beacon.security.requests-per-second", 1000);
+  private final int maxEvidenceBytes = Settings.limit("beacon.security.evidence.max.bytes", 65536);
+  private final long flushMillis =
+      Settings.limit("beacon.security.findings.flush.seconds", 30) * 1000L;
+  private final Map<String, Object> configuredRules = rules();
+  private final String instrumentationProfile = profile();
   private final boolean localOutputEnabled =
       Settings.enabled("beacon.security.local-output.enabled", false);
   private final Path output =
@@ -78,6 +88,8 @@ public final class RuntimeLedger {
   private long findingBytes;
   private final AtomicLong snapshotFailures = new AtomicLong();
   private volatile Map<String, Object> policy = emptyMap();
+  private Map<String, List<TriageDecision>> exceptionIndex = emptyMap();
+  private final Map<String, TriageDecision> triageCache = new LinkedHashMap<>();
   private volatile Map<String, Object> sbom = map("status", "initializing");
   private volatile Map<String, Object> lastDelivery = emptyMap();
   private long pauseGeneration;
@@ -113,7 +125,7 @@ public final class RuntimeLedger {
   }
 
   public boolean enabled() {
-    return Settings.enabled("beacon.security.enabled", false) && !paused();
+    return configured && !paused();
   }
 
   public boolean paused() {
@@ -145,8 +157,26 @@ public final class RuntimeLedger {
   }
 
   // The control-policy parser validates this erased Map before copying it into request state.
+  public void begin(SecurityState state) {
+    StateCleanup.reap();
+    synchronized (this) {
+      beginLocked(state);
+    }
+  }
+
+  // Control policy maps are validated before publication.
   @SuppressWarnings("unchecked")
-  public synchronized void begin(SecurityState state) {
+  private void beginLocked(SecurityState state) {
+    String runId = "";
+    Object run = policy.get("run");
+    if (run instanceof Map && validUntil(((Map<?, ?>) run).get("expires_at"))) {
+      state.run = new LinkedHashMap<>((Map<String, Object>) run);
+      runId = String.valueOf(state.run.get("run_id"));
+    }
+    String registeredRun = runId;
+    if (!state.registerRequestCleanup(() -> abandon(registeredRun))) {
+      return;
+    }
     active++;
     count("requests_started");
     state.collectionGeneration = pauseGeneration;
@@ -156,25 +186,41 @@ public final class RuntimeLedger {
       requestsThisSecond = 0;
     }
     boolean requestBudget =
-        active <= Settings.limit("beacon.security.max.active.requests", 256)
-            && ++requestsThisSecond <= Settings.limit("beacon.security.requests-per-second", 1000);
+        active <= maxActiveRequests && ++requestsThisSecond <= requestsPerSecond;
     state.collectionEnabled = enabled() && requestBudget;
     state.collectionStatus =
-        !Settings.enabled("beacon.security.enabled", false)
+        !configured
             ? "disabled"
             : paused() ? "paused" : !requestBudget ? "budget_skipped" : "enabled";
-    Object run = policy.get("run");
-    if (run instanceof Map && validUntil(((Map<?, ?>) run).get("expires_at"))) {
-      state.run = new LinkedHashMap<>((Map<String, Object>) run);
-      String id = String.valueOf(state.run.get("run_id"));
-      Map<String, Object> record = runs.get(id);
+    if (!runId.isEmpty()) {
+      Map<String, Object> record = runs.get(runId);
       if (record != null) {
         increment(record, "active_requests", 1);
       }
     }
   }
 
-  public synchronized List<Map<String, Object>> end(SecurityState state) {
+  public List<Map<String, Object>> end(SecurityState state) {
+    Map<String, Object> request = Events.request(state.request);
+    List<Map<String, Object>> prepared = new ArrayList<>();
+    for (Map<String, Object> original : state.pending()) {
+      Map<String, Object> event = Events.record(original);
+      event.put("request", new LinkedHashMap<>(request));
+      event.put("run", new LinkedHashMap<>(state.run));
+      event.put("trace_availability", "not_guaranteed_by_trace_id");
+      event.put("occurrence_id", event.get("evidence_id"));
+      prepared.add(event);
+    }
+    synchronized (this) {
+      return endLocked(state, request, prepared);
+    }
+  }
+
+  private List<Map<String, Object>> endLocked(
+      SecurityState state, Map<String, Object> request, List<Map<String, Object>> prepared) {
+    if (!state.completeRequest()) {
+      return emptyList();
+    }
     active = Math.max(0, active - 1);
     completed++;
     count("requests_completed");
@@ -202,14 +248,8 @@ public final class RuntimeLedger {
     if (incomplete) {
       count("requests_incomplete");
     }
-    Map<String, Object> request = Events.request(state.request);
     List<Map<String, Object>> result = new ArrayList<>();
-    for (Map<String, Object> original : state.pending()) {
-      Map<String, Object> event = Events.record(original);
-      event.put("request", new LinkedHashMap<>(request));
-      event.put("run", new LinkedHashMap<>(state.run));
-      event.put("trace_availability", "not_guaranteed_by_trace_id");
-      event.put("occurrence_id", event.get("evidence_id"));
+    for (Map<String, Object> event : prepared) {
       if (incomplete) {
         event.put("truncated", true);
         event.put("coverage_gaps", state.gaps());
@@ -292,8 +332,7 @@ public final class RuntimeLedger {
           Map<String, Object> representative = new LinkedHashMap<>(event);
           long estimate = estimate(representative, 0);
           long previous = ((Number) finding.getOrDefault("representative_bytes", 0L)).longValue();
-          if (estimate > Settings.limit("beacon.security.evidence.max.bytes", 65536)
-              || findingBytes - previous + estimate > maxFindingBytes) {
+          if (estimate > maxEvidenceBytes || findingBytes - previous + estimate > maxFindingBytes) {
             omitEvidence(representative);
             representative.put("truncation_reason", "finding_snapshot_byte_budget");
             estimate = estimate(representative, 0);
@@ -353,7 +392,7 @@ public final class RuntimeLedger {
           boundedIncrement(run, "finding_counts", String.valueOf(event.get("finding_id")));
         }
       }
-      if (!profile().equals(run.get("instrumentation_profile"))) {
+      if (!instrumentationProfile.equals(run.get("instrumentation_profile"))) {
         increment(run, "incomplete_requests", 1);
       }
       run.put("last_request", new LinkedHashMap<>(request));
@@ -369,6 +408,18 @@ public final class RuntimeLedger {
     event.put("evidence_sampled", false);
     event.put("truncated", true);
     event.put("truncation_reason", "evidence_sampled_out");
+  }
+
+  private synchronized void abandon(String runId) {
+    active = Math.max(0, active - 1);
+    count("requests_abandoned");
+    count("requests_incomplete");
+    Map<String, Object> run = runs.get(runId);
+    if (run != null) {
+      increment(run, "active_requests", -1);
+      increment(run, "incomplete_requests", 1);
+      finishIfIdle(run);
+    }
   }
 
   private static long deliveryLoss(Map<String, Object> delivery) {
@@ -391,7 +442,7 @@ public final class RuntimeLedger {
 
   public synchronized Map<String, Object> health(Map<String, Object> delivery) {
     String status =
-        !Settings.enabled("beacon.security.enabled", false)
+        !configured
             ? "disabled"
             : paused()
                 ? "paused"
@@ -424,17 +475,19 @@ public final class RuntimeLedger {
         "version",
         Identity.VERSION,
         "instrumentation_profile",
-        profile(),
+        instrumentationProfile,
         "collection_status",
-        !Settings.enabled("beacon.security.enabled", false)
-            ? "disabled"
-            : paused() ? "paused" : "enabled",
+        !configured ? "disabled" : paused() ? "paused" : "enabled",
         "delivery_loss",
         deliveryLoss(delivery),
+        "current_delivery_status",
+        Boolean.TRUE.equals(delivery.get("security_loss_recent"))
+            ? "loss_observed_in_last_60s"
+            : "no_recent_loss_observed",
         "status",
         status,
         "configured",
-        Settings.enabled("beacon.security.enabled", false),
+        configured,
         "effective",
         enabled(),
         "active_requests",
@@ -442,7 +495,7 @@ public final class RuntimeLedger {
         "counts",
         new LinkedHashMap<>(counts),
         "rule_status",
-        rules(),
+        configuredRules,
         "capabilities",
         asList(
             "http_server", "sql", "command", "http_client", "file", "modeled_string_propagation"),
@@ -482,6 +535,7 @@ public final class RuntimeLedger {
 
   public void tick(
       Map<String, Object> delivery, Consumer<Map<String, Object>> emit, boolean force) {
+    StateCleanup.reap();
     // Serialize the entire snapshot transaction without holding the monitor
     // used by request begin/end during serialization, callbacks or file I/O.
     synchronized (snapshotLock) {
@@ -521,9 +575,7 @@ public final class RuntimeLedger {
       }
       for (Map<String, Object> finding : findings.values()) {
         finding.put("triage", triage(String.valueOf(finding.get("finding_id"))));
-        if ((force
-                || now - summaryAt
-                    >= Settings.limit("beacon.security.findings.flush.seconds", 30) * 1000L)
+        if ((force || now - summaryAt >= flushMillis)
             && Boolean.TRUE.equals(finding.remove("dirty"))) {
           summaries.add(
               map(
@@ -550,32 +602,34 @@ public final class RuntimeLedger {
       if (!summaries.isEmpty()) {
         summaryAt = now;
       }
-      for (Map<String, Object> finding : findings.values()) {
-        Map<String, Object> copy = new LinkedHashMap<>(finding);
-        for (String key :
-            new String[] {
-              "dirty",
-              "last_sample_millis",
-              "sample_run_id",
-              "representative_bytes",
-              "strongest_evidence_rank"
-            }) {
-          copy.remove(key);
+      if (localOutputEnabled) {
+        for (Map<String, Object> finding : findings.values()) {
+          Map<String, Object> copy = new LinkedHashMap<>(finding);
+          for (String key :
+              new String[] {
+                "dirty",
+                "last_sample_millis",
+                "sample_run_id",
+                "representative_bytes",
+                "strongest_evidence_rank"
+              }) {
+            copy.remove(key);
+          }
+          copy.put(
+              "attack_evidence_counts",
+              new LinkedHashMap<>((Map<?, ?>) finding.get("attack_evidence_counts")));
+          findingCopy.add(copy);
         }
-        copy.put(
-            "attack_evidence_counts",
-            new LinkedHashMap<>((Map<?, ?>) finding.get("attack_evidence_counts")));
-        findingCopy.add(copy);
-      }
-      for (Map<String, Object> run : runs.values()) {
-        Map<String, Object> copy = new LinkedHashMap<>(run);
-        for (String key :
-            new String[] {"finding_counts", "source_signatures", "risk_source_signatures"}) {
-          sharedRunCounters.add((Map<?, ?>) run.get(key));
+        for (Map<String, Object> run : runs.values()) {
+          Map<String, Object> copy = new LinkedHashMap<>(run);
+          for (String key :
+              new String[] {"finding_counts", "source_signatures", "risk_source_signatures"}) {
+            sharedRunCounters.add((Map<?, ?>) run.get(key));
+          }
+          copy.remove("loss_start");
+          copy.remove("snapshot_failures_start");
+          runCopy.add(copy);
         }
-        copy.remove("loss_start");
-        copy.remove("snapshot_failures_start");
-        runCopy.add(copy);
       }
     }
     for (Map<String, Object> summary : summaries) {
@@ -651,6 +705,7 @@ public final class RuntimeLedger {
         throw new IOException("invalid_pause");
       }
       validateExceptions(next.get("exceptions"));
+      Map<String, List<TriageDecision>> nextExceptions = indexExceptions(next.get("exceptions"));
       Object value = next.get("run");
       if (value != null) {
         if (!(value instanceof Map)) {
@@ -662,7 +717,7 @@ public final class RuntimeLedger {
             throw new IOException("missing_run_" + field);
           }
         }
-        if (!validUntil(run.get("expires_at")) || !rules().containsKey(run.get("rule"))) {
+        if (!validUntil(run.get("expires_at")) || !configuredRules.containsKey(run.get("rule"))) {
           throw new IOException("invalid_run_expiry_or_rule");
         }
         if (!(run.get("conditions") instanceof Map)) {
@@ -702,14 +757,11 @@ public final class RuntimeLedger {
           run.put("status", "active");
           run.put("started_at", Events.now());
           run.put("identity", Identity.context());
-          run.put("rule_enabled", rules().get(run.get("rule")));
-          run.put(
-              "collection_enabled",
-              Settings.enabled("beacon.security.enabled", false)
-                  && !Boolean.TRUE.equals(next.get("paused")));
+          run.put("rule_enabled", configuredRules.get(run.get("rule")));
+          run.put("collection_enabled", configured && !Boolean.TRUE.equals(next.get("paused")));
           run.put("loss_start", lossTotal());
           run.put("snapshot_failures_start", snapshotFailures.get());
-          run.put("instrumentation_profile", profile());
+          run.put("instrumentation_profile", instrumentationProfile);
           run.put("finding_counts", new LinkedHashMap<String, Long>());
           run.put("source_signatures", new LinkedHashMap<String, Long>());
           run.put("risk_source_signatures", new LinkedHashMap<String, Long>());
@@ -731,6 +783,8 @@ public final class RuntimeLedger {
           pauseGeneration++;
         }
         policy = next;
+        exceptionIndex = nextExceptions;
+        triageCache.clear();
         appliedRevision = revision;
       }
       controlError = "";
@@ -863,22 +917,57 @@ public final class RuntimeLedger {
     }
   }
 
-  // Exception entries were shape-checked when the control policy was accepted.
-  @SuppressWarnings("unchecked")
   private Map<String, Object> triage(String findingId) {
-    Object value = policy.get("exceptions");
-    if (value instanceof List) {
-      for (Object item : (List<?>) value) {
-        Map<String, Object> entry = (Map<String, Object>) item;
-        Map<?, ?> scope = (Map<?, ?>) entry.get("scope");
-        if (Identity.applicationId().equals(scope.get("application_id"))
-            && findingId.equals(scope.get("finding_id"))
-            && validUntil(entry.get("expires_at"))) {
-          return new LinkedHashMap<>(entry);
+    Instant now = Instant.now();
+    TriageDecision cached = triageCache.get(findingId);
+    if (cached != null && cached.expires.isAfter(now)) {
+      return cached.fields;
+    }
+    List<TriageDecision> candidates =
+        exceptionIndex.get(Identity.applicationId() + "|" + findingId);
+    if (candidates != null) {
+      for (TriageDecision candidate : candidates) {
+        if (candidate.expires.isAfter(now)) {
+          triageCache.put(findingId, candidate);
+          return candidate.fields;
         }
       }
     }
-    return map("decision", "unreviewed");
+    TriageDecision unreviewed =
+        new TriageDecision(Instant.MAX, singletonMap("decision", "unreviewed"));
+    triageCache.put(findingId, unreviewed);
+    return unreviewed.fields;
+  }
+
+  // Entries are checked by validateExceptions before this immutable index is built.
+  @SuppressWarnings("unchecked")
+  private static Map<String, List<TriageDecision>> indexExceptions(Object value) {
+    Map<String, List<TriageDecision>> result = new LinkedHashMap<>();
+    if (value instanceof List) {
+      for (Object item : (List<?>) value) {
+        Map<String, Object> entry = new LinkedHashMap<>((Map<String, Object>) item);
+        Map<String, Object> scope = new LinkedHashMap<>((Map<String, Object>) entry.get("scope"));
+        entry.put("scope", Collections.unmodifiableMap(scope));
+        String key = scope.get("application_id") + "|" + scope.get("finding_id");
+        result
+            .computeIfAbsent(key, ignored -> new ArrayList<>())
+            .add(
+                new TriageDecision(
+                    Instant.parse(String.valueOf(entry.get("expires_at"))),
+                    Collections.unmodifiableMap(entry)));
+      }
+    }
+    return result;
+  }
+
+  private static final class TriageDecision {
+    final Instant expires;
+    final Map<String, Object> fields;
+
+    TriageDecision(Instant expires, Map<String, Object> fields) {
+      this.expires = expires;
+      this.fields = fields;
+    }
   }
 
   private static boolean validUntil(Object expiry) {

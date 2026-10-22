@@ -13,3 +13,11 @@ configurations:
     description: Enables process-local diagnostic snapshots; production Kubernetes workloads should normally use OTLP only.
     type: boolean
     default: false
+  - name: beacon.security.export.priority.queue.size
+    description: Bounded suspected-evidence queue capacity; processed before diagnostics and ordinary occurrences.
+    type: int
+    default: 128
+  - name: beacon.security.export.diagnostic.queue.size
+    description: Bounded diagnostic queue capacity; processed before ordinary occurrences.
+    type: int
+    default: 64

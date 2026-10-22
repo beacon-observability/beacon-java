@@ -19,7 +19,7 @@ The `datakit` exporter uploads JFR snapshots to a Datakit profile receiver using
 | `otel.profiling.max-age`                               | `OTEL_PROFILING_MAX_AGE`                          | String  | `5m`    | Maximum retention window for the active JFR recording.                |
 | `otel.profiling.stack-depth`                           | `OTEL_PROFILING_STACK_DEPTH`                      | Integer | `64`    | Unsupported per-recording option; explicit configuration emits a warning. Use the JVM JFR option described below. |
 | `otel.profiling.max-size`                              | `OTEL_PROFILING_MAX_SIZE`                         | Integer | `0`     | Max JFR recording size in bytes. `0` leaves the JFR default.          |
-| `otel.profiling.temp-dir`                              | `OTEL_PROFILING_TEMP_DIR`                         | String  |         | Unsupported per-recording option; explicit configuration emits a warning. Use the JVM JFR repository option described below. |
+| `otel.profiling.temp-dir`                              | `OTEL_PROFILING_TEMP_DIR`                         | String  | JVM temp directory | Directory for detached final snapshots, removed after export. This does not change the JFR repository. |
 | `otel.profiling.memory.enabled`                        | `OTEL_PROFILING_MEMORY_ENABLED`                   | Boolean | `false` | Enables a memory-focused JFR overlay on top of the default profile.   |
 | `otel.profiling.memory.allocation-sampling`            | `OTEL_PROFILING_MEMORY_ALLOCATION_SAMPLING`       | Boolean |         | Overrides allocation sampling events (`ObjectAllocation*`).           |
 | `otel.profiling.memory.old-object-sampling`            | `OTEL_PROFILING_MEMORY_OLD_OBJECT_SAMPLING`       | Boolean |         | Overrides `OldObjectSample`.                                          |
@@ -46,6 +46,14 @@ a warning reports the pending export; the daemon worker retains resource ownersh
 later if the process is still running. JVM exit does not guarantee delivery beyond this deadline.
 Empty JFR intervals produce no file or HTTP upload. An export failure does not advance the snapshot
 cursor; a later attempt can include the interval while JFR retention still contains it.
+
+The JDK's own shutdown hook can stop JFR and remove its repository concurrently with application
+hooks. Final snapshots are detached to temporary files before that cleanup can invalidate their
+streams. The native-stop listener only preserves data; the serialized worker owns network export.
+JFR chunks before the current successful-export cursor are excluded from a detached snapshot.
+If JDK cleanup wins a stop/read race, the most recent detached snapshot supplies its actual end
+timestamp. Files are removed after export or session cleanup; abrupt process termination can leave
+temporary files behind. `temp-dir` controls these files, separately from the JVM JFR repository.
 
 For Datakit endpoint, the legacy environment variable `OTEL_PROFILING_DATAKIT_ENDPOINT` is also
 accepted as a compatibility alias. The legacy property `otel.profiling.datakit.endpoint` is also

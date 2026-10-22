@@ -42,11 +42,11 @@ final class AgentProfilingConfiguration {
 
   static AgentProfilingConfiguration create(ConfigProperties config) {
     String exporter = normalizeExporter(defaultString(getString(config, "exporter"), "none"));
-    if (getInt(config, "stack-depth") != null || getString(config, "temp-dir") != null) {
+    if (getInt(config, "stack-depth") != null) {
       logger.warning(
-          "Profiling stack-depth and temp-dir cannot configure a per-recording JFR repository or stack depth. "
-              + "Use JVM -XX:FlightRecorderOptions=stackdepth=<depth>,repository=<directory> instead; "
-              + "these options affect all JFR recordings.");
+          "Profiling stack-depth cannot configure per-recording JFR stack depth. "
+              + "Use JVM -XX:FlightRecorderOptions=stackdepth=<depth> instead; "
+              + "this option affects all JFR recordings.");
     }
     return new AgentProfilingConfiguration(
         defaultDuration(getDuration(config, "interval"), Duration.ofMinutes(1)),

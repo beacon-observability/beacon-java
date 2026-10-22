@@ -37,8 +37,8 @@ configurations:
     default: 0
   - name: otel.profiling.temp-dir
     description: >
-      Unsupported per-recording option; explicit configuration emits a warning.
-      Use JVM -XX:FlightRecorderOptions=repository=<directory> instead; this affects all recordings.
+      Directory for detached final snapshots, removed after export. Defaults to the JVM temporary
+      directory. This does not change the process-wide JFR repository.
       Environment variable: OTEL_PROFILING_TEMP_DIR.
     type: string
     default: ""

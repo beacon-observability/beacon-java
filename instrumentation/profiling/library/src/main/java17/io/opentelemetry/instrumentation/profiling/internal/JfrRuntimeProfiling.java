@@ -69,10 +69,12 @@ final class JfrRuntimeProfiling implements RuntimeProfiling {
     }
 
     try {
-      JfrRecordingSession session = new JfrRecordingSession(config);
-      session.start();
+      JfrRecordingSession session =
+          new JfrRecordingSession(
+              config, () -> lastSnapshotStart == null ? Instant.EPOCH : lastSnapshotStart);
       recordingSession = session;
       lastSnapshotStart = Instant.now();
+      session.start();
       long intervalMillis = config.getInterval().toMillis();
       scheduler.scheduleAtFixedRate(
           this::exportSnapshot, intervalMillis, intervalMillis, MILLISECONDS);

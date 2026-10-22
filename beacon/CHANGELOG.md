@@ -4,6 +4,8 @@ This file records Beacon product changes only. The root [CHANGELOG.md](../CHANGE
 
 ## Unreleased
 
+## Version 1.3.1 (2026-10-22)
+
 - Security call sites check collection activity before allocating argument arrays or boxing values.
   Request settings and rules are cached, untracked string propagation avoids building call records,
   and Java 9+ stack capture stops at bounded business frames. Request evidence preparation runs

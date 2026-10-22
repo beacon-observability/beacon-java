@@ -5,6 +5,7 @@
 
 package io.opentelemetry.instrumentation.profiling.internal;
 
+import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -57,5 +58,50 @@ class ProfilingSchedulerTest {
     scheduler.schedule(() -> calls.addAndGet(100), 60, SECONDS);
     assertThat(scheduler.finish(calls::incrementAndGet, 5000)).isTrue();
     assertThat(calls.get()).isEqualTo(1);
+  }
+
+  @Test
+  void finishDoesNotInterruptOrRescheduleAnInFlightPeriodicExport() throws InterruptedException {
+    try (ProfilingScheduler scheduler = new ProfilingScheduler("profiling-periodic-test")) {
+      CountDownLatch exporting = new CountDownLatch(1);
+      CountDownLatch release = new CountDownLatch(1);
+      CountDownLatch finalized = new CountDownLatch(1);
+      AtomicInteger periodicCalls = new AtomicInteger();
+      AtomicInteger finalCalls = new AtomicInteger();
+      AtomicInteger interruptions = new AtomicInteger();
+      scheduler.scheduleAtFixedRate(
+          () -> {
+            periodicCalls.incrementAndGet();
+            exporting.countDown();
+            try {
+              release.await();
+            } catch (InterruptedException interrupted) {
+              interruptions.incrementAndGet();
+              Thread.currentThread().interrupt();
+              throw new AssertionError(interrupted);
+            }
+          },
+          0,
+          1,
+          MILLISECONDS);
+      try {
+        assertThat(exporting.await(5, SECONDS)).isTrue();
+        assertThat(
+                scheduler.finish(
+                    () -> {
+                      finalCalls.incrementAndGet();
+                      finalized.countDown();
+                    },
+                    50))
+            .isFalse();
+        assertThat(finalCalls.get()).isZero();
+      } finally {
+        release.countDown();
+      }
+      assertThat(finalized.await(5, SECONDS)).isTrue();
+      assertThat(periodicCalls.get()).isEqualTo(1);
+      assertThat(finalCalls.get()).isEqualTo(1);
+      assertThat(interruptions.get()).isZero();
+    }
   }
 }

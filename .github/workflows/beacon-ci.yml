@@ -84,6 +84,24 @@ jobs:
           node beacon/scripts/agent-smoke.cjs "$agent"
           node beacon/scripts/security-smoke.cjs "$agent" \
             beacon/testing/security-smoke-fixture/build/libs/beacon-security-smoke-fixture.jar
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Verify packaged-agent JDBC tracing with combined features
+        shell: bash
+        run: |
+          version=$(sed -n 's/^version=//p' beacon/version.properties)
+          ./gradlew -p beacon/testing/jdbc-smoke test \
+            "-PagentPath=$PWD/javaagent/build/libs/beacon-javaagent-$version.jar"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ !cancelled() }}
+        with:
+          name: beacon-jdbc-smoke-tests
+          path: |
+            beacon/testing/jdbc-smoke/build/reports/tests/
+            beacon/testing/jdbc-smoke/build/test-results/
+          retention-days: 7
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: beacon-javaagent

@@ -4,6 +4,10 @@ This file records Beacon product changes only. The root [CHANGELOG.md](../CHANGE
 
 ## Unreleased
 
+- Preserve PostgreSQL JDBC client spans when Security is enabled together with tracing, logs,
+  and metrics. Security now computes frames for its own rewritten methods before tracing advice
+  is applied, avoiding class-wide frame resolution of injected tracing helpers.
+
 ## Version 1.3.1 (2026-10-22)
 
 - Security call sites check collection activity before allocating argument arrays or boxing values.

@@ -1,0 +1,52 @@
+plugins {
+    id 'java'
+    id 'com.gradleup.shadow' version '9.6.1'
+}
+
+repositories {
+    mavenCentral()
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+dependencies {
+    implementation platform('org.springframework.boot:spring-boot-dependencies:3.5.7')
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-jdbc'
+    runtimeOnly 'org.postgresql:postgresql'
+
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.14.4'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.14.4'
+    testImplementation 'org.assertj:assertj-core:3.27.7'
+    testImplementation 'org.awaitility:awaitility:4.3.0'
+    testImplementation 'io.opentelemetry.proto:opentelemetry-proto:1.11.1-alpha'
+    testImplementation 'org.testcontainers:testcontainers-postgresql:2.0.5'
+}
+
+tasks.named('shadowJar') {
+    archiveFileName = 'beacon-jdbc-smoke.jar'
+    duplicatesStrategy = DuplicatesStrategy.INCLUDE
+    mergeServiceFiles()
+    append 'META-INF/spring.factories'
+    append 'META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports'
+    manifest {
+        attributes 'Main-Class': 'io.beacon.testing.jdbc.JdbcSmokeApplication'
+    }
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+    dependsOn tasks.named('shadowJar')
+    def agent = file(providers.gradleProperty('agentPath').get())
+    inputs.file(agent)
+    systemProperty 'agentPath', agent.absolutePath
+    systemProperty 'fixturePath', tasks.named('shadowJar').get().archiveFile.get().asFile.absolutePath
+    testLogging {
+        events 'passed', 'failed'
+        exceptionFormat 'full'
+    }
+}

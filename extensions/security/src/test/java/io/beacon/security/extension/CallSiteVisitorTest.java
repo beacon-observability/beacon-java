@@ -5,6 +5,7 @@
 
 package io.beacon.security.extension;
 
+import static net.bytebuddy.matcher.ElementMatchers.named;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -16,6 +17,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiFunction;
+import net.bytebuddy.ByteBuddy;
+import net.bytebuddy.asm.Advice;
 import net.bytebuddy.description.type.TypeDescription;
 import net.bytebuddy.dynamic.ClassFileLocator;
 import net.bytebuddy.pool.TypePool;
@@ -25,6 +28,7 @@ import org.objectweb.asm.ClassWriter;
 import sample.calls.CallSiteFixture;
 import sample.calls.CallSiteOperation;
 import sample.calls.FixtureConnection;
+import sample.calls.FrameAdviceState;
 
 class CallSiteVisitorTest {
   @Test
@@ -90,6 +94,50 @@ class CallSiteVisitorTest {
       assertThatThrownBy(() -> operation.construct(null)).isInstanceOf(NullPointerException.class);
     } finally {
       field.set(null, previous);
+    }
+  }
+
+  @Test
+  void preservesAdviceFramesWithoutResolvingInjectedHelpers() throws Exception {
+    ClassLoader loader = CallSiteFixture.class.getClassLoader();
+    CallSiteVisitor visitor =
+        CallSiteVisitor.forClass(TypeDescription.ForLoadedType.of(CallSiteFixture.class), loader);
+    ClassFileLocator resources = ClassFileLocator.ForClassLoader.of(loader);
+    TypePool pool =
+        TypePool.Default.of(
+            new ClassFileLocator.Filtering(
+                name -> !name.equals(FrameAdviceState.class.getName()), resources));
+    byte[] transformed =
+        new ByteBuddy()
+            .redefine(CallSiteFixture.class)
+            .visit(Advice.to(FrameAdvice.class).on(named("construct")))
+            .visit(visitor)
+            .make(pool)
+            .getBytes();
+    CallSiteOperation operation =
+        (CallSiteOperation)
+            new FixtureLoader(loader).define(transformed).getConstructor().newInstance();
+    assertThat(operation.construct("text")).isEqualTo("advised");
+    assertThat(operation.append(new StringBuilder(), 5000).toString()).isEqualTo("5000");
+  }
+
+  @SuppressWarnings("unused")
+  public static class FrameAdvice {
+    @Advice.OnMethodEnter(suppress = Throwable.class)
+    public static FrameAdviceState enter() {
+      return new FrameAdviceState();
+    }
+
+    @Advice.OnMethodExit(suppress = Throwable.class)
+    public static void exit(
+        @Advice.Enter FrameAdviceState state, @Advice.Return(readOnly = false) String result) {
+      Object value;
+      if (state == null) {
+        value = new Object();
+      } else {
+        value = state;
+      }
+      result = value.toString();
     }
   }
 

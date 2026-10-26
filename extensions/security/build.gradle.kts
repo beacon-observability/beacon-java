@@ -48,6 +48,11 @@ dependencies {
   testCompileOnly("com.google.code.findbugs:jsr305")
 }
 
+// The ASM visitors use byte-buddy-dep, whose public API uses org.objectweb.asm.
+configurations.testRuntimeClasspath {
+  exclude("net.bytebuddy", "byte-buddy")
+}
+
 tasks.withType<Jar>().configureEach {
   manifest.attributes(
     "Implementation-Title" to "Beacon Security for Java",

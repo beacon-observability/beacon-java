@@ -7,10 +7,8 @@ package io.beacon.security.extension;
 
 import java.io.IOException;
 import java.net.URLConnection;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import net.bytebuddy.asm.AsmVisitorWrapper;
@@ -21,6 +19,7 @@ import net.bytebuddy.description.type.TypeDescription;
 import net.bytebuddy.dynamic.ClassFileLocator;
 import net.bytebuddy.implementation.Implementation;
 import net.bytebuddy.pool.TypePool;
+import net.bytebuddy.utility.AsmClassWriter;
 import org.objectweb.asm.AnnotationVisitor;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassVisitor;
@@ -113,7 +112,7 @@ final class CallSiteVisitor extends AsmVisitorWrapper.AbstractBase {
 
   @Override
   public int mergeWriter(int flags) {
-    return flags | ClassWriter.COMPUTE_FRAMES;
+    return flags | ClassWriter.COMPUTE_MAXS;
   }
 
   @Override
@@ -133,6 +132,23 @@ final class CallSiteVisitor extends AsmVisitorWrapper.AbstractBase {
       int readerFlags) {
     return new ClassVisitor(Opcodes.ASM9, visitor) {
       String source = "";
+      int version;
+      String superName = "java/lang/Object";
+      String[] interfaces = new String[0];
+
+      @Override
+      public void visit(
+          int version,
+          int access,
+          String name,
+          String signature,
+          String superName,
+          String[] interfaces) {
+        this.version = version;
+        this.superName = superName;
+        this.interfaces = interfaces;
+        super.visit(version, access, name, signature, superName, interfaces);
+      }
 
       @Override
       public void visitSource(String file, String debug) {
@@ -155,17 +171,39 @@ final class CallSiteVisitor extends AsmVisitorWrapper.AbstractBase {
         for (Type argument : Type.getArgumentTypes(descriptor)) {
           first += argument.getSize();
         }
-        return new Calls(
-            original,
-            first,
-            reserve,
-            type.getName() + "#" + name,
-            source,
-            access,
-            name,
-            descriptor,
-            type.getInternalName(),
-            connectionOwners);
+        // Compute frames only for this method's security call sites, before passing it to
+        // other visitors. A class-wide COMPUTE_FRAMES also recomputes unrelated tracing advice,
+        // whose injected helpers are not available as class resources in the application pool.
+        ClassWriter frames =
+            new AsmClassWriter.FrameComputingClassWriter(ClassWriter.COMPUTE_FRAMES, pool);
+        frames.visit(
+            version, type.getModifiers(), type.getInternalName(), null, superName, interfaces);
+        MethodVisitor buffered =
+            frames.visitMethod(access, name, descriptor, signature, exceptions);
+        return new MethodVisitor(
+            Opcodes.ASM9,
+            new Calls(
+                buffered, first, reserve, type.getName() + "#" + name, source, connectionOwners)) {
+          @Override
+          public void visitEnd() {
+            super.visitEnd();
+            frames.visitEnd();
+            new ClassReader(frames.toByteArray())
+                .accept(
+                    new ClassVisitor(Opcodes.ASM9) {
+                      @Override
+                      public MethodVisitor visitMethod(
+                          int methodAccess,
+                          String methodName,
+                          String methodDescriptor,
+                          String methodSignature,
+                          String[] methodExceptions) {
+                        return original;
+                      }
+                    },
+                    0);
+          }
+        };
       }
     };
   }
@@ -179,7 +217,6 @@ final class CallSiteVisitor extends AsmVisitorWrapper.AbstractBase {
     private final String file;
     private final Set<String> connectionOwners;
     private int line = -1;
-    private final List<Object> frameLocals = new ArrayList<>();
 
     Calls(
         MethodVisitor visitor,
@@ -187,10 +224,6 @@ final class CallSiteVisitor extends AsmVisitorWrapper.AbstractBase {
         int scratch,
         String location,
         String file,
-        int access,
-        String name,
-        String descriptor,
-        String owner,
         Set<String> connectionOwners) {
       super(Opcodes.ASM9, visitor);
       this.first = first;
@@ -198,30 +231,6 @@ final class CallSiteVisitor extends AsmVisitorWrapper.AbstractBase {
       this.methodLocation = location;
       this.file = file;
       this.connectionOwners = connectionOwners;
-      if ((access & Opcodes.ACC_STATIC) == 0) {
-        frameLocals.add(name.equals("<init>") ? Opcodes.UNINITIALIZED_THIS : owner);
-      }
-      for (Type arg : Type.getArgumentTypes(descriptor)) {
-        switch (arg.getSort()) {
-          case Type.LONG:
-            frameLocals.add(Opcodes.LONG);
-            break;
-          case Type.DOUBLE:
-            frameLocals.add(Opcodes.DOUBLE);
-            break;
-          case Type.FLOAT:
-            frameLocals.add(Opcodes.FLOAT);
-            break;
-          case Type.ARRAY:
-            frameLocals.add(arg.getDescriptor());
-            break;
-          case Type.OBJECT:
-            frameLocals.add(arg.getInternalName());
-            break;
-          default:
-            frameLocals.add(Opcodes.INTEGER);
-        }
-      }
     }
 
     private int remap(int index) {
@@ -269,38 +278,6 @@ final class CallSiteVisitor extends AsmVisitorWrapper.AbstractBase {
     @Override
     public void visitMaxs(int stack, int locals) {
       mv.visitMaxs(stack, locals + scratch);
-    }
-
-    @Override
-    public void visitFrame(int type, int count, Object[] locals, int stackCount, Object[] stack) {
-      // Other agent visitors can supply compressed frames even when the reader expands
-      // them. Track the original frame and emit a full frame with dead scratch locals.
-      if (type == Opcodes.F_NEW || type == Opcodes.F_FULL) {
-        frameLocals.clear();
-        for (int i = 0; i < count; i++) {
-          frameLocals.add(locals[i]);
-        }
-      } else if (type == Opcodes.F_APPEND) {
-        for (int i = 0; i < count; i++) {
-          frameLocals.add(locals[i]);
-        }
-      } else if (type == Opcodes.F_CHOP) {
-        for (int i = 0; i < count; i++) {
-          frameLocals.remove(frameLocals.size() - 1);
-        }
-      }
-      List<Object> mapped = new ArrayList<>();
-      int slot = 0;
-      for (Object value : frameLocals) {
-        if (slot == first) {
-          for (int j = 0; j < scratch; j++) {
-            mapped.add(Opcodes.TOP);
-          }
-        }
-        mapped.add(value);
-        slot += value == Opcodes.LONG || value == Opcodes.DOUBLE ? 2 : 1;
-      }
-      mv.visitFrame(Opcodes.F_FULL, mapped.size(), mapped.toArray(), stackCount, stack);
     }
 
     @Override

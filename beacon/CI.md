@@ -10,7 +10,7 @@ The product development branch is `main`. [Beacon CI](../.github/workflows/beaco
 | Upstream synchronization, shared build, or agent core changes | JDK 8 with classic transformation, JDK 17 with Indy, and JDK 21 with both modes, each across 4 partitions, for 16 test jobs | 4 Muzzle partitions |
 | Manual `full` selection | JDK 8/11/17/21/25/26 × 4 partitions × 2 Indy modes, for 48 test jobs | Muzzle, latest-dependency tests, and upstream Linux container smoke tests |
 
-All three pull-request and manual tiers build the complete agent; validate the Beacon file name, Manifest, and provenance; run maintainer-script and packaging regression tests; run packaged-agent HTTP instrumentation, TraceContext, OTLP trace export, and embedded-Security smoke tests; and run formatting, package-name, other static checks, and license-list checks. Module tests reuse upstream `listTestsInPartition` without excluding test modules by directory. Tests wired into Gradle for Beacon-specific enhancements are included. A module without tests does not automatically gain functional acceptance.
+All three pull-request and manual tiers build the complete agent; validate the Beacon file name, Manifest, and provenance; run maintainer-script and packaging regression tests; run packaged-agent HTTP instrumentation, TraceContext, OTLP trace export, and embedded-Security smoke tests; run the JDK 21 / Spring Boot 3.5.7 packaged-agent JDBC regression against PostgreSQL 16.15 with Trace, Logs, Metrics, and Security combinations; and run formatting, package-name, other static checks, and license-list checks. Module tests reuse upstream `listTestsInPartition` without excluding test modules by directory. Tests wired into Gradle for Beacon-specific enhancements are included. A module without tests does not automatically gain functional acceptance.
 
 After a pull request has passed its selected tier and is merged, the `main` push runs only the clean agent build, packaging verification, and packaged-agent smoke test. The merge ruleset prevents direct pushes, so repeating the complete pull-request matrix on the resulting merge commit would add substantial latency without testing different file content. Manual `full` validation remains available when release acceptance or an explicit post-merge rerun is required.
 
@@ -35,6 +35,25 @@ In Actions → Beacon CI → Run workflow, select the branch to validate and cho
 Here, `full` means the extended set defined above, not every upstream job. Windows, OpenJ9, performance, example-project, and Gradle-plugin validation must still be scheduled according to the actual release support scope and cannot be claimed as supported on this basis. Full container smoke tests use the upstream image versions pinned in the source tree and require Docker plus access to those images. If an image is unavailable, fix its source and rerun; do not ignore the failure.
 
 Inherited pull-request image builds run only in the upstream repository. Regular Beacon pull requests use the [packaged-agent smoke test](scripts/agent-smoke.cjs), which requires no container images, and do not rebuild Payara, Tomcat, Play, gRPC, early-JDK8, or similar images. Before changing test images in the future, establish Beacon-owned image build and hosting processes. Skipping image builds must not be treated as acceptance of image changes.
+
+### JDBC and combined-feature regression
+
+The standalone [JDBC fixture](testing/jdbc-smoke) starts the complete Agent through `-javaagent`,
+executes parameterized SQL through JdbcTemplate, and decodes OTLP HTTP/protobuf at a local receiver.
+It checks PostgreSQL client span counts, database attributes, JDBC instrumentation scope, and HTTP
+parentage in four configurations: Trace, Trace + Logs + Metrics, Trace + Security, and all features.
+Enabled logs, metrics, Security health, and runtime SBOM must also be observed. This test requires
+JDK 21 and Docker; it runs in the build job for every Beacon CI tier.
+
+```bash
+version=$(sed -n 's/^version=//p' beacon/version.properties)
+./gradlew -p beacon/testing/jdbc-smoke test \
+  "-PagentPath=$PWD/javaagent/build/libs/beacon-javaagent-$version.jar"
+```
+
+`agentPath` can also point to a downloaded released agent for reproduction. This fixture validates
+agent creation and OTLP reception; it does not validate DataKit-specific mapping or replace the
+original benchmark's throughput, duration, and performance acceptance.
 
 ## Isolation of inherited workflows
 

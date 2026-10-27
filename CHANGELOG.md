@@ -1,5 +1,43 @@
 # Changelog
 
+## Version 2.33.1 (2026-10-26)
+
+This release targets the OpenTelemetry SDK 1.67.0.
+
+Note that many artifacts have the `-alpha` suffix attached to their version
+number, reflecting that they will continue to have breaking changes. Please see
+[VERSIONING.md](https://github.com/open-telemetry/opentelemetry-java-instrumentation/blob/main/VERSIONING.md#opentelemetry-java-instrumentation-versioning)
+for more details.
+
+### 🛠️ Bug fixes
+
+- Fix Java agent startup resource schema conflicts when a service name is configured.
+  ([#20915](https://github.com/open-telemetry/opentelemetry-java-instrumentation/pull/20915))
+
+## Version 2.33.0 (2026-10-23)
+
+This release targets the OpenTelemetry SDK 1.67.0.
+
+Note that many artifacts have the `-alpha` suffix attached to their version
+number, reflecting that they will continue to have breaking changes. Please see
+[VERSIONING.md](https://github.com/open-telemetry/opentelemetry-java-instrumentation/blob/main/VERSIONING.md#opentelemetry-java-instrumentation-versioning)
+for more details.
+
+### 📈 Enhancements
+
+- Update the OpenTelemetry SDK version to 1.67.0.
+  ([#20598](https://github.com/open-telemetry/opentelemetry-java-instrumentation/pull/20598))
+
+### 🛠️ Bug fixes
+
+- Preserve repeated baggage header values when extracting context through the Java agent's
+  OpenTelemetry API bridge.
+  ([#20598](https://github.com/open-telemetry/opentelemetry-java-instrumentation/pull/20598))
+- Avoid converting lists and maps to strings in Spring Boot declarative configuration.
+  ([#20598](https://github.com/open-telemetry/opentelemetry-java-instrumentation/pull/20598))
+- Improve SQL parsing.
+  ([#20864](https://github.com/open-telemetry/opentelemetry-java-instrumentation/pull/20864))
+
 ## Version 2.32.0 (2026-10-03)
 
 This release targets the OpenTelemetry SDK 1.66.0.

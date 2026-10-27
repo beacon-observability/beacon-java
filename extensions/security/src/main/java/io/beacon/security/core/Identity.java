@@ -30,20 +30,23 @@ public final class Identity {
     resource = Collections.unmodifiableMap(new LinkedHashMap<>(values));
   }
 
-  public static String applicationId() {
+  // Keep fingerprint v1 stable without exporting a second application identifier.
+  public static String findingScope() {
+    return findingScope(resource);
+  }
+
+  public static String findingScope(Map<String, String> identity) {
     return "app-"
         + digest(
-            resource.getOrDefault("service.namespace", "")
+            identity.getOrDefault("service.namespace", "")
                 + "|"
-                + resource.getOrDefault(
+                + identity.getOrDefault(
                     "service.name",
                     Settings.text("otel.service.name", "unknown-java-application")));
   }
 
   public static Map<String, Object> context() {
     return Values.map(
-        "application_id",
-        applicationId(),
         "instance_id",
         INSTANCE,
         "service",

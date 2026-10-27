@@ -38,7 +38,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.function.Consumer;
 import java.util.function.LongSupplier;
 import java.util.logging.Logger;
 
@@ -55,8 +54,6 @@ public final class RuntimeLedger {
   private final int maxActiveRequests = Settings.limit("beacon.security.max.active.requests", 256);
   private final int requestsPerSecond = Settings.limit("beacon.security.requests-per-second", 1000);
   private final int maxEvidenceBytes = Settings.limit("beacon.security.evidence.max.bytes", 65536);
-  private final long flushMillis =
-      Settings.limit("beacon.security.findings.flush.seconds", 30) * 1000L;
   private final Map<String, Object> configuredRules = rules();
   private final String instrumentationProfile = profile();
   private final boolean localOutputEnabled =
@@ -98,7 +95,6 @@ public final class RuntimeLedger {
   private volatile String appliedRevision = "";
   private long snapshotAt;
   private long lastSnapshotFailureLog;
-  private long summaryAt;
   private final long started = System.currentTimeMillis();
   private long active;
   private long completed;
@@ -114,6 +110,10 @@ public final class RuntimeLedger {
     json.getFactory()
         .setStreamReadConstraints(
             StreamReadConstraints.builder().maxNestingDepth(16).maxStringLength(4096).build());
+  }
+
+  boolean localOutputEnabled() {
+    return localOutputEnabled;
   }
 
   public Path output() {
@@ -141,7 +141,7 @@ public final class RuntimeLedger {
   }
 
   public void sbom(Map<String, Object> value) {
-    Map<String, Object> next = new LinkedHashMap<>(sbom);
+    Map<String, Object> next = new LinkedHashMap<>();
     value.forEach(
         (key, item) -> {
           if (!key.equals("dependencies")
@@ -150,9 +150,6 @@ public final class RuntimeLedger {
             next.put(key, item);
           }
         });
-    if ("beacon.security.sbom.update_failed".equals(value.get("event_name"))) {
-      next.put("status", "degraded");
-    }
     sbom = next;
   }
 
@@ -206,9 +203,10 @@ public final class RuntimeLedger {
     for (Map<String, Object> original : state.pending()) {
       Map<String, Object> event = Events.record(original);
       event.put("request", new LinkedHashMap<>(request));
-      event.put("run", new LinkedHashMap<>(state.run));
+      if (!state.run.isEmpty()) {
+        event.put("run", new LinkedHashMap<>(state.run));
+      }
       event.put("trace_availability", "not_guaranteed_by_trace_id");
-      event.put("occurrence_id", event.get("evidence_id"));
       prepared.add(event);
     }
     synchronized (this) {
@@ -250,8 +248,9 @@ public final class RuntimeLedger {
     }
     List<Map<String, Object>> result = new ArrayList<>();
     for (Map<String, Object> event : prepared) {
+      event.put("collection_complete", !incomplete);
       if (incomplete) {
-        event.put("truncated", true);
+        event.put("truncated", state.truncated());
         event.put("coverage_gaps", state.gaps());
       }
       String id = String.valueOf(event.get("finding_id"));
@@ -259,49 +258,55 @@ public final class RuntimeLedger {
       if (finding == null) {
         if (findings.size() >= maxFindings) {
           count("finding_capacity_dropped");
-          event.put("aggregation_status", "capacity_exceeded");
           event.put("evidence_sampled", false);
           event.put("evidence_sample_reason", "finding_capacity");
           omitEvidence(event);
           result.add(event);
           continue;
         }
-        finding =
-            map(
-                "finding_id",
-                id,
-                "rule",
-                event.get("rule"),
-                "assessment",
-                event.get("assessment"),
-                "validation",
-                "unvalidated",
-                "sink",
-                event.get("sink"),
-                "first_seen",
-                event.get("observed_at"),
-                "attack_evidence_counts",
-                map("unknown", 0L, "no_evidence", 0L, "suspected", 0L),
-                "occurrences",
-                0L,
-                "last_sample_millis",
-                0L);
+        finding = map("last_sample_millis", 0L);
+        if (localOutputEnabled) {
+          finding.putAll(
+              map(
+                  "finding_id",
+                  id,
+                  "rule",
+                  event.get("rule"),
+                  "assessment",
+                  event.get("assessment"),
+                  "validation",
+                  "unvalidated",
+                  "sink",
+                  event.get("sink"),
+                  "first_seen",
+                  event.get("observed_at"),
+                  "attack_evidence_counts",
+                  map("unknown", 0L, "no_evidence", 0L, "suspected", 0L),
+                  "occurrences",
+                  0L,
+                  "last_sample_millis",
+                  0L));
+        }
         findings.put(id, finding);
       }
-      increment(finding, "occurrences", 1);
-      @SuppressWarnings("unchecked") // Created above with the three bounded status counters.
-      Map<String, Object> evidenceCounts =
-          (Map<String, Object>) finding.get("attack_evidence_counts");
-      increment(evidenceCounts, AttackEvidence.status(event), 1);
-      finding.put("last_seen", event.get("observed_at"));
-      finding.put("last_trace_id", event.get("trace_id"));
-      finding.put("last_evidence_id", event.get("evidence_id"));
-      finding.put("last_run", new LinkedHashMap<>(state.run));
-      finding.put("code", event.get("code"));
-      finding.put("request", event.get("request"));
-      finding.put("component", event.get("component"));
-      finding.put("triage", triage(id));
-      event.put("triage", finding.get("triage"));
+      if (localOutputEnabled) {
+        increment(finding, "occurrences", 1);
+        @SuppressWarnings("unchecked") // Created above with the three bounded status counters.
+        Map<String, Object> evidenceCounts =
+            (Map<String, Object>) finding.get("attack_evidence_counts");
+        increment(evidenceCounts, AttackEvidence.status(event), 1);
+        finding.put("last_seen", event.get("observed_at"));
+        finding.put("last_trace_id", event.get("trace_id"));
+        finding.put("last_occurrence_id", event.get("occurrence_id"));
+        finding.put("last_run", new LinkedHashMap<>(state.run));
+        finding.put("code", event.get("code"));
+        finding.put("request", event.get("request"));
+        finding.put("component", event.get("component"));
+        finding.put("triage", triage(id));
+      }
+      if (localOutputEnabled) {
+        event.put("triage", finding.get("triage"));
+      }
       long now = clock.getAsLong();
       long lastSample = ((Number) finding.get("last_sample_millis")).longValue();
       String runId = String.valueOf(state.run.getOrDefault("run_id", ""));
@@ -312,23 +317,23 @@ public final class RuntimeLedger {
           upgrade
               || now - lastSample >= sampleMillis
               || !runId.equals(finding.get("sample_run_id"));
-      event.put("occurrences_total", finding.get("occurrences"));
-      event.put("aggregation_status", "tracked");
       event.put("evidence_sampled", sample);
       event.put(
           "evidence_sample_reason",
           upgrade ? "evidence_upgrade" : sample ? "interval_or_run" : "interval");
       if (upgrade) {
         finding.put("strongest_evidence_rank", rank);
-        finding.put("strongest_attack_evidence", event.get("attack_evidence"));
-        finding.put("assessment", event.get("assessment"));
+        if (localOutputEnabled) {
+          finding.put("strongest_attack_evidence", event.get("attack_evidence"));
+          finding.put("assessment", event.get("assessment"));
+        }
       }
       if (sample) {
         finding.put("last_sample_millis", now);
         finding.put("sample_run_id", runId);
         // Export this request's sample, but never replace stronger retained evidence with weaker
         // data.
-        if (rank >= strongest) {
+        if (localOutputEnabled && rank >= strongest) {
           Map<String, Object> representative = new LinkedHashMap<>(event);
           long estimate = estimate(representative, 0);
           long previous = ((Number) finding.getOrDefault("representative_bytes", 0L)).longValue();
@@ -351,13 +356,6 @@ public final class RuntimeLedger {
         omitEvidence(event);
       }
       result.add(event);
-      finding.put("dirty", true);
-    }
-    Map<String, Object> diagnostic = state.diagnostics();
-    if (diagnostic != null) {
-      diagnostic.put("request", new LinkedHashMap<>(request));
-      diagnostic.put("run", new LinkedHashMap<>(state.run));
-      result.add(Events.record(diagnostic));
     }
     Object runId = state.run.get("run_id");
     Map<String, Object> run = runId == null ? null : runs.get(String.valueOf(runId));
@@ -406,8 +404,6 @@ public final class RuntimeLedger {
       event.put(field, emptyList());
     }
     event.put("evidence_sampled", false);
-    event.put("truncated", true);
-    event.put("truncation_reason", "evidence_sampled_out");
   }
 
   private synchronized void abandon(String runId) {
@@ -461,7 +457,7 @@ public final class RuntimeLedger {
                                 : "observed";
     return map(
         "schema_version",
-        1,
+        Events.SCHEMA_VERSION,
         "source",
         "beacon_security",
         "event_name",
@@ -533,18 +529,19 @@ public final class RuntimeLedger {
         "collection_paused_existing_instrumentation_remains_loaded_restart_without_extension_to_unload");
   }
 
-  public void tick(
-      Map<String, Object> delivery, Consumer<Map<String, Object>> emit, boolean force) {
+  public void tick(Map<String, Object> delivery, boolean force) {
     StateCleanup.reap();
+    if (!localOutputEnabled) {
+      return;
+    }
     // Serialize the entire snapshot transaction without holding the monitor
     // used by request begin/end during serialization, callbacks or file I/O.
     synchronized (snapshotLock) {
-      snapshot(delivery, emit, force);
+      snapshot(delivery, force);
     }
   }
 
-  private void snapshot(
-      Map<String, Object> delivery, Consumer<Map<String, Object>> emit, boolean force) {
+  private void snapshot(Map<String, Object> delivery, boolean force) {
     long now = System.currentTimeMillis();
     if (!force && now - snapshotAt < 1000) {
       return;
@@ -556,7 +553,6 @@ public final class RuntimeLedger {
     }
     List<Map<String, Object>> findingCopy = new ArrayList<>();
     List<Map<String, Object>> runCopy = new ArrayList<>();
-    List<Map<String, Object>> summaries = new ArrayList<>();
     synchronized (this) {
       if (shutdownUncertainty.getAndSet(false)) {
         for (Map<String, Object> run : runs.values()) {
@@ -575,32 +571,6 @@ public final class RuntimeLedger {
       }
       for (Map<String, Object> finding : findings.values()) {
         finding.put("triage", triage(String.valueOf(finding.get("finding_id"))));
-        if ((force || now - summaryAt >= flushMillis)
-            && Boolean.TRUE.equals(finding.remove("dirty"))) {
-          summaries.add(
-              map(
-                  "event_name",
-                  "beacon.security.finding.summary",
-                  "observed_at",
-                  Events.now(),
-                  "identity",
-                  Identity.context(),
-                  "finding_id",
-                  finding.get("finding_id"),
-                  "attack_evidence_counts",
-                  new LinkedHashMap<>((Map<?, ?>) finding.get("attack_evidence_counts")),
-                  "occurrences_total",
-                  finding.get("occurrences"),
-                  "first_seen",
-                  finding.get("first_seen"),
-                  "last_seen",
-                  finding.get("last_seen"),
-                  "triage",
-                  finding.get("triage")));
-        }
-      }
-      if (!summaries.isEmpty()) {
-        summaryAt = now;
       }
       if (localOutputEnabled) {
         for (Map<String, Object> finding : findings.values()) {
@@ -632,9 +602,6 @@ public final class RuntimeLedger {
         }
       }
     }
-    for (Map<String, Object> summary : summaries) {
-      emit.accept(Events.record(summary));
-    }
     if (!localOutputEnabled) {
       return;
     }
@@ -652,14 +619,6 @@ public final class RuntimeLedger {
             WARNING,
             "[BeaconSecurity] local snapshot write failed: {0}",
             error.getClass().getSimpleName());
-        emit.accept(
-            map(
-                "event_name",
-                "beacon.security.snapshot.failed",
-                "error_type",
-                error.getClass().getSimpleName(),
-                "count",
-                snapshotFailures.get()));
       }
     }
   }
@@ -667,7 +626,7 @@ public final class RuntimeLedger {
   private static Map<String, Object> envelope(String key, Collection<?> values) {
     return map(
         "schema_version",
-        1,
+        Events.SCHEMA_VERSION,
         "source",
         "beacon_security",
         "updated_at",
@@ -897,7 +856,7 @@ public final class RuntimeLedger {
         throw new IOException("exception_scope_required");
       }
       Map<?, ?> scope = (Map<?, ?>) exception.get("scope");
-      for (String field : new String[] {"application_id", "finding_id"}) {
+      for (String field : new String[] {"finding_id"}) {
         if (!(scope.get(field) instanceof String) || ((String) scope.get(field)).isEmpty()) {
           throw new IOException("exception_scope_required");
         }
@@ -923,8 +882,7 @@ public final class RuntimeLedger {
     if (cached != null && cached.expires.isAfter(now)) {
       return cached.fields;
     }
-    List<TriageDecision> candidates =
-        exceptionIndex.get(Identity.applicationId() + "|" + findingId);
+    List<TriageDecision> candidates = exceptionIndex.get(findingId);
     if (candidates != null) {
       for (TriageDecision candidate : candidates) {
         if (candidate.expires.isAfter(now)) {
@@ -948,7 +906,7 @@ public final class RuntimeLedger {
         Map<String, Object> entry = new LinkedHashMap<>((Map<String, Object>) item);
         Map<String, Object> scope = new LinkedHashMap<>((Map<String, Object>) entry.get("scope"));
         entry.put("scope", Collections.unmodifiableMap(scope));
-        String key = scope.get("application_id") + "|" + scope.get("finding_id");
+        String key = String.valueOf(scope.get("finding_id"));
         result
             .computeIfAbsent(key, ignored -> new ArrayList<>())
             .add(

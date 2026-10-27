@@ -21,6 +21,8 @@ import io.beacon.security.core.Values;
 import java.io.File;
 import java.io.IOException;
 import java.lang.instrument.Instrumentation;
+import java.lang.management.ManagementFactory;
+import java.lang.management.RuntimeMXBean;
 import java.net.URL;
 import java.net.URLDecoder;
 import java.nio.file.Files;
@@ -39,8 +41,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
-import java.util.TreeSet;
-import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.function.Consumer;
@@ -52,11 +52,10 @@ public final class SbomInventory implements AutoCloseable, ArchiveScanner.Receiv
   private static final String PROCESS_INSTANCE_ID = Identity.INSTANCE;
 
   private final Instrumentation instrumentation;
+  private final RuntimeMXBean runtime = ManagementFactory.getRuntimeMXBean();
   private final Map<String, String> identity;
   private final Consumer<Map<String, Object>> events;
   private final ObjectMapper json = new ObjectMapper();
-  private final String id = "urn:uuid:" + UUID.randomUUID();
-  private final String applicationRef;
   private final Path output;
   private final boolean localOutputEnabled =
       Settings.enabled("beacon.security.local-output.enabled", false);
@@ -66,11 +65,7 @@ public final class SbomInventory implements AutoCloseable, ArchiveScanner.Receiv
   private final List<DeclaredBom> imported = new ArrayList<>();
   private final Map<String, ArtifactCache> scanned = new LinkedHashMap<>();
   private final Set<String> replacedOrigins = new HashSet<>();
-  private Map<String, Map<String, Object>> previousRecords = new TreeMap<>();
-  private final Map<String, Map<String, Object>> history = new LinkedHashMap<>();
   private volatile long refreshedAt;
-  private volatile String releaseId = "unresolved";
-  private final String applicationId;
   private final Set<String> reasons = new LinkedHashSet<>();
   private final ScheduledExecutorService worker =
       Executors.newSingleThreadScheduledExecutor(
@@ -79,8 +74,9 @@ public final class SbomInventory implements AutoCloseable, ArchiveScanner.Receiv
             thread.setDaemon(true);
             return thread;
           });
-  private volatile PublishedSnapshot published = new PublishedSnapshot(0, emptyMap());
-  private String lastContent;
+  private volatile Map<String, Map<String, Object>> published = emptyMap();
+  private long collectedAt;
+  private long collectedUptimeMillis;
   private volatile long lastFailure;
   private volatile String lastErrorType;
 
@@ -93,15 +89,6 @@ public final class SbomInventory implements AutoCloseable, ArchiveScanner.Receiv
       Consumer<Map<String, Object>> events,
       Map<String, String> identity) {
     this.identity = new LinkedHashMap<>(identity);
-    this.applicationId =
-        "app-"
-            + Identity.digest(
-                identity.getOrDefault("service.namespace", "")
-                    + "|"
-                    + identity.getOrDefault(
-                        "service.name",
-                        Settings.text("otel.service.name", "unknown-java-application")));
-    this.applicationRef = applicationId;
     this.instrumentation = instrumentation;
     this.events = event -> events.accept(Events.record(event));
     json.getFactory()
@@ -126,22 +113,19 @@ public final class SbomInventory implements AutoCloseable, ArchiveScanner.Receiv
     return output;
   }
 
-  public String id() {
-    return id;
-  }
-
-  public int revision() {
-    return published.revision;
-  }
-
   public void start() {
     worker.scheduleWithFixedDelay(
-        this::refreshSafely, 0, Settings.limit("beacon.security.sbom.refresh.seconds", 5), SECONDS);
+        this::refreshSafely,
+        0,
+        Settings.limit("beacon.security.sbom.refresh.seconds", 300),
+        SECONDS);
   }
 
   // Jackson returns erased CycloneDX maps; each document is checked before publication.
   @SuppressWarnings("unchecked")
   public synchronized void refresh() throws IOException {
+    collectedAt = Math.max(System.currentTimeMillis(), collectedAt + 1);
+    collectedUptimeMillis = runtime.getUptime();
     components.clear();
     locations.clear();
     imported.clear();
@@ -193,6 +177,7 @@ public final class SbomInventory implements AutoCloseable, ArchiveScanner.Receiv
       roots.add(outer(location));
     }
     scanned.keySet().retainAll(roots);
+    replacedOrigins.retainAll(roots);
     int rootCount = 0;
     for (String root : roots) {
       if (infrastructure.contains(root)) {
@@ -215,7 +200,7 @@ public final class SbomInventory implements AutoCloseable, ArchiveScanner.Receiv
       cached.replay(this);
     }
     String buildFile = Settings.text("beacon.security.sbom.build.file", "");
-    if (!buildFile.isEmpty()) {
+    if (localOutputEnabled && !buildFile.isEmpty()) {
       Path path = Paths.get(buildFile);
       try {
         if (Files.size(path) > 1024 * 1024) {
@@ -254,66 +239,34 @@ public final class SbomInventory implements AutoCloseable, ArchiveScanner.Receiv
       }
     }
     publish();
-    refreshedAt = System.currentTimeMillis();
-    events.accept(health());
+    components.clear();
+    locations.clear();
+    imported.clear();
   }
 
   public Map<String, Object> health() {
     return map(
-        "event_name",
-        "beacon.security.sbom.health",
         "status",
-        lastFailure > refreshedAt ? "degraded" : revision() == 0 ? "initializing" : "current",
-        "sbom_id",
-        id,
-        "revision",
-        revision(),
-        "application_id",
-        applicationId,
-        "release_id",
-        releaseId,
-        "instance_id",
-        PROCESS_INSTANCE_ID,
-        "last_refresh_at",
-        refreshedAt == 0 ? null : Events.timestamp(refreshedAt),
-        "last_failure_at",
-        lastFailure == 0 ? null : Events.timestamp(lastFailure),
-        "last_error_type",
-        lastErrorType,
-        "reasons",
-        new ArrayList<>(reasons),
-        "dropped_observations",
-        0,
-        "current_components",
-        previousRecords.size(),
-        "history_count",
-        history.size(),
-        "completeness",
-        "incomplete");
+            lastFailure > 0 && lastFailure >= refreshedAt
+                ? "error"
+                : refreshedAt == 0 ? "initializing" : "ok",
+        "last_refresh_at", refreshedAt == 0 ? null : Events.timestamp(refreshedAt),
+        "last_failure_at", lastFailure == 0 ? null : Events.timestamp(lastFailure),
+        "last_error_type", lastErrorType);
   }
 
   private void refreshSafely() {
     try {
       refresh();
     } catch (Throwable error) {
-      long now = System.currentTimeMillis();
-      boolean report = now - lastFailure > 30000;
-      lastFailure = now;
+      lastFailure = collectedAt;
       lastErrorType = error.getClass().getSimpleName();
-      if (report) {
-        logger.log(
-            WARNING, "[BeaconSecurity] SBOM update failed: {0}", error.getClass().getSimpleName());
-        events.accept(
-            map(
-                "event_name",
-                "beacon.security.sbom.update_failed",
-                "sbom_id",
-                id,
-                "revision",
-                revision(),
-                "error_type",
-                error.getClass().getSimpleName()));
-      }
+      logger.log(WARNING, "[BeaconSecurity] SBOM update failed: {0}", lastErrorType);
+    } finally {
+      components.clear();
+      locations.clear();
+      imported.clear();
+      reasons.clear();
     }
   }
 
@@ -351,75 +304,96 @@ public final class SbomInventory implements AutoCloseable, ArchiveScanner.Receiv
   }
 
   public Map<String, Object> resolve(String className, ClassLoader loader) {
-    PublishedSnapshot snapshot = published;
-    Map<String, Object> result =
-        map(
-            "sbom_id",
-            id,
-            "revision",
-            snapshot.revision,
-            "application_id",
-            applicationId,
-            "release_id",
-            snapshot.releaseId,
-            "status",
-            "unresolved");
+    Map<String, Map<String, Object>> current = published;
     try {
-      // Called for an executing callsite, with its defining loader. No initialization, scans or
-      // hashes here.
+      // Read the previously published metadata without scanning on the request path.
       URL origin = origin(Class.forName(className, false, loader));
       String location = origin == null ? null : location(origin);
       if (location != null) {
-        String ref = snapshot.locations.get(location);
-        if (ref == null
+        Map<String, Object> component = current.get(location);
+        if (component == null
             && (location.endsWith("!/BOOT-INF/classes")
                 || location.endsWith("!/WEB-INF/classes"))) {
-          ref = snapshot.locations.get(outer(location));
+          component = current.get(outer(location));
         }
-        if (ref != null) {
-          result.put("bom-ref", ref);
-          result.put("status", "resolved");
+        if (component != null) {
+          return new LinkedHashMap<>(component);
         }
       }
     } catch (Throwable ignored) {
-      // Component resolution is best effort and must not affect the instrumented application.
+      // Component resolution must not affect the application.
     }
-    return Events.component(result, applicationId);
+    return emptyMap();
   }
 
-  // The generated CycloneDX document has a metadata map created in this method.
-  @SuppressWarnings("unchecked")
   private void publish() throws IOException {
-    int revision = published.revision + 1;
     Map<String, Map<String, Object>> records = new TreeMap<>();
     Map<String, List<String>> purls = new HashMap<>();
     for (Component component : components.values()) {
       records.put(component.ref, component.json());
-      if (!component.purl.isEmpty()) {
+      if (localOutputEnabled && !component.purl.isEmpty()) {
         purls.computeIfAbsent(component.purl, key -> new ArrayList<>()).add(component.ref);
       }
     }
-    List<Object> dependencies = mergeDeclared(records, purls);
-    Set<String> artifacts = new TreeSet<>();
-    boolean artifactIdentityComplete = true;
-    for (Component component : components.values()) {
-      if (component.hash != null) {
-        artifacts.add(component.hash);
-      } else if (!component.source.equals("shaded-maven-metadata") && !component.declared) {
-        artifactIdentityComplete = false;
+    List<Map<String, Object>> inventoryEvents =
+        DependencyInventory.events(
+            map(
+                "event_name",
+                "beacon.security.sbom.inventory",
+                "observed_at",
+                Events.timestamp(collectedAt),
+                "started_at",
+                Events.timestamp(runtime.getStartTime()),
+                "uptime_ms",
+                collectedUptimeMillis),
+            records.values());
+    Map<String, Map<String, Object>> resolved = new HashMap<>();
+    Map<String, Map<String, Object>> metadata = new HashMap<>();
+    for (Map.Entry<String, String> entry : locations.entrySet()) {
+      Map<String, Object> record = records.get(entry.getValue());
+      if (record != null) {
+        resolved.put(
+            entry.getKey(),
+            metadata.computeIfAbsent(
+                entry.getValue(),
+                key -> Collections.unmodifiableMap(DependencyInventory.dependency(record))));
       }
     }
-    String nextReleaseId = "release-" + Identity.digest(applicationId + "|" + artifacts);
+    if (localOutputEnabled) {
+      writeLocalDocument(records, purls);
+    }
+    String failure = null;
+    for (String reason : reasons) {
+      if (reason.endsWith("_limit")
+          || reason.startsWith("artifact_scan_")
+          || reason.equals("unreadable_artifact")
+          || reason.equals("loaded_class_observation_unavailable")) {
+        failure = reason;
+        break;
+      }
+    }
+    if (failure == null) {
+      // One immutable mapping is visible to all request-side readers.
+      published = Collections.unmodifiableMap(resolved);
+      refreshedAt = collectedAt;
+      for (Map<String, Object> event : inventoryEvents) {
+        events.accept(event);
+      }
+    } else {
+      lastFailure = collectedAt;
+      lastErrorType = failure;
+      logger.log(WARNING, "[BeaconSecurity] SBOM update failed: {0}", failure);
+    }
+  }
+
+  // This method constructs the document's metadata map before adding its timestamp.
+  @SuppressWarnings("unchecked")
+  private void writeLocalDocument(
+      Map<String, Map<String, Object>> records, Map<String, List<String>> purls)
+      throws IOException {
+    List<Object> dependencies = mergeDeclared(records, purls);
     List<Object> properties = new ArrayList<>();
     properties.add(map("name", "source", "value", "beacon_security"));
-    properties.add(map("name", "beacon:security:application-id", "value", applicationId));
-    properties.add(map("name", "beacon:security:release-id", "value", nextReleaseId));
-    properties.add(
-        map(
-            "name",
-            "beacon:security:release:identity-status",
-            "value",
-            artifactIdentityComplete && !artifacts.isEmpty() ? "artifact_digest" : "incomplete"));
     properties.add(
         map(
             "name",
@@ -445,7 +419,7 @@ public final class SbomInventory implements AutoCloseable, ArchiveScanner.Receiv
             "type",
             "application",
             "bom-ref",
-            applicationRef,
+            PROCESS_INSTANCE_ID,
             "name",
             Values.bounded(
                 identity.getOrDefault(
@@ -470,9 +444,9 @@ public final class SbomInventory implements AutoCloseable, ArchiveScanner.Receiv
             "specVersion",
             "1.7",
             "serialNumber",
-            id,
+            "urn:uuid:" + PROCESS_INSTANCE_ID,
             "version",
-            revision,
+            1,
             "metadata",
             map(
                 "lifecycles",
@@ -504,84 +478,35 @@ public final class SbomInventory implements AutoCloseable, ArchiveScanner.Receiv
             dependencies,
             "compositions",
             singletonList(
-                map("aggregate", "incomplete", "assemblies", singletonList(applicationRef))),
+                map("aggregate", "incomplete", "assemblies", singletonList(PROCESS_INSTANCE_ID))),
             "properties",
             properties);
-    Map<String, Object> stable = new LinkedHashMap<>(document);
-    stable.remove("version");
-    String content = Component.digest(json.writeValueAsBytes(stable));
-    if (content.equals(lastContent)) {
-      return;
-    }
-    List<Map<String, Object>> snapshotEvents =
-        DependencySnapshot.events(
-            map(
-                "event_name",
-                "beacon.security.sbom.snapshot",
-                "sbom_id",
-                id,
-                "revision",
-                revision,
-                "application_id",
-                applicationId,
-                "release_id",
-                nextReleaseId,
-                "instance_id",
-                PROCESS_INSTANCE_ID,
-                "status",
-                "current",
-                "completeness",
-                "incomplete",
-                "reasons",
-                new ArrayList<>(reasons)),
-            records.values());
-    ((Map<String, Object>) document.get("metadata")).put("timestamp", Events.now());
-    if (localOutputEnabled) {
+    ((Map<String, Object>) document.get("metadata"))
+        .put("timestamp", Events.timestamp(collectedAt));
+    writeDocument(document);
+  }
+
+  private void writeDocument(Map<String, Object> document) {
+    Path temporary = null;
+    try {
       Files.createDirectories(output.getParent());
-      Path temporary = Files.createTempFile(output.getParent(), ".sbom-", ".json");
-      try {
-        json.writerWithDefaultPrettyPrinter().writeValue(temporary.toFile(), document);
-        Files.move(
-            temporary, output, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-      } finally {
-        Files.deleteIfExists(temporary);
-      }
-    }
-    lastContent = content;
-    // Readers must observe a component mapping and its revision from the same completed
-    // publication.
-    releaseId = nextReleaseId;
-    published = new PublishedSnapshot(revision, locations, releaseId);
-    for (Map.Entry<String, Map<String, Object>> entry : records.entrySet()) {
-      String ref = entry.getKey();
-      Map<String, Object> record = entry.getValue();
-      if (!record.equals(previousRecords.get(ref))) {
-        Map<String, Object> historical = history.get(ref);
-        if (historical == null && history.size() < maxComponents) {
-          historical = map("bom-ref", ref, "first_seen", Events.now());
-          history.put(ref, historical);
-        }
-        if (historical != null) {
-          historical.put("state", "current");
-          historical.put("last_changed_at", Events.now());
+      temporary = Files.createTempFile(output.getParent(), ".sbom-", ".json");
+      json.writerWithDefaultPrettyPrinter().writeValue(temporary.toFile(), document);
+      Files.move(
+          temporary, output, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+    } catch (IOException error) {
+      logger.log(
+          WARNING,
+          "[BeaconSecurity] local SBOM write failed: {0}",
+          error.getClass().getSimpleName());
+    } finally {
+      if (temporary != null) {
+        try {
+          Files.deleteIfExists(temporary);
+        } catch (IOException ignored) {
+          // Local debug output is best effort.
         }
       }
-    }
-    for (String ref : previousRecords.keySet()) {
-      if (!records.containsKey(ref)) {
-        Map<String, Object> historical = history.get(ref);
-        if (historical != null) {
-          historical.put("state", "removed");
-          historical.put("last_changed_at", Events.now());
-        }
-      }
-    }
-    previousRecords = new TreeMap<>(records);
-    if (localOutputEnabled) {
-      writeHistory();
-    }
-    for (Map<String, Object> event : snapshotEvents) {
-      events.accept(event);
     }
   }
 
@@ -597,7 +522,7 @@ public final class SbomInventory implements AutoCloseable, ArchiveScanner.Receiv
         if (root instanceof Map && ((Map<?, ?>) root).get("bom-ref") instanceof String && true) {
           refs.put(
               (String) ((Map<?, ?>) root).get("bom-ref"),
-              locations.getOrDefault(declaration.location, applicationRef));
+              locations.getOrDefault(declaration.location, PROCESS_INSTANCE_ID));
         }
       }
       Object list = declaration.value.get("components");
@@ -673,48 +598,6 @@ public final class SbomInventory implements AutoCloseable, ArchiveScanner.Receiv
       result.add(map("ref", edge.getKey(), "dependsOn", new ArrayList<>(edge.getValue())));
     }
     return result;
-  }
-
-  private void writeHistory() {
-    Path path = output.resolveSibling("sbom-history.json");
-    Path temp = null;
-    try {
-      temp = Files.createTempFile(output.getParent(), ".sbom-history-", ".json");
-      json.writeValue(
-          temp.toFile(),
-          map(
-              "schema_version",
-              1,
-              "source",
-              "beacon_security",
-              "sbom_id",
-              id,
-              "revision",
-              revision(),
-              "application_id",
-              applicationId,
-              "release_id",
-              releaseId,
-              "updated_at",
-              Events.now(),
-              "entries",
-              new ArrayList<>(history.values()),
-              "history_limit",
-              maxComponents,
-              "history_complete",
-              history.size() < maxComponents));
-      Files.move(temp, path, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-    } catch (IOException error) {
-      events.accept(map("event_name", "beacon.security.sbom.history_write_failed", "sbom_id", id));
-    } finally {
-      if (temp != null) {
-        try {
-          Files.deleteIfExists(temp);
-        } catch (IOException ignored) {
-          // The temporary file is already unreachable after a failed atomic replacement.
-        }
-      }
-    }
   }
 
   private static Map<String, Object> quality(Map<String, Map<String, Object>> records) {
@@ -850,22 +733,6 @@ public final class SbomInventory implements AutoCloseable, ArchiveScanner.Receiv
     DeclaredBom(String location, Map<String, Object> value) {
       this.location = location;
       this.value = value;
-    }
-  }
-
-  private static final class PublishedSnapshot {
-    final int revision;
-    final Map<String, String> locations;
-    final String releaseId;
-
-    PublishedSnapshot(int revision, Map<String, String> locations) {
-      this(revision, locations, "unresolved");
-    }
-
-    PublishedSnapshot(int revision, Map<String, String> locations, String releaseId) {
-      this.revision = revision;
-      this.releaseId = releaseId;
-      this.locations = Collections.unmodifiableMap(new HashMap<>(locations));
     }
   }
 }

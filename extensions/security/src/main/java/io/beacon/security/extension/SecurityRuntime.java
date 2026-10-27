@@ -47,11 +47,7 @@ public final class SecurityRuntime {
               instrumentation,
               event -> {
                 EXPORTER.emit(event, Context.root(), false);
-                if ("beacon.security.sbom.snapshot".equals(event.get("event_name"))
-                    || "beacon.security.sbom.health".equals(event.get("event_name"))
-                    || "beacon.security.sbom.update_failed".equals(event.get("event_name"))) {
-                  EXPORTER.ledger().sbom(event);
-                }
+                EXPORTER.ledger().sbom(event);
               },
               SecurityConfiguration.applicationIdentity);
       inventory.start();
@@ -177,10 +173,6 @@ public final class SecurityRuntime {
     }
   }
 
-  static void diagnostic(Map<String, Object> event, Context context) {
-    EXPORTER.emit(event, context, false);
-  }
-
   private static void emit(Call call, SinkRules.Finding finding, ClassLoader loader) {
     Context context = Context.current();
     List<StackFrames.Frame> frames =
@@ -218,17 +210,10 @@ public final class SecurityRuntime {
     SbomInventory current = inventory;
     if (current != null) {
       String className = call.location.substring(0, call.location.indexOf('#'));
-      event.put("component", current.resolve(className, loader));
-    } else {
-      event.put(
-          "component",
-          Values.map(
-              "status",
-              "unresolved",
-              "reason",
-              Settings.enabled("beacon.security.sbom.enabled", true)
-                  ? "inventory_not_started"
-                  : "sbom_disabled"));
+      Map<String, Object> component = current.resolve(className, loader);
+      if (!component.isEmpty()) {
+        event.put("component", component);
+      }
     }
     call.state.pending(event);
   }

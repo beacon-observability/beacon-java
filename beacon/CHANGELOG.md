@@ -7,6 +7,28 @@ This file records Beacon product changes only. The root [CHANGELOG.md](../CHANGE
 - Add a separate GHCR distribution workflow for already published stable Agent JARs, with native
   amd64/arm64 image acceptance, protected promotion, and a Kubernetes init-container smoke test.
 
+- Dependency inventory includes `started_at` (JVM process start time) and `uptime_ms`
+  (uptime at collection start), obtained from RuntimeMXBean without an additional timer.
+
+- Security schema version 2 exports only request findings and periodic dependency inventory.
+  Inventory now defaults to a configurable 300-second collection delay and sends every result,
+  even when unchanged; failed collections emit nothing so consumers retain the previous valid list.
+  Remove inventory status/error. Findings retain unknown/no_evidence/suspected attack-evidence
+  classification; all Security logs use OTel INFO severity.
+  Compact finding bodies by removing Resource duplicates, fixed assessment/validation placeholders,
+  outcome, redundant span IDs and empty fields. Preserve non-empty evidence, sampling quality,
+  stable fingerprints and classification reasons; consumers must accept omitted evidence arrays.
+  Remove independent health, summary, diagnostic, loss, and truncated-record events, the diagnostic
+  queue, pending-loss reporting, and SBOM history/revision/release identifiers. Production no longer
+  retains full local finding representatives or runs the local snapshot timer unless enabled.
+- Consumers must support `beacon.security.sbom.inventory` and complete multipart updates, replace
+  `evidence_id` with `occurrence_id`, read direct component name/version/hash, and aggregate finding
+  counts themselves. `application_id` is removed; reuse the runtime `instance_id`. Fingerprint v1
+  and finding IDs are unchanged. Exception scopes now require only stable `scope.finding_id`.
+  Sampling omission no longer implies truncation; `collection_complete` describes observation
+  quality. Runtime object names constructed by collectors must also use the UUID directly.
+  The local schema-v2 contract and collector migration must be adopted before deployment.
+
 ## Version 1.3.2 (2026-10-26)
 
 - Preserve PostgreSQL JDBC client spans when Security is enabled together with tracing, logs,

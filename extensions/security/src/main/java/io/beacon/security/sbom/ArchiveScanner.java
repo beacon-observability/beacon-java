@@ -38,6 +38,8 @@ final class ArchiveScanner {
 
   private final Receiver receiver;
   private final ObjectMapper json = new ObjectMapper();
+  private final boolean localMetadata =
+      Settings.enabled("beacon.security.local-output.enabled", false);
   private final int maxNested =
       Settings.limit("beacon.security.sbom.max.archive.bytes", 64 * 1024 * 1024);
   private final int maxEntries = Settings.limit("beacon.security.sbom.max.entries", 100000);
@@ -132,9 +134,9 @@ final class ArchiveScanner {
                     || name.startsWith("WEB-INF/lib/")
                     || name.startsWith("WEB-INF/lib-provided/"));
         boolean metadata = name.endsWith("pom.properties") && name.contains("META-INF/maven/");
-        boolean pom = name.endsWith("pom.xml") && name.contains("META-INF/maven/");
+        boolean pom = localMetadata && name.endsWith("pom.xml") && name.contains("META-INF/maven/");
         boolean manifest = name.equalsIgnoreCase("META-INF/MANIFEST.MF");
-        boolean bom = name.contains("META-INF/sbom/") && name.endsWith(".json");
+        boolean bom = localMetadata && name.contains("META-INF/sbom/") && name.endsWith(".json");
         if (!(nested || metadata || pom || manifest || bom)) {
           byte[] buffer = new byte[8192];
           long skipped = 0;

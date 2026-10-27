@@ -9,7 +9,6 @@ import static io.beacon.security.core.Values.map;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Arrays.asList;
 import static java.util.Collections.emptyList;
-import static java.util.Collections.emptyMap;
 
 import java.nio.ByteBuffer;
 import java.security.MessageDigest;
@@ -25,7 +24,7 @@ import java.util.Map;
 import java.util.TreeSet;
 
 public final class Events {
-  public static final int SCHEMA_VERSION = 1;
+  public static final int SCHEMA_VERSION = 2;
   public static final int FINGERPRINT_VERSION = 1;
   public static final String PRODUCT = "io.beacon.security";
 
@@ -114,14 +113,14 @@ public final class Events {
   }
 
   public static String fingerprint(
-      String applicationId,
+      String serviceScope,
       String language,
       String rule,
       Map<String, Object> sink,
       Iterable<String> signatures) {
     try {
       MessageDigest hash = MessageDigest.getInstance("SHA-256");
-      List<String> parts = new ArrayList<>(asList("1", applicationId, language, rule));
+      List<String> parts = new ArrayList<>(asList("1", serviceScope, language, rule));
       for (String field :
           asList("role", "function", "location", "operation", "path_role", "input_part")) {
         parts.add(String.valueOf(sink.get(field)));
@@ -168,32 +167,6 @@ public final class Events {
     return text.length() == length && text.matches("[0-9a-f]+") && !text.matches("0+") ? text : "";
   }
 
-  public static Map<String, Object> component(Map<String, Object> value, String applicationId) {
-    if (value == null) {
-      value = emptyMap();
-    }
-    return map(
-        "status",
-        value.getOrDefault("status", "unresolved"),
-        "sbom_id",
-        value.getOrDefault("sbom_id", ""),
-        "revision",
-        value.get("revision"),
-        "release_id",
-        value.getOrDefault("release_id", ""),
-        "application_id",
-        value.getOrDefault("application_id", applicationId),
-        "bom-ref",
-        value.getOrDefault("bom-ref", ""),
-        "reason",
-        value.getOrDefault(
-            "reason", "resolved".equals(value.get("status")) ? "" : "component_not_resolved"),
-        "observed_url",
-        value.getOrDefault("observed_url", ""),
-        "query",
-        value.getOrDefault("query", ""));
-  }
-
   public static Map<String, Object> request(Map<String, Object> value) {
     Map<String, Object> request =
         map(
@@ -225,6 +198,25 @@ public final class Events {
   @SuppressWarnings("unchecked")
   public static Map<String, Object> record(Map<String, Object> input) {
     Map<String, Object> event = new LinkedHashMap<>(input);
+    if ("beacon.security.sbom.inventory".equals(event.get("event_name"))) {
+      event
+          .keySet()
+          .retainAll(
+              asList(
+                  "event_name",
+                  "instance_id",
+                  "observed_at",
+                  "started_at",
+                  "uptime_ms",
+                  "dependencies",
+                  "part_index",
+                  "part_count"));
+      event.put("schema_version", SCHEMA_VERSION);
+      event.put("source", "beacon_security_sbom");
+      event.putIfAbsent("instance_id", Identity.INSTANCE);
+      event.putIfAbsent("observed_at", now());
+      return event;
+    }
     Map<String, Object> identity = new LinkedHashMap<>(Identity.context());
     Object nested = event.remove("identity");
     if (nested instanceof Map) {
@@ -234,13 +226,8 @@ public final class Events {
     event.put("schema_version", SCHEMA_VERSION);
     event.putIfAbsent("observed_at", now());
     String name = String.valueOf(event.get("event_name"));
-    event.put(
-        "source",
-        name.equals("beacon.security.sbom.snapshot") || name.startsWith("beacon.security.sbom.")
-            ? "beacon_security_sbom"
-            : "beacon_security");
-    if (name.equals("beacon.security.finding")
-        || name.equals("beacon.security.collection.incomplete")) {
+    event.put("source", "beacon_security");
+    if (name.equals("beacon.security.finding")) {
       event.put("request", request((Map<String, Object>) event.get("request")));
       String trace = traceId(event.get("trace_id"), 32);
       String server = trace.isEmpty() ? "" : traceId(event.get("server_span_id"), 16);
@@ -253,68 +240,92 @@ public final class Events {
           "trace_flags",
           !server.isEmpty() && flags instanceof Number ? ((Number) flags).intValue() & 255 : 0);
       event.put("trace_availability", "not_guaranteed_by_trace_id");
-    }
-    if (name.equals("beacon.security.finding")) {
       event.putIfAbsent("attack_evidence", AttackEvidence.unknown("analysis_unavailable").fields());
-      event.put(
-          "component",
-          component(
-              (Map<String, Object>) event.get("component"),
-              String.valueOf(event.get("application_id"))));
+      Object component = event.get("component");
+      if (!(component instanceof Map) || ((Map<?, ?>) component).isEmpty()) {
+        event.remove("component");
+      }
       event.putIfAbsent("stack", emptyList());
     }
-    if (name.equals("beacon.security.collection.incomplete")) {
-      Map<String, Object> counts =
-          map(
-              "objects",
-              null,
-              "nodes",
-              null,
-              "sources",
-              null,
-              "findings",
-              null,
-              "retained_bytes",
-              null);
-      if (event.get("counts") instanceof Map) {
-        counts.putAll((Map<String, Object>) event.get("counts"));
+    return event;
+  }
+
+  // Project only at the export boundary: internal matching, sampling and fingerprints stay intact.
+  @SuppressWarnings("unchecked")
+  public static Map<String, Object> exported(Map<String, Object> input) {
+    if (!"beacon.security.finding".equals(input.get("event_name"))) {
+      return input;
+    }
+    Map<String, Object> event =
+        fields(
+            input,
+            "schema_version",
+            "source",
+            "event_name",
+            "instance_id",
+            "observed_at",
+            "finding_id",
+            "occurrence_id",
+            "fingerprint_version",
+            "rule",
+            "precision",
+            "trace_id",
+            "server_span_id",
+            "current_span_id",
+            "sources",
+            "propagation",
+            "ranges",
+            "stack",
+            "component",
+            "collection_complete",
+            "truncated",
+            "coverage_gaps",
+            "truncation_reason",
+            "evidence_sampled",
+            "evidence_sample_reason",
+            "run",
+            "triage");
+    for (String name : asList("attack_evidence", "request", "sink")) {
+      Object nested = input.get(name);
+      if (nested instanceof Map) {
+        String[] keys =
+            name.equals("attack_evidence")
+                ? new String[] {"status", "reason"}
+                : name.equals("request")
+                    ? new String[] {"method", "route", "status_code", "error_type"}
+                    : new String[] {
+                      "function", "role", "location", "operation", "path_role", "input_part"
+                    };
+        Map<String, Object> value = fields((Map<String, Object>) nested, keys);
+        if (!value.isEmpty()) {
+          event.put(name, value);
+        }
       }
-      event.put("counts", counts);
-      event.putIfAbsent("collection_status", "unknown");
     }
-    if (name.equals("beacon.security.sbom.snapshot")) {
-      event.putIfAbsent("status", "current");
-      event.putIfAbsent("dropped_observations", 0);
+    if (event.get("server_span_id") != null
+        && event.get("server_span_id").equals(event.get("current_span_id"))) {
+      event.remove("current_span_id");
     }
-    if (name.equals("beacon.security.sbom.health")) {
-      Map<String, Object> defaults =
-          map(
-              "sbom_id",
-              "",
-              "revision",
-              0,
-              "release_id",
-              "",
-              "status",
-              "initializing",
-              "last_refresh_at",
-              null,
-              "last_failure_at",
-              null,
-              "last_error_type",
-              null,
-              "current_components",
-              null,
-              "history_count",
-              null,
-              "completeness",
-              "incomplete",
-              "reasons",
-              emptyList(),
-              "dropped_observations",
-              0);
-      defaults.forEach(event::putIfAbsent);
+    if (Boolean.FALSE.equals(event.get("truncated"))) {
+      event.remove("truncated");
+    }
+    if (Boolean.TRUE.equals(event.get("evidence_sampled"))) {
+      event.remove("evidence_sample_reason");
     }
     return event;
+  }
+
+  private static Map<String, Object> fields(Map<String, Object> input, String... names) {
+    Map<String, Object> result = new LinkedHashMap<>();
+    for (String name : names) {
+      Object value = input.get(name);
+      if (value != null
+          && !"".equals(value)
+          && (!(value instanceof Map) || !((Map<?, ?>) value).isEmpty())
+          && (!(value instanceof List) || !((List<?>) value).isEmpty())) {
+        result.put(name, value);
+      }
+    }
+    return result;
   }
 }

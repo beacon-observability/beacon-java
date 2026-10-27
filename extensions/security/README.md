@@ -16,6 +16,10 @@ repository pins an immutable specification revision in
 [`beacon/security-spec.properties`](../../beacon/security-spec.properties); the complete Agent JAR
 embeds that record under `META-INF/beacon/` and exposes the versions in its Manifest.
 
+The Java output uses schema version 2 for runtime-only identity as described below. The pinned
+specification revision includes the matching v2 event contract and retains the unchanged
+fingerprint version 1 vectors. V1 schemas remain available for historical consumers.
+
 ## Current status
 
 Beacon Java 1.1.0 publishes the embedded extension, runtime data-flow observation, security finding
@@ -94,12 +98,48 @@ The normal OpenTelemetry resource attributes identify the application. In partic
 `service.namespace` and `service.name` form the stable application identity; Beacon Security does
 not introduce a second application-name setting.
 
+### Runtime identity and migration
+
+Schema version 2 removes `application_id` from Security events, component references, local
+snapshots, and SBOM metadata. Use the existing `instance_id` UUID to identify the runtime process
+and `service.namespace` / `service.name` to group its application. Consumers that map `instance_id`
+to `runtime_id` should use that UUID as the runtime object key and display name, without an
+application-ID prefix. Previously stored objects are not renamed by an Agent upgrade.
+
+Production output is limited to `beacon.security.finding` (`source=beacon_security`) and
+`beacon.security.sbom.inventory` (`source=beacon_security_sbom`). Inventory is collected and sent
+every 300 seconds by default, even when unchanged. It contains dependencies and minimal identity,
+time, and schema fields, plus `started_at` (JVM process start time in ISO 8601 UTC) and
+`uptime_ms` (JVM uptime in milliseconds at collection start). Both come from RuntimeMXBean;
+they are not framework readiness time or a live counter on historical logs. There are no collection
+status/error fields. Failed collections emit no event; the next successful collection replaces the
+previous inventory. Independent health, summary, diagnostic, dropped-record, and truncated-record
+events are removed. SBOM IDs, revisions, release IDs, and history are removed.
+
+Only large inventories include `part_index` and `part_count`. Collect all parts for the same
+`instance_id` and `observed_at` before replacing the previous dependency list; all parts share
+`started_at` and `uptime_ms`. An incomplete multipart update must not clear or partly replace the
+previous list. A complete, valid empty list can clear it. Body `source` values are also attached as
+OTel record attributes; collector-specific source mapping may differ from the body.
+
+Findings carry `occurrence_id` instead of the duplicate `evidence_id`; component metadata is
+provided directly as name/version/optional hash, and counts are aggregated by the backend.
+Fingerprint version 1 remains unchanged. `collection_complete` records actual collection quality;
+normal evidence sampling does not itself mark a record truncated. Full representative evidence
+is retained in process only when local debug output is explicitly enabled.
+
+Local `control.json` exceptions now require only `scope.finding_id`, whose stable fingerprint
+already includes service identity. Exceptions are not tied to a process UUID. Update consumers
+for schema version 2 before upgrading; a v1 event schema cannot validate v2 output. The local
+[schema v2](schema-v2.json) is identical to the canonical schema in the pinned specification.
+
 ### Primary settings
 
 | JVM property | Environment variable | Default | Purpose |
 | --- | --- | --- | --- |
 | `beacon.security.enabled` | `BEACON_SECURITY_ENABLED` | `false` | Enable runtime observation and Security lifecycle. |
 | `beacon.security.sbom.enabled` | `BEACON_SECURITY_SBOM_ENABLED` | `true` | Collect runtime SBOM while Security is enabled. |
+| `beacon.security.sbom.refresh.seconds` | `BEACON_SECURITY_SBOM_REFRESH_SECONDS` | `300` | Delay between completed dependency collections; each collection is exported. |
 | `beacon.security.local-output.enabled` | `BEACON_SECURITY_LOCAL_OUTPUT_ENABLED` | `false` | Write process-local diagnostic snapshots. |
 | `beacon.security.output` | `BEACON_SECURITY_OUTPUT` | `./beacon-security-output/<instance-id>` | Diagnostic snapshot directory. |
 | `beacon.security.evidence.file` | `BEACON_SECURITY_EVIDENCE_FILE` | unset | Optional JSONL evidence file for diagnostics. |
@@ -120,8 +160,9 @@ requests remain counted; no arbitrary timeout closes their shared state or their
 
 ### Export budgets and priorities
 
-Security exports use three bounded queues, in order: suspected attack evidence, collection/export
-diagnostics, then ordinary occurrences and summaries. The default security limit remains 100 events
+Security exports use two bounded queues: suspected attack evidence and ordinary occurrences.
+SBOM inventory uses its own bounded queue; no diagnostic queue or pending-loss replay is retained.
+The default security limit remains 100 events
 and 524288 bytes per second. Ordinary events can use at most 80 events and three quarters of the
 byte limit; the remaining budget is reserved for higher priorities. If the configured event limit
 is one, an event reservation cannot be made. All lanes remain best effort when their own capacity
@@ -132,9 +173,8 @@ preserved; ordinary events are not merged across requests.
 | --- | --- | --- | --- |
 | `beacon.security.export.queue.size` | `BEACON_SECURITY_EXPORT_QUEUE_SIZE` | `1024` | Ordinary occurrence queue capacity. |
 | `beacon.security.export.priority.queue.size` | `BEACON_SECURITY_EXPORT_PRIORITY_QUEUE_SIZE` | `128` | Suspected attack evidence queue capacity. |
-| `beacon.security.export.diagnostic.queue.size` | `BEACON_SECURITY_EXPORT_DIAGNOSTIC_QUEUE_SIZE` | `64` | Diagnostic queue capacity. |
 
-The existing `status=incomplete` and `delivery_loss` fields retain cumulative coverage-loss
+Local debug `status=incomplete` and `delivery_loss` fields retain cumulative coverage-loss
 semantics. `current_delivery_status` separately reports loss observed during the last 60 seconds,
 using `delivery.security_loss_recent`; `no_recent_loss_observed` is not a backend acknowledgement
 or a guarantee that pending events have arrived. Historical loss remains visible after the window.
@@ -158,23 +198,27 @@ are per-process diagnostics, not a Kubernetes aggregation or durable delivery me
 ## Finding occurrences and attack evidence
 
 Every request that triggers a finding now exports an occurrence, even inside the full-evidence
-sampling interval. The fingerprint remains stable; `occurrence_id` equals the request's unique
-`evidence_id`. Repeated detections of that fingerprint within one request are deduplicated, with
+sampling interval. The fingerprint remains stable; `occurrence_id` uniquely identifies this
+request's finding. Repeated detections of that fingerprint within one request are deduplicated, with
 stronger evidence allowed to upgrade the record without incrementing its count.
 
-The optional `attack_evidence` object separates request evidence from code risk:
+Online findings are emitted only when a security rule detects input flowing into a modeled
+sensitive call. All Security logs use OTel INFO severity. `attack_evidence.status` retains
+`unknown`, `no_evidence`, and `suspected`, with a `reason` explaining the classification.
+Unavailable analysis does not suppress an otherwise matching finding.
 
 | Status | Meaning |
 | --- | --- |
 | `unknown` | Analysis is unavailable, unsupported, imprecise, or requires missing policy. |
 | `no_evidence` | Supported analysis found no attack evidence. This does not establish safety. |
-| `suspected` | Input influences potentially dangerous syntax in a supported context. This does not prove intent or successful exploitation. |
+| `suspected` | Input influences potentially dangerous syntax in a supported context. This does not establish exploit success. |
 
-`assessment` remains `observation` or `candidate_risk`, and `validation` remains `unvalidated`.
-`attack_evidence.outcome` is always `not_assessed`. Raw SQL, shell scripts, and request values are
-not added to exported evidence. Prepared statements retain only the bounded assessment of their
-SQL template in request state, not the raw template. Fixed SQL parameter binding remains separate
-from concatenation into a template before preparation.
+Exported findings omit fixed assessment/validation/severity/confidence fields and the constant
+`attack_evidence.outcome`. Service, runtime, and code metadata come from OTel Resource instead of
+repeated body maps. Request metadata is limited to method, route, status code, and a non-empty
+error type; empty sink fields are omitted. A current span ID equal to the server span ID is omitted.
+Raw SQL, shell scripts, and request values are not added to exported evidence. Fixed SQL parameter
+binding remains separate from concatenation into a template before preparation.
 
 ### Analysis support and limits
 
@@ -208,23 +252,24 @@ preserve taint offsets where modeled; replacement is not treated as universal sa
 | JVM property | Environment variable | Default | Meaning |
 | --- | --- | --- | --- |
 | `beacon.security.findings.sample.seconds` | `BEACON_SECURITY_FINDINGS_SAMPLE_SECONDS` | `300` | Full-evidence interval per finding; occurrence records are still exported. Positive integers only; zero falls back to the default. |
-| `beacon.security.findings.flush.seconds` | `BEACON_SECURITY_FINDINGS_FLUSH_SECONDS` | `30` | Aggregate summary interval. |
 | `beacon.security.analysis.sql.dialect` | `BEACON_SECURITY_ANALYSIS_SQL_DIALECT` | `unknown` | `ansi` enables the documented SQL lexical subset; other values remain unknown. |
 
-A sampled-out record has `evidence_sampled=false`, a sampling reason, `truncated=true`, and empty
-`sources`, `propagation`, `ranges`, and `stack` arrays. Those empty arrays do not mean no taint was
-observed. Request metadata, finding identity, trace correlation, and attack assessment remain.
+A sampled-out record has `evidence_sampled=false` and a sampling reason; its
+`sources`, `propagation`, `ranges`, and `stack` arrays are omitted. `truncated=true` marks actual
+loss from a collection or encoding limit (absent means false), and `collection_complete`
+separately describes collection quality. Those omitted arrays do not mean no taint was
+observed. Request metadata, finding identity, and trace correlation remain.
 First samples and stronger evidence bypass the ordinary interval. Later ordinary samples cannot
 replace a stronger retained representative; `last_trace_id` may differ from its trace ID.
-Summaries expose separate `unknown`, `no_evidence`, and `suspected` occurrence counters in
-`attack_evidence_counts`. These are not confirmed attack counts.
+Online summaries and cumulative occurrence totals are removed. The backend counts unique
+occurrences and can classify their `attack_evidence.status`; these are not confirmed attack counts.
 
-Consumers must honor sampling/truncation fields and must not assume every finding contains full
-evidence. Existing required fields and fingerprint v1 remain unchanged; new fields are additive.
-Repeated findings produce more log records than before. Queue and byte limits still apply and
-loss counters remain authoritative. A full aggregation table no longer suppresses the occurrence:
-`aggregation_status=capacity_exceeded` omits `occurrences_total`. There is no guarantee that a
-correlated trace was exported, nor a guarantee of lossless event delivery.
+Consumers must honor sampling and collection-quality fields and must not assume every finding
+contains full evidence. Fingerprint v1 remains unchanged. When the bounded sampling table is full,
+new findings still produce occurrence records with `evidence_sampled=false` and
+`evidence_sample_reason=finding_capacity`. There is no guarantee that a correlated trace was
+exported or that every occurrence reached the backend. No diagnostic or replay event is generated
+to compensate for loss.
 
 ## Kubernetes
 

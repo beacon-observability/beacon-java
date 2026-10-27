@@ -62,7 +62,7 @@ public final class HttpLifecycle implements InstrumenterCustomizerProvider {
                     span.setAttribute(
                         AttributeKey.stringArrayKey("beacon.security.types"), state.types());
                     span.setAttribute(
-                        AttributeKey.stringArrayKey("beacon.security.evidence.ids"),
+                        AttributeKey.stringArrayKey("beacon.security.occurrence.ids"),
                         state.evidenceIds());
                     span.setAttribute(
                         AttributeKey.stringArrayKey("beacon.security.finding.ids"),

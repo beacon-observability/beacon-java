@@ -18,8 +18,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 
-final class DependencySnapshot {
-  private DependencySnapshot() {}
+final class DependencyInventory {
+  private DependencyInventory() {}
 
   // CycloneDX properties and hashes are validated as lists of objects before publication.
   @SuppressWarnings("unchecked")
@@ -38,27 +38,11 @@ final class DependencySnapshot {
       if (!loaded || !"library".equals(record.get("type"))) {
         continue;
       }
-      String group = String.valueOf(record.getOrDefault("group", ""));
-      Map<String, Object> row =
-          map(
-              "name",
-              (group.isEmpty() ? "" : group + ":") + record.get("name"),
-              "version",
-              record.getOrDefault("version", ""));
-      if (group.isEmpty() || "".equals(row.get("version"))) {
-        for (Map<String, Object> hash :
-            (List<Map<String, Object>>) record.getOrDefault("hashes", emptyList())) {
-          if ("SHA-256".equals(hash.get("alg"))) {
-            row.put("hash", hash.get("content"));
-            break;
-          }
-        }
-      }
+      Map<String, Object> row = dependency(record);
       unique.put(json.writeValueAsString(row), row);
     }
     Map<String, Object> envelope = Events.record(event);
-    envelope.put("event_name", "beacon.security.sbom.snapshot");
-    envelope.put("component_count", unique.size());
+    envelope.put("event_name", "beacon.security.sbom.inventory");
     envelope.put("part_index", Integer.MAX_VALUE);
     envelope.put("part_count", Integer.MAX_VALUE);
     envelope.put("dependencies", emptyList());
@@ -91,10 +75,37 @@ final class DependencySnapshot {
     for (int index = 0; index < chunks.size(); index++) {
       Map<String, Object> part = new LinkedHashMap<>(envelope);
       part.put("dependencies", chunks.get(index));
-      part.put("part_index", index);
-      part.put("part_count", chunks.size());
+      if (chunks.size() > 1) {
+        part.put("part_index", index);
+        part.put("part_count", chunks.size());
+      } else {
+        part.remove("part_index");
+        part.remove("part_count");
+      }
       result.add(part);
     }
     return result;
+  }
+
+  // Component.json() constructs hashes as a list of string-keyed maps.
+  @SuppressWarnings("unchecked")
+  static Map<String, Object> dependency(Map<String, Object> record) {
+    String group = String.valueOf(record.getOrDefault("group", ""));
+    Map<String, Object> row =
+        map(
+            "name",
+            (group.isEmpty() ? "" : group + ":") + record.get("name"),
+            "version",
+            record.getOrDefault("version", ""));
+    if (group.isEmpty() || "".equals(row.get("version"))) {
+      for (Map<String, Object> hash :
+          (List<Map<String, Object>>) record.getOrDefault("hashes", emptyList())) {
+        if ("SHA-256".equals(hash.get("alg"))) {
+          row.put("hash", hash.get("content"));
+          break;
+        }
+      }
+    }
+    return row;
   }
 }

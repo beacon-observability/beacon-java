@@ -12,6 +12,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.beacon.security.core.AttackEvidence;
 import io.beacon.security.core.SecurityState;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -78,12 +79,13 @@ class OccurrenceTest {
     assertThat(events)
         .extracting(e -> e.get("evidence_sampled"))
         .containsExactly(true, false, false);
-    assertThat(events).extracting(e -> e.get("occurrences_total")).containsExactly(1L, 2L, 3L);
+    assertThat(events)
+        .allSatisfy(event -> assertThat(event).doesNotContainKey("occurrences_total"));
     assertThat(events.get(1))
-        .containsEntry("truncated", true)
+        .containsEntry("truncated", false)
         .containsEntry("evidence_sample_reason", "interval");
     assertThat((List<?>) events.get(1).get("sources")).isEmpty();
-    assertThat(events.get(1).get("evidence_id")).isEqualTo(events.get(1).get("occurrence_id"));
+    assertThat(events.get(1)).doesNotContainKey("evidence_id");
   }
 
   @Test
@@ -101,8 +103,7 @@ class OccurrenceTest {
     assertThat(ordinary).containsEntry("evidence_sampled", true);
     assertThat(((Map<?, ?>) ordinary.get("attack_evidence")).get("status"))
         .isEqualTo("no_evidence");
-    List<Map<String, Object>> summaries = new ArrayList<>();
-    ledger.tick(emptyMap(), summaries::add, true);
+    ledger.tick(emptyMap(), true);
     Map<?, ?> snapshot =
         new ObjectMapper().readValue(output.resolve("findings.json").toFile(), Map.class);
     Map<?, ?> finding = (Map<?, ?>) ((List<?>) snapshot.get("findings")).get(0);
@@ -112,12 +113,6 @@ class OccurrenceTest {
     assertThat(((Number) counters.get("unknown")).longValue()).isZero();
     assertThat(((Number) counters.get("no_evidence")).longValue()).isEqualTo(2L);
     assertThat(((Number) counters.get("suspected")).longValue()).isEqualTo(1L);
-    assertThat(summaries)
-        .anySatisfy(
-            summary ->
-                assertThat(summary)
-                    .containsEntry("event_name", "beacon.security.finding.summary")
-                    .containsEntry("attack_evidence_counts", counts(0L, 2L, 1L)));
   }
 
   @Test
@@ -141,11 +136,11 @@ class OccurrenceTest {
           evidence(state, input, AttackEvidence.suspected("tainted_sql_structure"), "fixture:sql");
       state.pending(upgrade);
       state.pending(first); // A slower caller must not replace the upgrade.
-      assertThat(upgrade.get("evidence_id")).isEqualTo(first.get("evidence_id"));
+      assertThat(upgrade.get("occurrence_id")).isEqualTo(first.get("occurrence_id"));
       assertThat(state.pending()).hasSize(1);
       List<Map<String, Object>> events = ledger.end(state);
       assertThat(events).hasSize(1);
-      assertThat(events.get(0)).containsEntry("occurrences_total", 1L);
+      assertThat(events.get(0)).doesNotContainKey("occurrences_total");
       assertThat(((Map<?, ?>) events.get(0).get("attack_evidence")).get("status"))
           .isEqualTo("suspected");
     }
@@ -176,7 +171,7 @@ class OccurrenceTest {
     Map<String, Object> second =
         emit(ledger, 0, AttackEvidence.unknown("missing_policy"), "fixture:second", "");
     assertThat(second)
-        .containsEntry("aggregation_status", "capacity_exceeded")
+        .containsEntry("evidence_sample_reason", "finding_capacity")
         .containsEntry("evidence_sampled", false)
         .doesNotContainKey("occurrences_total");
     assertThat(second.get("occurrence_id")).isNotNull().isNotEqualTo(first.get("occurrence_id"));
@@ -196,20 +191,22 @@ class OccurrenceTest {
     tasks.forEach(task -> events.add(task.join()));
     assertThat(events).extracting(e -> e.get("occurrence_id")).doesNotHaveDuplicates();
     assertThat(events).extracting(e -> e.get("trace_id")).doesNotHaveDuplicates();
-    assertThat(events)
-        .extracting(e -> e.get("occurrences_total"))
-        .doesNotHaveDuplicates()
-        .contains(32L);
     assertThat(events.stream().filter(e -> Boolean.TRUE.equals(e.get("evidence_sampled"))).count())
         .isEqualTo(1);
   }
 
-  private static Map<String, Long> counts(long unknown, long ordinary, long suspected) {
-    Map<String, Long> result = new HashMap<>();
-    result.put("unknown", unknown);
-    result.put("no_evidence", ordinary);
-    result.put("suspected", suspected);
-    return result;
+  @Test
+  void productionSamplingDoesNotRetainLocalRepresentativeEvidence() {
+    System.setProperty("beacon.security.local-output.enabled", "false");
+    RuntimeLedger ledger = new RuntimeLedger(clock::get);
+    assertThat(emit(ledger, 1, AttackEvidence.none("data"), "fixture:sql", ""))
+        .containsEntry("evidence_sampled", true);
+    assertThat(emit(ledger, 2, AttackEvidence.none("data"), "fixture:sql", ""))
+        .containsEntry("evidence_sampled", false);
+    ledger.tick(emptyMap(), true);
+    Map<?, ?> retention = (Map<?, ?>) ledger.health(emptyMap()).get("retention");
+    assertThat(retention.get("representative_bytes_upper_bound")).isEqualTo(0L);
+    assertThat(Files.exists(output.resolve("findings.json"))).isFalse();
   }
 
   private static String trace(int index) {

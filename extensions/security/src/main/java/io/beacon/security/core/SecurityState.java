@@ -149,40 +149,6 @@ public final class SecurityState implements AutoCloseable {
     return tracked == null ? null : tracked.container;
   }
 
-  @Nullable
-  public synchronized Map<String, Object> diagnostics() {
-    if (!truncated && gaps.isEmpty() && collectionEnabled) {
-      return null;
-    }
-    return map(
-        "event_name",
-        "beacon.security.collection.incomplete",
-        "trace_id",
-        traceId,
-        "server_span_id",
-        serverSpanId,
-        "trace_flags",
-        traceFlags,
-        "truncated",
-        truncated,
-        "coverage_gaps",
-        new ArrayList<>(gaps),
-        "collection_status",
-        collectionStatus,
-        "counts",
-        map(
-            "objects",
-            objects.size(),
-            "nodes",
-            nodes,
-            "sources",
-            sources,
-            "findings",
-            evidenceIds.size(),
-            "retained_bytes",
-            objects.bytes()));
-  }
-
   public synchronized int trackedObjects() {
     return objects.size();
   }
@@ -406,7 +372,7 @@ public final class SecurityState implements AutoCloseable {
     Map<String, Object> sinkFields = Events.sink(rule, role, sink, Values.bounded(location, 1024));
     String key =
         Events.fingerprint(
-            Identity.applicationId(), "java", rule, sinkFields, sourceSignature(sourceMap));
+            Identity.findingScope(), "java", rule, sinkFields, sourceSignature(sourceMap));
     Map<String, Object> previous = seen.get(key);
     Map<String, Object> attack = map("attack_evidence", attackEvidence.fields());
     if (previous != null && AttackEvidence.rank(attack) <= AttackEvidence.rank(previous)) {
@@ -416,7 +382,8 @@ public final class SecurityState implements AutoCloseable {
       truncated = true;
       return null;
     }
-    String id = previous == null ? "ev-" + UUID.randomUUID() : (String) previous.get("evidence_id");
+    String id =
+        previous == null ? "ev-" + UUID.randomUUID() : (String) previous.get("occurrence_id");
     if (previous == null) {
       evidenceIds.add(id);
     }
@@ -468,12 +435,12 @@ public final class SecurityState implements AutoCloseable {
                 "attack_evidence",
                 attackEvidence.fields(),
                 "schema_version",
-                1,
+                Events.SCHEMA_VERSION,
                 "source",
                 "beacon_security",
                 "event_name",
                 "beacon.security.finding",
-                "evidence_id",
+                "occurrence_id",
                 id,
                 "finding_id",
                 key,

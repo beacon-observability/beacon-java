@@ -10,6 +10,7 @@ import static java.util.Collections.emptyList;
 import static java.util.Collections.emptyMap;
 import static java.util.Collections.singletonList;
 import static java.util.concurrent.TimeUnit.SECONDS;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -21,6 +22,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.beacon.security.core.Events;
 import io.beacon.security.core.Identity;
 import io.beacon.security.core.Values;
 import java.io.ByteArrayOutputStream;
@@ -28,6 +30,7 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.lang.instrument.Instrumentation;
+import java.lang.management.ManagementFactory;
 import java.lang.reflect.Proxy;
 import java.net.URL;
 import java.net.URLClassLoader;
@@ -47,6 +50,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.jar.JarOutputStream;
@@ -61,6 +65,7 @@ import org.junit.jupiter.api.io.TempDir;
 class SbomInventoryBehaviorTest {
   private static final String[] SETTINGS = {
     "beacon.security.sbom.output",
+    "beacon.security.sbom.refresh.seconds",
     "beacon.security.sbom.max.archive.bytes",
     "beacon.security.sbom.max.scan.bytes",
     "beacon.security.sbom.max.entries",
@@ -275,13 +280,13 @@ class SbomInventoryBehaviorTest {
         assertEquals("true", property(dynamicComponent, "beacon:security:sbom:loaded"));
         assertEquals("true", property(dynamicComponent, "beacon:security:sbom:deployed"));
         Map<String, Object> snapshot =
-            event(events, "beacon.security.sbom.snapshot", "revision", 1);
+            event(events, "beacon.security.sbom.inventory", "source", "beacon_security_sbom");
         assertEquals(
             singletonList(Values.map("name", "org.dynamic:dynamic-loaded", "version", "9.0.0")),
             snapshot.get("dependencies"));
         Map<String, Object> resolution = inventory.resolve("sample.dynamic.DynamicFixture", loader);
-        assertEquals("resolved", resolution.get("status"));
-        assertEquals(dynamicComponent.get("bom-ref"), resolution.get("bom-ref"));
+        assertThat(resolution)
+            .isEqualTo(Values.map("name", "org.dynamic:dynamic-loaded", "version", "9.0.0"));
       } finally {
         inventory.close();
       }
@@ -309,11 +314,7 @@ class SbomInventoryBehaviorTest {
       inventory.refresh();
       Map<String, Object> firstResolution =
           inventory.resolve("sample.dynamic.DynamicFixture", firstLoader);
-      assertEquals(1, ((Number) firstResolution.get("revision")).intValue());
-      String firstRef = String.valueOf(firstResolution.get("bom-ref"));
-      String secondRef =
-          "urn:beacon:security:component:" + Component.digest(Files.readAllBytes(second));
-      assertNotEquals(firstRef, secondRef);
+      assertThat(firstResolution).containsEntry("name", "org.dynamic:dynamic-loaded");
 
       System.setProperty("java.class.path", first + File.pathSeparator + second);
       secondLoader.gate = true;
@@ -343,25 +344,18 @@ class SbomInventoryBehaviorTest {
       publisher.join(10000);
       assertFalse(publisher.isAlive(), "dynamic publication did not complete");
       assertNull(refreshFailure.get());
-      assertEquals(2, inventory.revision());
 
       secondLoader.release.countDown();
       resolver.join(10000);
       assertFalse(resolver.isAlive(), "resolve did not complete");
       Map<String, Object> inFlightResult = inFlight.get();
       assertNotNull(inFlightResult);
-      assertEquals(1, ((Number) inFlightResult.get("revision")).intValue());
-      assertEquals("unresolved", inFlightResult.get("status"));
-      assertEquals(
-          "",
-          inFlightResult.get("bom-ref"),
-          "old snapshot must not resolve the newly published artifact");
+      assertThat(inFlightResult).isEmpty();
 
       secondLoader.gate = false;
       Map<String, Object> publishedResult =
           inventory.resolve("sample.dynamic.DynamicFixture", secondLoader);
-      assertEquals(2, ((Number) publishedResult.get("revision")).intValue());
-      assertEquals(secondRef, publishedResult.get("bom-ref"));
+      assertThat(publishedResult).containsEntry("name", "org.dynamic:dynamic-loaded");
     } finally {
       secondLoader.release.countDown();
       if (inventory != null) {
@@ -470,7 +464,8 @@ class SbomInventoryBehaviorTest {
         assertNotNull(component(initial, "application"));
         assertNotNull(component(initial, "byte-buddy"));
         assertEquals(
-            "resolved", inventory.resolve("sample.dynamic.DynamicFixture", loader).get("status"));
+            "example:application",
+            inventory.resolve("sample.dynamic.DynamicFixture", loader).get("name"));
 
         byte[] byteBuddyBytes;
         try (InputStream input =
@@ -493,7 +488,8 @@ class SbomInventoryBehaviorTest {
             component(after, "byte-buddy"),
             "business Byte Buddy dependency must remain in the inventory");
         assertEquals(
-            "resolved", inventory.resolve("sample.dynamic.DynamicFixture", loader).get("status"));
+            "example:application",
+            inventory.resolve("sample.dynamic.DynamicFixture", loader).get("name"));
       } finally {
         inventory.close();
       }
@@ -503,7 +499,7 @@ class SbomInventoryBehaviorTest {
   }
 
   @Test
-  void separatesApplicationReleaseAndSnapshotInstanceIdentity(@TempDir Path temp) throws Exception {
+  void identifiesRuntimeWithoutExportingApplicationId(@TempDir Path temp) throws Exception {
     Path artifact =
         mavenJar(temp, "identity.jar", "org.example", "identity", "1.0.0", "same-release");
     String originalClasspath = System.getProperty("java.class.path");
@@ -511,10 +507,10 @@ class SbomInventoryBehaviorTest {
     Map<String, String> identity = new HashMap<>();
     identity.put("service.namespace", "test");
     identity.put("service.name", "identity");
-    String applicationId = "app-" + Identity.digest("test|identity");
+    List<Map<String, Object>> events = new ArrayList<>();
     System.setProperty(
         "beacon.security.sbom.output", temp.resolve("first/application.cdx.json").toString());
-    SbomInventory first = new SbomInventory(null, ignored -> {}, identity);
+    SbomInventory first = new SbomInventory(instrumentation(), events::add, identity);
     System.setProperty(
         "beacon.security.sbom.output", temp.resolve("second/application.cdx.json").toString());
     SbomInventory second = new SbomInventory(null, ignored -> {}, identity);
@@ -524,28 +520,24 @@ class SbomInventoryBehaviorTest {
       Map<String, Object> firstDocument = read(first.output());
       Map<String, Object> secondDocument = read(second.output());
 
-      assertEquals(
-          applicationId, documentProperty(firstDocument, "beacon:security:application-id"));
-      assertEquals(
-          applicationId, documentProperty(secondDocument, "beacon:security:application-id"));
-      assertEquals(
-          documentProperty(firstDocument, "beacon:security:release-id"),
-          documentProperty(secondDocument, "beacon:security:release-id"));
-      assertEquals(
-          documentProperty(firstDocument, "beacon:security:process-instance-id"),
-          documentProperty(secondDocument, "beacon:security:process-instance-id"));
-      assertNotEquals(
-          documentProperty(firstDocument, "beacon:security:application-id"),
-          documentProperty(firstDocument, "beacon:security:release-id"));
-      assertNotEquals(
-          documentProperty(firstDocument, "beacon:security:release-id"),
-          documentProperty(firstDocument, "beacon:security:process-instance-id"));
-      assertNotEquals(
-          firstDocument.get("serialNumber"),
-          secondDocument.get("serialNumber"),
-          "each inventory publication has its own SBOM snapshot identity");
-      assertEquals(applicationId, applicationComponentRef(firstDocument));
-      assertEquals(applicationId, applicationComponentRef(secondDocument));
+      assertThat(documentProperty(firstDocument, "beacon:security:application-id")).isNull();
+      assertThat(documentProperty(secondDocument, "beacon:security:application-id")).isNull();
+      assertThat(documentProperty(firstDocument, "beacon:security:process-instance-id"))
+          .isEqualTo(Identity.INSTANCE);
+      assertThat(documentProperty(secondDocument, "beacon:security:process-instance-id"))
+          .isEqualTo(Identity.INSTANCE);
+      assertThat(firstDocument.get("serialNumber")).isEqualTo("urn:uuid:" + Identity.INSTANCE);
+      assertThat(applicationComponentRef(firstDocument)).isEqualTo(Identity.INSTANCE);
+      assertThat(applicationComponentRef(secondDocument)).isEqualTo(Identity.INSTANCE);
+      assertThat(events).isNotEmpty();
+      for (Map<String, Object> event : events) {
+        assertThat(event)
+            .containsEntry("instance_id", Identity.INSTANCE)
+            .containsEntry("schema_version", 2)
+            .doesNotContainKey("application_id");
+      }
+      assertThat(first.resolve("missing.Type", getClass().getClassLoader())).isEmpty();
+      assertThat(Files.exists(first.output().resolveSibling("sbom-history.json"))).isFalse();
     } finally {
       first.close();
       second.close();
@@ -575,21 +567,17 @@ class SbomInventoryBehaviorTest {
       inventory.refresh();
       Map<String, Object> firstDocument = read(inventory.output());
       String firstRef = stringValue(component(firstDocument, "first-release").get("bom-ref"));
-      String firstRelease = documentProperty(firstDocument, "beacon:security:release-id");
 
       Files.copy(secondArtifact, deployed, StandardCopyOption.REPLACE_EXISTING);
       Files.setLastModifiedTime(deployed, FileTime.fromMillis(System.currentTimeMillis() + 2000));
       inventory.refresh();
       Map<String, Object> secondDocument = read(inventory.output());
 
-      assertEquals(2, inventory.revision());
       assertNull(component(secondDocument, "first-release"));
       Map<String, Object> current = component(secondDocument, "second-release");
       assertNotNull(current);
       assertNotEquals(firstRef, current.get("bom-ref"));
-      assertNotEquals(firstRelease, documentProperty(secondDocument, "beacon:security:release-id"));
-      Map<String, Object> history = read(inventory.output().resolveSibling("sbom-history.json"));
-      assertEquals("removed", historyEntry(history, firstRef).get("state"));
+
     } finally {
       inventory.close();
       restore("java.class.path", originalClasspath);
@@ -613,7 +601,6 @@ class SbomInventoryBehaviorTest {
       Files.copy(artifact, missing);
       inventory.refresh();
       Map<String, Object> recovered = read(inventory.output());
-      assertEquals(2, inventory.revision());
       assertNotNull(component(recovered, "retryable"));
       assertFalse(completenessReasons(recovered).contains("unreadable_artifact"));
     } finally {
@@ -623,8 +610,7 @@ class SbomInventoryBehaviorTest {
   }
 
   @Test
-  void keepsHistoricalRemovalDeltaAndFreshnessAfterArtifactDeletion(@TempDir Path temp)
-      throws Exception {
+  void publishesAnEmptyListAfterArtifactDeletion(@TempDir Path temp) throws Exception {
     Path artifact = mavenJar(temp, "removed.jar", "org.example", "removed", "1.0.0", "to-remove");
     String originalClasspath = System.getProperty("java.class.path");
     System.setProperty("java.class.path", artifact.toString());
@@ -632,29 +618,17 @@ class SbomInventoryBehaviorTest {
     SbomInventory inventory = inventory(temp.resolve("application.cdx.json"), events, null);
     try {
       inventory.refresh();
-      Map<String, Object> initial = read(inventory.output());
-      String removedRef = stringValue(component(initial, "removed").get("bom-ref"));
-      assertNotNull(((Map<?, ?>) inventory.health()).get("last_refresh_at"));
-
       System.setProperty("java.class.path", "");
       inventory.refresh();
       Map<String, Object> current = read(inventory.output());
-      assertEquals(2, inventory.revision());
       assertTrue(((List<?>) current.get("components")).isEmpty());
-      Map<String, Object> snapshot = event(events, "beacon.security.sbom.snapshot", "revision", 2);
+      Map<String, Object> snapshot =
+          event(events, "beacon.security.sbom.inventory", "source", "beacon_security_sbom");
       assertNotNull(snapshot);
       assertTrue(((List<?>) snapshot.get("dependencies")).isEmpty());
 
-      Map<String, Object> history = read(inventory.output().resolveSibling("sbom-history.json"));
-      Map<?, ?> historical = historyEntry(history, removedRef);
-      assertNotNull(historical);
-      assertEquals("removed", historical.get("state"));
-      Map<String, Object> health = inventory.health();
-      assertEquals(0, health.get("current_components"));
-      assertEquals(1, ((Number) health.get("history_count")).intValue());
-      assertNotNull(health.get("last_refresh_at"));
-      assertEquals(
-          documentProperty(current, "beacon:security:release-id"), health.get("release_id"));
+      assertThat(Files.exists(inventory.output().resolveSibling("sbom-history.json"))).isFalse();
+      assertThat(inventory.health()).containsEntry("status", "ok");
     } finally {
       inventory.close();
       restore("java.class.path", originalClasspath);
@@ -823,20 +797,19 @@ class SbomInventoryBehaviorTest {
   }
 
   @Test
-  void doesNotPublishUnchangedSnapshot(@TempDir Path temp) throws Exception {
+  void publishesEveryCollectionEvenWhenUnchanged(@TempDir Path temp) throws Exception {
     Path artifact = mavenJar(temp, "stable.jar", "org.example", "stable", "1.0.0", "stable");
     System.setProperty("java.class.path", artifact.toString());
     List<Map<String, Object>> events = new ArrayList<>();
     SbomInventory inventory = inventory(temp.resolve("application.cdx.json"), events, null);
     try {
       inventory.refresh();
-      byte[] first = Files.readAllBytes(inventory.output());
-      int firstRevision = inventory.revision();
       inventory.refresh();
-      assertEquals(1, firstRevision);
-      assertEquals(firstRevision, inventory.revision());
-      assertEquals(1, countEvents(events, "beacon.security.sbom.snapshot"));
-      assertTrue(Arrays.equals(first, Files.readAllBytes(inventory.output())));
+      assertThat(events).hasSize(2);
+      assertThat(events.get(1).get("dependencies")).isEqualTo(events.get(0).get("dependencies"));
+      assertThat(events.get(1).get("observed_at")).isNotEqualTo(events.get(0).get("observed_at"));
+      assertThat(events.get(1))
+          .doesNotContainKeys("revision", "sbom_id", "release_id", "service", "runtime");
     } finally {
       inventory.close();
     }
@@ -857,13 +830,12 @@ class SbomInventoryBehaviorTest {
       System.setProperty("java.class.path", first + File.pathSeparator + second);
       System.setProperty("beacon.security.evidence.max.bytes", "1");
       assertThrows(IOException.class, inventory::refresh);
-      assertEquals(1, inventory.revision());
       assertTrue(Arrays.equals(previous, Files.readAllBytes(inventory.output())));
       System.setProperty("beacon.security.evidence.max.bytes", "65536");
       inventory.refresh();
-      assertEquals(2, inventory.revision());
       assertNotNull(component(read(inventory.output()), "second"));
-      assertNotNull(event(events, "beacon.security.sbom.snapshot", "revision", 2));
+      assertNotNull(
+          event(events, "beacon.security.sbom.inventory", "source", "beacon_security_sbom"));
     } finally {
       if (previousLimit == null) {
         System.clearProperty("beacon.security.evidence.max.bytes");
@@ -875,7 +847,7 @@ class SbomInventoryBehaviorTest {
   }
 
   @Test
-  void retainsPreviousSnapshotWhenNextAtomicWriteFails(@TempDir Path temp) throws Exception {
+  void localWriteFailureDoesNotBlockInventoryDelivery(@TempDir Path temp) throws Exception {
     Path firstArtifact = mavenJar(temp, "first.jar", "org.example", "first", "1.0.0", "first");
     Path secondArtifact = mavenJar(temp, "second.jar", "org.example", "second", "1.0.0", "second");
     Path output = temp.resolve("nested-output/application.cdx.json");
@@ -896,10 +868,9 @@ class SbomInventoryBehaviorTest {
       assumeTrue(
           !Files.isWritable(parent), "write-failure test requires a non-root POSIX test process");
       System.setProperty("java.class.path", firstArtifact + File.pathSeparator + secondArtifact);
-      assertThrows(IOException.class, inventory::refresh);
-      assertEquals(1, inventory.revision());
+      inventory.refresh();
       assertTrue(Arrays.equals(previous, Files.readAllBytes(output)));
-      assertEquals(1, countEvents(events, "beacon.security.sbom.snapshot"));
+      assertThat(events).hasSize(2);
     } finally {
       try {
         Files.setPosixFilePermissions(output.getParent(), writable);
@@ -976,9 +947,11 @@ class SbomInventoryBehaviorTest {
     records.add(fallback.json());
     records.add(new Component("not-loaded", "org.example", "1.0", "ffff", "maven-metadata").json());
     List<Map<String, Object>> parts =
-        DependencySnapshot.events(
+        DependencyInventory.events(
             Values.map(
-                "event_name", "beacon.security.sbom.snapshot", "sbom_id", "fixture", "revision", 2),
+                "event_name", "beacon.security.sbom.inventory",
+                "started_at", "2026-10-27T09:00:00.000Z",
+                "uptime_ms", 123456L),
             records);
     assertTrue(parts.size() > 1);
     List<Object> dependencies = new ArrayList<>();
@@ -986,6 +959,9 @@ class SbomInventoryBehaviorTest {
       Map<String, Object> part = parts.get(i);
       assertEquals(i, part.get("part_index"));
       assertEquals(parts.size(), part.get("part_count"));
+      assertThat(part)
+          .containsEntry("started_at", "2026-10-27T09:00:00.000Z")
+          .containsEntry("uptime_ms", 123456L);
       assertTrue(json.writeValueAsBytes(part).length <= 2048);
       dependencies.addAll((List<?>) part.get("dependencies"));
     }
@@ -993,15 +969,96 @@ class SbomInventoryBehaviorTest {
     assertTrue(
         dependencies.contains(Values.map("name", "no-metadata", "version", "2.0", "hash", "abcd")));
     List<Map<String, Object>> empty =
-        DependencySnapshot.events(
-            Values.map("event_name", "beacon.security.sbom.snapshot"), emptyList());
+        DependencyInventory.events(
+            Values.map("event_name", "beacon.security.sbom.inventory"), emptyList());
     assertEquals(emptyList(), empty.get(0).get("dependencies"));
+  }
+
+  @Test
+  void defaultIntervalDoesNotKeepTheOldFiveSecondRefresh() throws Exception {
+    System.clearProperty("beacon.security.sbom.refresh.seconds");
+    System.setProperty("beacon.security.local-output.enabled", "false");
+    System.setProperty("java.class.path", "");
+    CountDownLatch received = new CountDownLatch(2);
+    SbomInventory inventory = new SbomInventory(instrumentation(), event -> received.countDown());
+    try {
+      inventory.start();
+      assertThat(received.await(6, SECONDS)).isFalse();
+      assertThat(received.getCount()).isEqualTo(1);
+    } finally {
+      inventory.close();
+    }
+  }
+
+  @Test
+  void configuredIntervalPublishesUnchangedDependencies(@TempDir Path temp) throws Exception {
+    long uptimeBefore = ManagementFactory.getRuntimeMXBean().getUptime();
+    System.setProperty("beacon.security.sbom.refresh.seconds", "1");
+    System.setProperty("beacon.security.local-output.enabled", "false");
+    System.setProperty("java.class.path", "");
+    List<Map<String, Object>> events = new CopyOnWriteArrayList<>();
+    CountDownLatch received = new CountDownLatch(2);
+    SbomInventory inventory =
+        new SbomInventory(
+            instrumentation(),
+            event -> {
+              events.add(event);
+              received.countDown();
+            });
+    try {
+      inventory.start();
+      assertThat(received.await(5, SECONDS)).isTrue();
+      assertThat(events).hasSizeGreaterThanOrEqualTo(2);
+      assertThat(events.get(0))
+          .containsEntry("dependencies", emptyList())
+          .doesNotContainKeys("status", "error");
+      assertThat(events.get(1))
+          .containsEntry("dependencies", emptyList())
+          .doesNotContainKeys("revision", "sbom_id", "release_id", "part_index", "part_count");
+      assertThat(events.get(1).get("observed_at")).isNotEqualTo(events.get(0).get("observed_at"));
+      String startedAt = Events.timestamp(ManagementFactory.getRuntimeMXBean().getStartTime());
+      assertThat(events.get(0)).containsEntry("started_at", startedAt);
+      assertThat(events.get(1)).containsEntry("started_at", startedAt);
+      long firstUptime = ((Number) events.get(0).get("uptime_ms")).longValue();
+      long secondUptime = ((Number) events.get(1).get("uptime_ms")).longValue();
+      assertThat(firstUptime).isGreaterThanOrEqualTo(uptimeBefore);
+      assertThat(secondUptime)
+          .isGreaterThan(firstUptime)
+          .isLessThanOrEqualTo(ManagementFactory.getRuntimeMXBean().getUptime());
+    } finally {
+      inventory.close();
+    }
+  }
+
+  @Test
+  void repeatedFailuresDoNotPublishAnEmptySuccessfulInventory() throws Exception {
+    System.setProperty("beacon.security.sbom.refresh.seconds", "1");
+    System.setProperty("beacon.security.local-output.enabled", "false");
+    System.setProperty("java.class.path", "");
+    List<Map<String, Object>> events = new CopyOnWriteArrayList<>();
+    CountDownLatch received = new CountDownLatch(2);
+    SbomInventory inventory =
+        new SbomInventory(
+            null,
+            event -> {
+              events.add(event);
+              received.countDown();
+            });
+    try {
+      inventory.start();
+      assertThat(received.await(3, SECONDS)).isFalse();
+      assertThat(events).isEmpty();
+      assertThat(inventory.health()).containsEntry("status", "error");
+    } finally {
+      inventory.close();
+    }
   }
 
   private static SbomInventory inventory(
       Path output, List<Map<String, Object>> events, Instrumentation instrumentation) {
     System.setProperty("beacon.security.sbom.output", output.toString());
-    return new SbomInventory(instrumentation, events::add);
+    return new SbomInventory(
+        instrumentation == null ? instrumentation() : instrumentation, events::add);
   }
 
   private static void restore(String key, String value) {
@@ -1195,21 +1252,6 @@ class SbomInventoryBehaviorTest {
     return null;
   }
 
-  @Nullable
-  @SuppressWarnings("unchecked")
-  private static Map<?, ?> historyEntry(Map<String, Object> history, String ref) {
-    Object entries = history.get("entries");
-    if (!(entries instanceof List)) {
-      return null;
-    }
-    for (Object entry : (List<Object>) entries) {
-      if (entry instanceof Map && ref.equals(((Map<?, ?>) entry).get("bom-ref"))) {
-        return (Map<?, ?>) entry;
-      }
-    }
-    return null;
-  }
-
   @SuppressWarnings("unchecked")
   private static String licenseName(Map<String, Object> component) {
     Object values = component.get("licenses");
@@ -1270,16 +1312,6 @@ class SbomInventoryBehaviorTest {
       return targets instanceof List && ((List<Object>) targets).contains(target);
     }
     return false;
-  }
-
-  private static int countEvents(List<Map<String, Object>> events, String eventName) {
-    int count = 0;
-    for (Map<String, Object> event : events) {
-      if (eventName.equals(event.get("event_name"))) {
-        count++;
-      }
-    }
-    return count;
   }
 
   private static String stringValue(Object value) {

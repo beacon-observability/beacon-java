@@ -4,6 +4,8 @@ This file records Beacon product changes only. The root [CHANGELOG.md](../CHANGE
 
 ## Unreleased
 
+## Version 1.3.3 (2026-10-27)
+
 - Add a separate GHCR distribution workflow for already published stable Agent JARs, with native
   amd64/arm64 image acceptance, protected promotion, and a Kubernetes init-container smoke test.
 

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Beacon Java Security event schema v2",
+  "title": "Beacon Security event schema v2",
   "$defs": {
     "dependency": {
       "type": "object",
@@ -306,5 +306,6 @@
     {
       "$ref": "#/$defs/finding"
     }
-  ]
+  ],
+  "$id": "https://github.com/beacon-observability/beacon-security-spec/raw/main/schemas/beacon-security-event-v2.schema.json"
 }

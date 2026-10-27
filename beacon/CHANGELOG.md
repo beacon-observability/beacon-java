@@ -27,7 +27,7 @@ This file records Beacon product changes only. The root [CHANGELOG.md](../CHANGE
   and finding IDs are unchanged. Exception scopes now require only stable `scope.finding_id`.
   Sampling omission no longer implies truncation; `collection_complete` describes observation
   quality. Runtime object names constructed by collectors must also use the UUID directly.
-  The local schema-v2 contract and collector migration must be adopted before deployment.
+  The pinned schema-v2 contract and collector migration must be adopted before deployment.
 
 ## Version 1.3.2 (2026-10-26)
 

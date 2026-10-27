@@ -16,9 +16,9 @@ repository pins an immutable specification revision in
 [`beacon/security-spec.properties`](../../beacon/security-spec.properties); the complete Agent JAR
 embeds that record under `META-INF/beacon/` and exposes the versions in its Manifest.
 
-The unreleased Java output uses schema version 2 for runtime-only identity as described below. The
-pinned specification revision remains the baseline for the unchanged fingerprint version 1;
-its version 1 event schema requires `application_id` and cannot validate version 2 output.
+The Java output uses schema version 2 for runtime-only identity as described below. The pinned
+specification revision includes the matching v2 event contract and retains the unchanged
+fingerprint version 1 vectors. V1 schemas remain available for historical consumers.
 
 ## Current status
 
@@ -130,8 +130,8 @@ is retained in process only when local debug output is explicitly enabled.
 
 Local `control.json` exceptions now require only `scope.finding_id`, whose stable fingerprint
 already includes service identity. Exceptions are not tied to a process UUID. Update consumers
-for schema version 2 before upgrading; the pinned version 1 specification schema cannot validate
-this output. The [Java schema v2](schema-v2.json) defines the exported event contract.
+for schema version 2 before upgrading; a v1 event schema cannot validate v2 output. The local
+[schema v2](schema-v2.json) is identical to the canonical schema in the pinned specification.
 
 ### Primary settings
 

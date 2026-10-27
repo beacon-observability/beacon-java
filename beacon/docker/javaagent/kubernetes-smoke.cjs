@@ -146,7 +146,8 @@ try {
   const result = JSON.parse(kubectl(['exec', 'deployment/receiver', '--', 'python', '-c',
     'import urllib.request; print(urllib.request.urlopen("http://127.0.0.1:4318/result").read().decode())']));
   assert.equal(result.correlated, true, 'No correlated OTLP HTTP span received');
-  assert.match(result.traceparent, /^00-[0-9a-f]{32}-[0-9a-f]{16}-01$/);
+  assert.match(result.traceparent, /^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$/);
+  assert.equal(parseInt(result.traceparent.split('-')[3], 16) & 1, 1, 'Trace must be sampled');
   console.log(`PASS: Kubernetes initContainer, SHA-256, Beacon ${version}, non-root read-only application and correlated OTLP export.`);
 } catch (error) {
   if (created) {

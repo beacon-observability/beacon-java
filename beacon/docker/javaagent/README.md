@@ -54,6 +54,9 @@ Run the [Beacon Java image workflow](../../../.github/workflows/beacon-image.yml
 an existing stable release version. This is a separate distribution step; it does not rebuild the
 JAR, create a new product release, or modify an existing Git tag.
 
+Pull requests touching the image implementation also build and test both architectures against
+the pinned public `1.3.2` release. Pull-request runs never publish packages.
+
 1. Each native amd64/arm64 runner downloads the published JAR, checksum, SBOM, provenance, and
    licenses. The preparation script verifies their version, source commit, Manifest, and digest.
 2. Build each image once. Verify its labels, non-root read-only copy operation, byte-identical JAR,

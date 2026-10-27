@@ -1,6 +1,10 @@
 name: Beacon Java image
 
 on:
+  pull_request:
+    paths:
+      - .github/workflows/beacon-image.yml
+      - beacon/docker/javaagent/**
   workflow_dispatch:
     inputs:
       version:
@@ -12,12 +16,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: beacon-java-image-${{ inputs.version }}
+  group: beacon-java-image-${{ github.event.pull_request.number || inputs.version }}
   cancel-in-progress: false
 
 jobs:
   candidate:
-    if: github.repository == 'beacon-observability/beacon-java' && github.ref == 'refs/heads/main'
+    if: github.repository == 'beacon-observability/beacon-java'
     strategy:
       fail-fast: false
       matrix:
@@ -43,7 +47,8 @@ jobs:
       - name: Download and verify the existing release
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ inputs.version }}
+          # A fixed public release exercises packaging changes before they reach main.
+          VERSION: ${{ inputs.version || '1.3.2' }}
         run: node beacon/docker/javaagent/prepare.cjs "$VERSION" release-image
       - name: Install image archive tools
         run: |
@@ -51,7 +56,7 @@ jobs:
           sudo apt-get install --yes skopeo
       - name: Build and test the native candidate once
         env:
-          VERSION: ${{ inputs.version }}
+          VERSION: ${{ inputs.version || '1.3.2' }}
           ARCH: ${{ matrix.arch }}
         run: |
           source=$(jq -r .source_commit release-image/provenance.json)
@@ -73,6 +78,7 @@ jobs:
           retention-days: 7
 
   publish:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     needs: candidate
     runs-on: ubuntu-24.04
     timeout-minutes: 20

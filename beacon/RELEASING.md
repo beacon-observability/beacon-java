@@ -54,3 +54,11 @@ A retry under the same version may publish only identical content. Stop if the t
 ## Build and initial launch
 
 See the [contributing guide](../CONTRIBUTING.md) for build entry points and the [CI checklist](CI.md) for the initial GitHub launch and outstanding decisions. A successful ordinary `assemble` does not constitute release acceptance.
+
+## Container distribution
+
+After publishing a stable Agent release, run the separate
+[container image workflow](docker/javaagent/README.md#build-and-release) to distribute that exact
+JAR through GHCR. Images use the corresponding language version as their only tag and retain the
+release's provenance and licenses. The native image tests and protected promotion job do not replace
+the Agent release validation above.

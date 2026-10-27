@@ -4,6 +4,9 @@ This file records Beacon product changes only. The root [CHANGELOG.md](../CHANGE
 
 ## Unreleased
 
+- Add a separate GHCR distribution workflow for already published stable Agent JARs, with native
+  amd64/arm64 image acceptance, protected promotion, and a Kubernetes init-container smoke test.
+
 ## Version 1.3.2 (2026-10-26)
 
 - Preserve PostgreSQL JDBC client spans when Security is enabled together with tracing, logs,

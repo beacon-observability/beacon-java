@@ -1,5 +1,5 @@
-# This example uses a private image built from beacon/docker/javaagent/Dockerfile.
-# No public Beacon Java injection image is published by this change.
+# This example uses the complete Beacon Java distribution image.
+# See beacon/docker/javaagent/README.md for publication and digest pinning.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -20,7 +20,7 @@ spec:
         fsGroup: 65532
       initContainers:
         - name: beacon-javaagent
-          image: registry.example.com/observability/beacon-javaagent:1.1.0
+          image: ghcr.io/beacon-observability/beacon-java:1.3.2
           command: ["cp", "/javaagent.jar", "/beacon/javaagent.jar"]
           resources:
             requests:

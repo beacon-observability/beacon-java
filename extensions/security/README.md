@@ -228,20 +228,11 @@ correlated trace was exported, nor a guarantee of lossless event delivery.
 
 ## Kubernetes
 
-The checked-in [Dockerfile](../../beacon/docker/javaagent/Dockerfile) packages the complete Agent as
-an init image. No registry image is published by this release. Build a local or private-registry
-image from the repository root:
+The [container distribution](../../beacon/docker/javaagent/README.md) packages the complete,
+already published Agent JAR, including the opt-in Security extension. Its separate workflow
+publishes version-only GHCR tags after native image acceptance and protected promotion.
 
-```bash
-docker build \
-  -f beacon/docker/javaagent/Dockerfile \
-  --build-arg AGENT_JAR=beacon-javaagent-1.1.0.jar \
-  -t registry.example.com/observability/beacon-javaagent:1.1.0 \
-  javaagent/build/libs
-docker push registry.example.com/observability/beacon-javaagent:1.1.0
-```
-
-Replace the two image placeholders and Collector endpoint in the
+Replace the application image placeholder and Collector endpoint in the
 [initContainer example](examples/kubernetes/init-container.yaml), then apply it:
 
 ```bash
@@ -254,8 +245,8 @@ The initContainer copies one Agent JAR into an `emptyDir`; the application uses 
 connection. Keep local output disabled in normal Kubernetes workloads.
 
 An OpenTelemetry Operator `Instrumentation` resource can later reduce each workload change to an
-annotation, but adding that dependency and publishing a compatible injection image require a
-separate acceptance decision. They are not current release capabilities.
+annotation, but adding that dependency and validating Operator injection compatibility require a
+separate acceptance decision. Operator injection is not a current release capability.
 
 ## End-to-end smoke test
 

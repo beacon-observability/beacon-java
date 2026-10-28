@@ -401,8 +401,7 @@ class SecurityStatePropagationTest {
       assertTrue(state.marks(extraSource).isEmpty());
       assertNull(state.container(extraUrl));
       assertNull(state.container(extraEnumeration));
-      Map<?, ?> counts = (Map<?, ?>) state.diagnostics().get("counts");
-      assertEquals(4096, ((Number) counts.get("objects")).intValue());
+      assertEquals(4096, state.trackedObjects());
       assertEquals(1366, sources.size());
     } finally {
       if (previous == null) {

@@ -10,6 +10,7 @@ import static io.opentelemetry.api.common.AttributeKey.stringKey;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Arrays.asList;
 import static java.util.Collections.emptyList;
+import static java.util.Collections.singletonList;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.NANOSECONDS;
 import static java.util.concurrent.TimeUnit.SECONDS;
@@ -46,6 +47,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -91,7 +93,7 @@ class EvidenceExporterTest {
     try {
       for (int i = 0; i < 120; i++) {
         exporter.emit(
-            map("event_name", "beacon.security.finding", "evidence_id", "ordinary-" + i),
+            map("event_name", "beacon.security.finding", "occurrence_id", "ordinary-" + i),
             Context.root(),
             true);
       }
@@ -100,7 +102,7 @@ class EvidenceExporterTest {
           map(
               "event_name",
               "beacon.security.finding",
-              "evidence_id",
+              "occurrence_id",
               "attack-upgrade",
               "attack_evidence",
               map("status", "suspected")),
@@ -162,7 +164,7 @@ class EvidenceExporterTest {
     EvidenceExporter exporter = new EvidenceExporter();
     try {
       exporter.emit(
-          map("event_name", "beacon.security.finding", "evidence_id", "ev-always-off"),
+          map("event_name", "beacon.security.finding", "occurrence_id", "ev-always-off"),
           Context.root(),
           true);
     } finally {
@@ -252,11 +254,11 @@ class EvidenceExporterTest {
     OpenTelemetrySdk sdk = installLogs(logs);
     EvidenceExporter exporter = new EvidenceExporter();
     try {
-      exporter.emit(map("event_name", "beacon.security.first"), Context.root(), false);
+      exporter.emit(map("event_name", "beacon.security.finding"), Context.root(), false);
       assertTrue(logs.started.await(5, SECONDS));
       for (int i = 0; i < 1000; i++) {
         exporter.emit(
-            map("event_name", "beacon.security.queue", "index", i), Context.root(), false);
+            map("event_name", "beacon.security.finding", "index", i), Context.root(), false);
       }
       assertTrue(exporter.dropped() > 0);
     } finally {
@@ -273,12 +275,12 @@ class EvidenceExporterTest {
     OpenTelemetrySdk sdk = installLogs(logs);
     EvidenceExporter exporter = new EvidenceExporter();
     try {
-      exporter.emit(map("event_name", "beacon.security.block"), Context.root(), false);
+      exporter.emit(map("event_name", "beacon.security.finding"), Context.root(), false);
       assertTrue(logs.securityStarted.await(5, SECONDS));
 
       for (int i = 0; i < 32; i++) {
         exporter.emit(
-            map("event_name", "beacon.security.sbom.snapshot", "revision", 7, "index", i),
+            map("event_name", "beacon.security.sbom.inventory", "dependencies", emptyList()),
             Context.root(),
             false);
       }
@@ -290,7 +292,7 @@ class EvidenceExporterTest {
           logs.sbomReceived.await(5, SECONDS),
           "SBOM records must drain after the shared OTel processor is released");
       assertTrue(
-          logs.bodies().stream().anyMatch(body -> body.contains("beacon.security.sbom.snapshot")));
+          logs.bodies().stream().anyMatch(body -> body.contains("beacon.security.sbom.inventory")));
     } finally {
       logs.release.countDown();
       exporter.close();
@@ -311,11 +313,11 @@ class EvidenceExporterTest {
     try {
       for (int i = 0; i < 3; i++) {
         exporter.emit(
-            map("event_name", "beacon.security.budget", "index", i), Context.root(), false);
+            map("event_name", "beacon.security.finding", "index", i), Context.root(), false);
         exporter.emit(
             map(
                 "event_name",
-                "beacon.security.sbom.snapshot",
+                "beacon.security.sbom.inventory",
                 "dependencies",
                 emptyList(),
                 "index",
@@ -345,11 +347,15 @@ class EvidenceExporterTest {
     try {
       for (int i = 0; i < 4; i++) {
         exporter.emit(
-            map("event_name", "beacon.security.byte-budget", "payload", repeat('b', 200)),
+            map("event_name", "beacon.security.finding", "payload", repeat('b', 200)),
             Context.root(),
             false);
         exporter.emit(
-            map("event_name", "beacon.security.sbom.component", "payload", repeat('s', 200)),
+            map(
+                "event_name",
+                "beacon.security.sbom.inventory",
+                "dependencies",
+                singletonList(map("name", repeat('s', 200), "version", "1"))),
             Context.root(),
             false);
       }
@@ -362,7 +368,7 @@ class EvidenceExporterTest {
   }
 
   @Test
-  void emitsExplicitLossRecordWhenBudgetDropsEvents(@TempDir Path temp) throws Exception {
+  void budgetDropsDoNotGenerateDiagnosticOrReplayRecords(@TempDir Path temp) throws Exception {
     System.setProperty("beacon.security.output", temp.resolve("ledger").toString());
     System.setProperty("beacon.security.export.security.events-per-second", "1");
     System.setProperty("beacon.security.export.security.bytes-per-second", "65536");
@@ -371,23 +377,15 @@ class EvidenceExporterTest {
     EvidenceExporter exporter = new EvidenceExporter();
     try {
       for (int i = 0; i < 8; i++) {
-        exporter.emit(map("event_name", "beacon.security.loss", "index", i), Context.root(), false);
+        exporter.emit(
+            map("event_name", "beacon.security.finding", "index", i), Context.root(), false);
       }
       assertTrue(await(() -> counter(exporter.delivery(), "security.budget_exceeded") > 0, 5000));
-      assertTrue(
-          await(
-              () ->
-                  logs.bodies().stream()
-                      .anyMatch(body -> body.contains("beacon.security.export.dropped")),
-              5000),
-          "budget loss must be represented by an explicit diagnostic event");
-      String loss =
-          logs.bodies().stream()
-              .filter(body -> body.contains("beacon.security.export.dropped"))
-              .findFirst()
-              .orElse("");
-      assertTrue(loss.contains("security"));
-      assertTrue(loss.contains("budget_exceeded"));
+      exporter.close();
+      assertThat(logs.records)
+          .allSatisfy(
+              record -> assertThat(record.getEventName()).isEqualTo("beacon.security.finding"));
+      assertThat(exporter.dropped()).isPositive();
     } finally {
       exporter.close();
       sdk.close();
@@ -401,7 +399,7 @@ class EvidenceExporterTest {
     OpenTelemetrySdk sdk = installLogs(logs);
     EvidenceExporter exporter = new EvidenceExporter();
     try {
-      exporter.emit(map("event_name", "beacon.security.ack-semantic"), Context.root(), false);
+      exporter.emit(map("event_name", "beacon.security.finding"), Context.root(), false);
       assertTrue(await(() -> counter(exporter.delivery(), "security.otel_api_emitted") > 0, 5000));
       Map<String, Object> delivery = exporter.delivery();
       assertEquals("unknown", delivery.get("backend_acknowledgement"));
@@ -413,64 +411,108 @@ class EvidenceExporterTest {
   }
 
   @Test
-  void separatesSbomLogSourcesThroughNormalAndTruncatedDelivery(@TempDir Path temp)
-      throws Exception {
+  void exportsOnlyFindingsAndMinimalInventory(@TempDir Path temp) throws IOException {
     System.setProperty("beacon.security.output", temp.toString());
     CapturingExporter logs = new CapturingExporter();
     OpenTelemetrySdk sdk = installLogs(logs);
-    String[][] cases = {
-      {"beacon.security.finding", "beacon_security"},
-      {"beacon.security.sbom.snapshot", "beacon_security_sbom"},
-      {"beacon.security.sbom.health", "beacon_security_sbom"},
-      {"beacon.security.sbom.update_failed", "beacon_security_sbom"},
-      {"beacon.security.sbom.export.dropped", "beacon_security_sbom"}
-    };
+    EvidenceExporter exporter = new EvidenceExporter();
     try {
-      for (int maxBytes : new int[] {65536, 256, 128}) {
-        System.setProperty("beacon.security.evidence.max.bytes", Integer.toString(maxBytes));
-        for (String[] item : cases) {
-          int start = logs.records.size();
-          EvidenceExporter exporter = new EvidenceExporter();
-          try {
-            exporter.emit(
-                map(
-                    "event_name",
-                    item[0],
-                    "source",
-                    "caller-override",
-                    "sbom_id",
-                    "source-test",
-                    "payload",
-                    repeat('x', 4096)),
-                Context.root(),
-                false);
-          } finally {
-            exporter.close();
-          }
-          assertEquals(start + 1, logs.records.size());
-          LogRecordData log = logs.records.get(start);
-          Map<?, ?> body = json.readValue(log.getBodyValue().asString(), Map.class);
-          assertEquals(item[1], log.getAttributes().get(stringKey("source")));
-          assertEquals(item[1], body.get("source"));
-          assertEquals(body.get("event_name"), log.getEventName());
-          assertEquals(body.get("event_name"), log.getAttributes().get(stringKey("event.name")));
-          assertTrue(log.getBodyValue().asString().getBytes(UTF_8).length <= maxBytes);
-          if (maxBytes == 65536) {
-            assertEquals(item[0], body.get("event_name"));
-          } else {
-            assertEquals("beacon.security.export.truncated", body.get("event_name"));
-            assertEquals(maxBytes == 256 ? item[0] : null, body.get("original_event"));
-          }
-        }
+      exporter.emit(
+          map(
+              "event_name",
+              "beacon.security.finding",
+              "source",
+              "override",
+              "attack_evidence",
+              map("status", "unknown", "reason", "analysis_unavailable", "outcome", "not_assessed"),
+              "assessment",
+              "candidate_risk",
+              "validation",
+              "unvalidated",
+              "severity",
+              "unassigned"),
+          Context.root(),
+          true);
+      exporter.emit(
+          map(
+              "event_name",
+              "beacon.security.sbom.inventory",
+              "source",
+              "override",
+              "status",
+              "ok",
+              "started_at",
+              "2026-10-27T09:00:00.000Z",
+              "uptime_ms",
+              123456L,
+              "dependencies",
+              emptyList(),
+              "revision",
+              7),
+          Context.root(),
+          false);
+      exporter.emit(
+          map(
+              "event_name",
+              "beacon.security.sbom.inventory",
+              "status",
+              "error",
+              "error",
+              map("code", "scan_failed"),
+              "dependencies",
+              emptyList()),
+          Context.root(),
+          false);
+      for (String name :
+          asList(
+              "diagnostic",
+              "sbom.health",
+              "finding.summary",
+              "collection.incomplete",
+              "export.dropped")) {
+        exporter.emit(map("event_name", "beacon.security." + name), Context.root(), false);
       }
     } finally {
+      exporter.close();
       sdk.close();
+    }
+    assertThat(logs.records).hasSize(2);
+    for (LogRecordData log : logs.records) {
+      Map<?, ?> body = json.readValue(log.getBodyValue().asString(), Map.class);
+      boolean inventory = "beacon.security.sbom.inventory".equals(log.getEventName());
+      String source = inventory ? "beacon_security_sbom" : "beacon_security";
+      assertThat(log.getAttributes().get(stringKey("source"))).isEqualTo(source);
+      assertThat(body.get("source")).isEqualTo(source);
+      assertThat(log.getEventName()).isEqualTo(body.get("event_name"));
+      assertThat(log.getSeverity()).isEqualTo(Severity.INFO);
+      assertThat(log.getSeverityText()).isEqualTo("INFO");
+      assertThat(body.containsKey("status")).isFalse();
+      if (!inventory) {
+        assertThat(body.get("attack_evidence"))
+            .isEqualTo(map("status", "unknown", "reason", "analysis_unavailable"));
+      }
+      if (inventory) {
+        assertThat(body.get("started_at")).isEqualTo("2026-10-27T09:00:00.000Z");
+        assertThat(((Number) body.get("uptime_ms")).longValue()).isEqualTo(123456L);
+        assertThat(body.keySet())
+            .isEqualTo(
+                new HashSet<>(
+                    asList(
+                        "event_name",
+                        "source",
+                        "dependencies",
+                        "instance_id",
+                        "schema_version",
+                        "observed_at",
+                        "started_at",
+                        "uptime_ms")));
+      }
     }
   }
 
   @Test
-  void truncatesRecordsBeforeWritingThem(@TempDir Path temp) throws Exception {
-    System.setProperty("beacon.security.evidence.max.bytes", "256");
+  void truncatesOptionalEvidenceWithoutReplacingTheFinding(@TempDir Path temp) throws Exception {
+    System.setProperty("beacon.security.evidence.max.bytes", "2048");
     Path file = temp.resolve("bounded.jsonl");
     System.setProperty("beacon.security.evidence.file", file.toString());
     CapturingExporter logs = new CapturingExporter();
@@ -485,16 +527,14 @@ class EvidenceExporterTest {
           map(
               "event_name",
               "beacon.security.finding",
-              "evidence_id",
+              "occurrence_id",
               "ev-large",
               "sources",
               large,
               "propagation",
               large,
               "ranges",
-              large,
-              "details",
-              repeat('x', 2000)),
+              large),
           Context.root(),
           true);
     } finally {
@@ -504,20 +544,19 @@ class EvidenceExporterTest {
 
     List<String> lines = Files.readAllLines(file, UTF_8);
     assertEquals(1, lines.size());
-    assertTrue(lines.get(0).getBytes(UTF_8).length <= 256);
+    assertTrue(lines.get(0).getBytes(UTF_8).length <= 2048);
     Map<?, ?> record = json.readValue(lines.get(0), Map.class);
-    assertEquals("beacon.security.export.truncated", record.get("event_name"));
+    assertEquals("beacon.security.finding", record.get("event_name"));
     assertTrue(Boolean.TRUE.equals(record.get("truncated")));
     assertEquals("beacon_security", record.get("source"));
 
     LogRecordData log =
         logs.records.stream()
-            .filter(item -> "beacon.security.export.truncated".equals(item.getEventName()))
+            .filter(item -> "beacon.security.finding".equals(item.getEventName()))
             .findFirst()
             .orElseThrow(() -> new AssertionError("truncated OTel record missing"));
-    assertEquals("beacon.security.export.truncated", log.getEventName());
-    assertEquals(
-        "beacon.security.export.truncated", log.getAttributes().get(stringKey("event.name")));
+    assertEquals("beacon.security.finding", log.getEventName());
+    assertEquals("beacon.security.finding", log.getAttributes().get(stringKey("event.name")));
     assertEquals("beacon_security", log.getAttributes().get(stringKey("source")));
     assertEquals("io.beacon.security", log.getInstrumentationScopeInfo().getName());
     assertEquals(Identity.VERSION, log.getInstrumentationScopeInfo().getVersion());
@@ -525,7 +564,7 @@ class EvidenceExporterTest {
     assertEquals(9, log.getSeverity().getSeverityNumber());
     assertEquals("INFO", log.getSeverityText());
     Map<?, ?> otelBody = json.readValue(log.getBodyValue().asString(), Map.class);
-    assertEquals("beacon.security.export.truncated", otelBody.get("event_name"));
+    assertEquals("beacon.security.finding", otelBody.get("event_name"));
     assertEquals("beacon_security", otelBody.get("source"));
     assertTrue(Boolean.TRUE.equals(otelBody.get("truncated")));
   }
@@ -540,7 +579,7 @@ class EvidenceExporterTest {
     try {
       for (int i = 0; i < 30; i++) {
         exporter.emit(
-            map("event_name", "beacon.security.rotation", "index", i, "payload", repeat('r', 80)),
+            map("event_name", "beacon.security.finding", "index", i, "payload", repeat('r', 80)),
             Context.root(),
             true);
       }
@@ -576,7 +615,7 @@ class EvidenceExporterTest {
       System.setProperty("beacon.security.evidence.file", file.toString());
       EvidenceExporter exporter = new EvidenceExporter();
       try {
-        exporter.emit(map("event_name", "beacon.security.unwritable"), Context.root(), true);
+        exporter.emit(map("event_name", "beacon.security.finding"), Context.root(), true);
       } finally {
         exporter.close();
       }
@@ -610,13 +649,13 @@ class EvidenceExporterTest {
                     "conditions",
                     map("suite", "close", "fixture", "close", "expected_requests", 1)))));
     EvidenceExporter exporter = new EvidenceExporter();
-    exporter.ledger().tick(exporter.delivery(), event -> {}, true);
+    exporter.ledger().tick(exporter.delivery(), true);
     SecurityState request = new SecurityState();
     exporter.ledger().begin(request);
     exporter.ledger().end(request);
     request.close();
     Files.write(control, json.writeValueAsBytes(map("revision", "stop")));
-    exporter.ledger().tick(exporter.delivery(), event -> {}, true);
+    exporter.ledger().tick(exporter.delivery(), true);
     ExecutorService thread = Executors.newSingleThreadExecutor();
     try {
       synchronized (exporter.ledger()) {
@@ -661,7 +700,7 @@ class EvidenceExporterTest {
     OpenTelemetrySdk sdk = installLogs(logs);
     EvidenceExporter exporter = new EvidenceExporter();
     try {
-      exporter.emit(map("event_name", "beacon.security.blocked-close"), Context.root(), true);
+      exporter.emit(map("event_name", "beacon.security.finding"), Context.root(), true);
       assertTrue(logs.started.await(2, SECONDS));
       long started = System.nanoTime();
       exporter.close();
@@ -782,8 +821,8 @@ class EvidenceExporterTest {
       boolean sbom = false;
       for (LogRecordData record : batch) {
         String body = record.getBodyValue().asString();
-        security |= body.contains("beacon.security.block");
-        sbom |= body.contains("beacon.security.sbom.snapshot");
+        security |= body.contains("beacon.security.finding");
+        sbom |= body.contains("beacon.security.sbom.inventory");
       }
       if (sbom) {
         sbomReceived.countDown();

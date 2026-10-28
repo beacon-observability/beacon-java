@@ -9,18 +9,16 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Collections.emptyList;
 import static java.util.Collections.emptyMap;
 import static java.util.Collections.singletonList;
-import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.SECONDS;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.beacon.security.core.Events;
-import io.beacon.security.core.Identity;
 import io.beacon.security.core.SecurityState;
 import java.nio.ByteBuffer;
 import java.nio.channels.SeekableByteChannel;
@@ -32,11 +30,9 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
-import java.util.concurrent.TimeoutException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -122,7 +118,7 @@ class RuntimeLedgerBehaviorTest {
             false,
             "run",
             run("run-request-shape", "case-request-shape")));
-    ledger.tick(emptyMap(), ignored -> {}, true);
+    ledger.tick(emptyMap(), true);
 
     SecurityState first = stateWithEvidence("trace-first", "fixture:aggregate");
     Map<String, Object> expectedRequest = requestShape(first);
@@ -138,11 +134,11 @@ class RuntimeLedgerBehaviorTest {
     assertEquals(expectedRequest, firstSample.get(0).get("request"));
     assertEquals(1, secondSample.size());
     assertEquals(false, secondSample.get(0).get("evidence_sampled"));
-    assertEquals(true, secondSample.get(0).get("truncated"));
+    assertEquals(false, secondSample.get(0).get("truncated"));
     assertEquals(emptyList(), secondSample.get(0).get("propagation"));
     assertEquals(firstSample.get(0).get("finding_id"), secondFindingId(second));
 
-    ledger.tick(emptyMap(), ignored -> {}, true);
+    ledger.tick(emptyMap(), true);
     Map<?, ?> snapshot = read(output.resolve("findings.json"));
     List<?> findings = (List<?>) snapshot.get("findings");
     assertEquals(1, findings.size());
@@ -166,7 +162,7 @@ class RuntimeLedgerBehaviorTest {
     RuntimeLedger ledger = ledger(output);
 
     writeControl(control, map("revision", "pause-revision", "paused", true));
-    ledger.tick(emptyMap(), ignored -> {}, true);
+    ledger.tick(emptyMap(), true);
     assertTrue(ledger.paused());
     assertEquals("paused", ledger.health(emptyMap()).get("status"));
 
@@ -185,14 +181,14 @@ class RuntimeLedgerBehaviorTest {
             false,
             "run",
             run("run-resumed", "case-resume")));
-    ledger.tick(emptyMap(), ignored -> {}, true);
+    ledger.tick(emptyMap(), true);
     assertFalse(ledger.paused());
     SecurityState resumedState = stateWithEvidence("trace-resumed", "fixture:resume");
     ledger.begin(resumedState);
     assertTrue(resumedState.collectionEnabled);
     assertEquals("run-resumed", resumedState.run.get("run_id"));
     ledger.end(resumedState);
-    ledger.tick(emptyMap(), ignored -> {}, true);
+    ledger.tick(emptyMap(), true);
 
     Map<?, ?> runs = read(output.resolve("runs.json"));
     List<?> records = (List<?>) runs.get("runs");
@@ -217,7 +213,7 @@ class RuntimeLedgerBehaviorTest {
     Map<String, Object> activeException =
         map(
             "scope",
-            map("application_id", Identity.applicationId(), "finding_id", findingId),
+            map("finding_id", findingId),
             "decision",
             "accepted_risk",
             "reason",
@@ -226,16 +222,25 @@ class RuntimeLedgerBehaviorTest {
             Instant.now().plusSeconds(300).toString());
     writeControl(
         control, map("revision", "exception-active", "exceptions", singletonList(activeException)));
-    ledger.tick(emptyMap(), ignored -> {}, true);
-    ledger.tick(emptyMap(), ignored -> {}, true);
+    ledger.tick(emptyMap(), true);
+    ledger.tick(emptyMap(), true);
     Map<?, ?> active = findingFrom(output.resolve("findings.json"), findingId);
     assertEquals("accepted_risk", ((Map<?, ?>) active.get("triage")).get("decision"));
     assertEquals("approved test fixture", ((Map<?, ?>) active.get("triage")).get("reason"));
 
+    Map<String, Object> otherFinding = new LinkedHashMap<>(activeException);
+    otherFinding.put("scope", map("finding_id", "another-finding"));
+    writeControl(
+        control,
+        map("revision", "exception-other-instance", "exceptions", singletonList(otherFinding)));
+    ledger.tick(emptyMap(), true);
+    Map<?, ?> unmatched = findingFrom(output.resolve("findings.json"), findingId);
+    assertThat(((Map<?, ?>) unmatched.get("triage")).get("decision")).isEqualTo("unreviewed");
+
     Map<String, Object> expired =
         map(
             "scope",
-            map("application_id", Identity.applicationId(), "finding_id", findingId),
+            map("finding_id", findingId),
             "decision",
             "false_positive",
             "reason",
@@ -244,21 +249,21 @@ class RuntimeLedgerBehaviorTest {
             Instant.now().minusSeconds(1).toString());
     writeControl(
         control, map("revision", "exception-expired", "exceptions", singletonList(expired)));
-    ledger.tick(emptyMap(), ignored -> {}, true);
+    ledger.tick(emptyMap(), true);
     Map<?, ?> afterExpiry = findingFrom(output.resolve("findings.json"), findingId);
     assertEquals("unreviewed", ((Map<?, ?>) afterExpiry.get("triage")).get("decision"));
 
     Map<String, Object> missingReason =
         map(
             "scope",
-            map("application_id", Identity.applicationId(), "finding_id", findingId),
+            map("finding_id", findingId),
             "decision",
             "accepted_risk",
             "expires_at",
             Instant.now().plusSeconds(300).toString());
     writeControl(
         control, map("revision", "exception-invalid", "exceptions", singletonList(missingReason)));
-    ledger.tick(emptyMap(), ignored -> {}, true);
+    ledger.tick(emptyMap(), true);
     Map<?, ?> invalidHealth = ledger.health(emptyMap());
     assertTrue(
         String.valueOf(invalidHealth.get("control_error")).contains("exception_reason_required"));
@@ -280,13 +285,13 @@ class RuntimeLedgerBehaviorTest {
             false,
             "run",
             run("run-source-baseline", "case-source-boundary")));
-    ledger.tick(emptyMap(), ignored -> {}, true);
+    ledger.tick(emptyMap(), true);
     SecurityState baseline =
         stateWithSource("baseline-value", "http.request.parameter", "value[0]", true);
     ledger.begin(baseline);
     ledger.end(baseline);
     writeControl(control, map("revision", "source-baseline-close", "paused", false));
-    ledger.tick(emptyMap(), ignored -> {}, true);
+    ledger.tick(emptyMap(), true);
 
     writeControl(
         control,
@@ -297,13 +302,13 @@ class RuntimeLedgerBehaviorTest {
             false,
             "run",
             run("run-source-candidate", "case-source-boundary")));
-    ledger.tick(emptyMap(), ignored -> {}, true);
+    ledger.tick(emptyMap(), true);
     SecurityState candidate =
         stateWithSource("header-value", "http.request.header", "Accept", false);
     ledger.begin(candidate);
     ledger.end(candidate);
     writeControl(control, map("revision", "source-candidate-close", "paused", false));
-    ledger.tick(emptyMap(), ignored -> {}, true);
+    ledger.tick(emptyMap(), true);
 
     List<?> records = (List<?>) read(output.resolve("runs.json")).get("runs");
     Map<?, ?> baselineRun =
@@ -336,90 +341,6 @@ class RuntimeLedgerBehaviorTest {
   }
 
   @Test
-  void snapshotsStayOrderedAndIsolatedWhileRequestsContinue(@TempDir Path temp) throws Exception {
-    Path control = temp.resolve("control.json");
-    System.setProperty("beacon.security.control.file", control.toString());
-    RuntimeLedger ledger = ledger(temp);
-    writeControl(control, map("revision", "concurrent", "run", run("concurrent", "case")));
-    ledger.tick(emptyMap(), event -> {}, true);
-    SecurityState first = stateWithEvidence("first", "fixture:concurrent");
-    ledger.begin(first);
-    ledger.end(first);
-    first.close();
-    CountDownLatch oldCaptured = new CountDownLatch(1);
-    CountDownLatch releaseOld = new CountDownLatch(1);
-    CountDownLatch nextStarted = new CountDownLatch(1);
-    CountDownLatch nextCaptured = new CountDownLatch(1);
-    CountDownLatch releaseNext = new CountDownLatch(1);
-    ExecutorService threads = Executors.newFixedThreadPool(2);
-    try {
-      Future<?> old =
-          threads.submit(
-              () ->
-                  ledger.tick(
-                      emptyMap(),
-                      event -> {
-                        oldCaptured.countDown();
-                        awaitRelease(releaseOld);
-                      },
-                      true));
-      assertTrue(oldCaptured.await(2, SECONDS));
-      threads
-          .submit(
-              () -> {
-                SecurityState second = stateWithEvidence("second", "fixture:concurrent");
-                ledger.begin(second);
-                ledger.end(second);
-                second.close();
-              })
-          .get(2, SECONDS);
-      Future<?> next =
-          threads.submit(
-              () -> {
-                nextStarted.countDown();
-                ledger.tick(
-                    emptyMap(),
-                    event -> {
-                      nextCaptured.countDown();
-                      awaitRelease(releaseNext);
-                    },
-                    true);
-              });
-      assertTrue(nextStarted.await(2, SECONDS));
-      assertThrows(TimeoutException.class, () -> next.get(50, MILLISECONDS));
-      releaseOld.countDown();
-      old.get(5, SECONDS);
-      assertTrue(nextCaptured.await(2, SECONDS));
-      Map<?, ?> before = runFrom(temp.resolve("runs.json"), "concurrent");
-      assertEquals(1L, ((Number) before.get("requests")).longValue());
-      for (String field :
-          new String[] {"finding_counts", "source_signatures", "risk_source_signatures"}) {
-        assertTrue(
-            ((Map<?, ?>) before.get(field))
-                .values().stream().allMatch(count -> ((Number) count).longValue() == 1));
-      }
-      releaseNext.countDown();
-      next.get(5, SECONDS);
-      Map<?, ?> after = runFrom(temp.resolve("runs.json"), "concurrent");
-      assertEquals(2L, ((Number) after.get("requests")).longValue());
-      for (String field :
-          new String[] {"finding_counts", "source_signatures", "risk_source_signatures"}) {
-        assertTrue(
-            ((Map<?, ?>) after.get(field))
-                .values().stream().allMatch(count -> ((Number) count).longValue() == 2));
-      }
-      Map<?, ?> finding =
-          (Map<?, ?>) ((List<?>) read(temp.resolve("findings.json")).get("findings")).get(0);
-      assertEquals(2L, ((Number) finding.get("occurrences")).longValue());
-    } finally {
-      releaseOld.countDown();
-      releaseNext.countDown();
-      threads.shutdownNow();
-      assertTrue(threads.awaitTermination(5, SECONDS));
-    }
-  }
-
-  @Test
   void runCounterBudgetIsSharedAcrossRunsAndStillCountsExistingKeys(@TempDir Path temp)
       throws Exception {
     System.setProperty("beacon.security.runs.max.bytes", "256");
@@ -427,7 +348,7 @@ class RuntimeLedgerBehaviorTest {
     System.setProperty("beacon.security.control.file", control.toString());
     RuntimeLedger ledger = ledger(temp);
     writeControl(control, map("revision", "budget-one", "run", run("one", "case")));
-    ledger.tick(emptyMap(), event -> {}, true);
+    ledger.tick(emptyMap(), true);
     for (String name : new String[] {"a", "b", "a"}) {
       SecurityState state = stateWithSource("value", "http.request.parameter", name, false);
       ledger.begin(state);
@@ -435,12 +356,12 @@ class RuntimeLedgerBehaviorTest {
       state.close();
     }
     writeControl(control, map("revision", "budget-two", "run", run("two", "case")));
-    ledger.tick(emptyMap(), event -> {}, true);
+    ledger.tick(emptyMap(), true);
     SecurityState state = stateWithSource("value", "http.request.parameter", "c", false);
     ledger.begin(state);
     ledger.end(state);
     state.close();
-    ledger.tick(emptyMap(), event -> {}, true);
+    ledger.tick(emptyMap(), true);
     Map<?, ?> first = runFrom(temp.resolve("runs.json"), "one");
     assertEquals(
         2L,
@@ -464,7 +385,7 @@ class RuntimeLedgerBehaviorTest {
     System.setProperty("beacon.security.control.file", control.toString());
     RuntimeLedger ledger = ledger(temp);
     ExecutorService thread = Executors.newSingleThreadExecutor();
-    Future<?> tick = thread.submit(() -> ledger.tick(emptyMap(), event -> {}, true));
+    Future<?> tick = thread.submit(() -> ledger.tick(emptyMap(), true));
     try {
       tick.get(2, SECONDS);
       assertEquals(
@@ -479,17 +400,6 @@ class RuntimeLedgerBehaviorTest {
       }
       thread.shutdownNow();
       assertTrue(thread.awaitTermination(5, SECONDS));
-    }
-  }
-
-  private static void awaitRelease(CountDownLatch release) {
-    try {
-      if (!release.await(5, SECONDS)) {
-        throw new AssertionError("snapshot not released");
-      }
-    } catch (InterruptedException error) {
-      Thread.currentThread().interrupt();
-      throw new AssertionError(error);
     }
   }
 

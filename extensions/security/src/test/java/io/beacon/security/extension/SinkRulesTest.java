@@ -186,9 +186,10 @@ class SinkRulesTest {
   void runtimeExecStringAndProcessBuilderUseTheSameShellClassification() throws Exception {
     // Runtime.exec(String) tokenizes on whitespace, so keep the shell script one token
     // and let the shell expand IFS into the printf arguments.
+    // Keep login-option coverage without executing developer or runner startup profiles.
     for (String optionAndValue : asList("-lc", "-lco posix")) {
       String script = new String("printf${IFS}%s${IFS}STRING_BEACON_SECURITY_MARKER");
-      String commandLine = new String("bash " + optionAndValue + " " + script);
+      String commandLine = new String("bash --noprofile --norc " + optionAndValue + " " + script);
       SecurityState runtimeState = markedToken(commandLine, script, "fixture:shell:string");
       List<SinkRules.Finding> runtimeFindings =
           classify(runtimeState, "java/lang/Runtime", "exec", null, new Object[] {commandLine});
@@ -201,7 +202,7 @@ class SinkRulesTest {
 
     String script = new String("printf '%s' PROCESS_BUILDER_BEACON_SECURITY_MARKER");
     SecurityState builderState = marked(script, "fixture:shell:builder");
-    ProcessBuilder builder = new ProcessBuilder("bash", "-lc", script);
+    ProcessBuilder builder = new ProcessBuilder("bash", "--noprofile", "--norc", "-lc", script);
     List<SinkRules.Finding> builderFindings =
         classify(builderState, "java/lang/ProcessBuilder", "start", builder, new Object[0]);
     ProcessResult builderProcess = run(builder.start());

@@ -114,6 +114,7 @@ async function main() {
         BEACON_SECURITY_ENABLED: 'true',
         BEACON_SECURITY_ANALYSIS_SQL_DIALECT: 'ansi',
         BEACON_SECURITY_LOCAL_OUTPUT_ENABLED: 'true',
+        BEACON_SECURITY_SBOM_REFRESH_SECONDS: '1',
         BEACON_SECURITY_OUTPUT: output,
         BEACON_SECURITY_EVIDENCE_FILE: join(output, 'evidence.jsonl'),
       },
@@ -158,7 +159,7 @@ async function main() {
       return value;
     }, 'one dynamic-SQL finding and no prepared-statement finding');
     const finding = findings.findings[0];
-    assert.equal(findings.schema_version, 1);
+    assert.equal(findings.schema_version, 2);
     assert.equal(findings.source, 'beacon_security');
     assert.equal(findings.identity.service['service.name'], 'beacon-security-smoke');
     assert.equal(finding.rule, 'sql_injection');
@@ -168,7 +169,16 @@ async function main() {
     assert.equal(finding.request.route, '/api/sql');
     assert.equal(finding.representative.event_name, 'beacon.security.finding');
     assert.equal(finding.representative.fingerprint_version, 1);
-    assert.equal(finding.representative.application_id, findings.identity.application_id);
+    assert.equal(finding.representative.instance_id, findings.identity.instance_id);
+    assert.ok(findings.identity.instance_id);
+    assert.ok(!Object.hasOwn(findings.identity, 'application_id'));
+    assert.ok(!Object.hasOwn(finding.representative, 'application_id'));
+    assert.ok(!Object.hasOwn(finding.representative, 'evidence_id'));
+    assert.ok(!Object.hasOwn(finding.representative, 'occurrences_total'));
+    if (finding.representative.component) {
+      assert.ok(finding.representative.component.name);
+      assert.ok(!Object.hasOwn(finding.representative.component, 'revision'));
+    }
 
     const health = JSON.parse(readFileSync(join(output, 'health.json'), 'utf8'));
     assert.equal(health.collection_status, 'enabled');
@@ -191,7 +201,7 @@ async function main() {
     const prepared = evidence.find((event) => event.event_name === 'beacon.security.finding'
       && event.request.route === '/api/sql/dynamic-prepared');
     assert.equal(prepared.attack_evidence.status, 'suspected');
-    assert.equal(prepared.attack_evidence.outcome, 'not_assessed');
+    assert.ok(!Object.hasOwn(prepared.attack_evidence, 'outcome'));
     const occurrences = evidence.filter((event) => event.event_name === 'beacon.security.finding'
       && event.request.route === '/api/sql');
     assert.equal(occurrences.length, 4);
@@ -206,7 +216,7 @@ async function main() {
     assert.equal(ordinary.filter((event) => event.evidence_sampled).length, 1);
     assert.equal(attacks.length, 1);
     assert.equal(attacks[0].evidence_sampled, true);
-    assert(occurrences.every((event) => event.execution_observation === 'invocation_attempt'));
+    assert(occurrences.every((event) => !Object.hasOwn(event, 'execution_observation')));
     for (const route of ['file', 'lines']) {
       await request(port, `/api/coverage/${route}?name=sample.txt`);
     }

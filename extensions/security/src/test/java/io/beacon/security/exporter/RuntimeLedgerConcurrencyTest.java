@@ -45,7 +45,7 @@ class RuntimeLedgerConcurrencyTest {
                 Thread.currentThread().interrupt();
                 throw new AssertionError(failure);
               }
-              return map("event_name", "test", "evidence_id", "evidence", "finding_id", "finding")
+              return map("event_name", "test", "occurrence_id", "evidence", "finding_id", "finding")
                   .entrySet();
             }
           };

@@ -31,6 +31,7 @@ jobs:
       matrix: ${{ steps.plan.outputs.matrix }}
       muzzle: ${{ steps.plan.outputs.muzzle }}
       full: ${{ steps.plan.outputs.full }}
+      partition_check: ${{ steps.plan.outputs.partition_check }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -139,6 +140,46 @@ jobs:
           git add -- licenses
           git diff --cached --exit-code -- licenses
 
+  partition-check:
+    name: Verify test partition coverage
+    needs: plan
+    if: ${{ (github.event_name != 'push' || github.ref != 'refs/heads/main') && needs.plan.outputs.partition_check == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: .github/scripts/gha-free-disk-space.sh
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+          cache: ''
+          package-manager-cache: false
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          distribution: temurin
+          java-version-file: .java-version
+      - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+        with:
+          cache-read-only: true
+      - name: Compare all legacy test partitions with direct discovery
+        run: |
+          ./gradlew check -x spotlessCheck listTestsInPartition -PtestPartition=0 \
+            -I beacon/testing/record-test-partitions.init.gradle --no-configuration-cache
+          cp test-tasks.txt build/beacon-ci/legacy-partition-0.txt
+          for partition in 0 1 2 3; do
+            ./gradlew listBeaconTestsInPartition "-PtestPartition=$partition"
+            cp test-tasks.txt "build/beacon-ci/optimized-partition-$partition.txt"
+          done
+          node beacon/scripts/verify-test-partitions.cjs
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ !cancelled() }}
+        with:
+          name: test-partition-coverage
+          path: build/beacon-ci/
+          if-no-files-found: warn
+
   tests:
     name: tests (JDK ${{ matrix.java }}, indy ${{ matrix.indy }}, part ${{ matrix.partition }})
     needs: plan
@@ -147,7 +188,7 @@ jobs:
     timeout-minutes: 90
     strategy:
       fail-fast: false
-      max-parallel: 8
+      max-parallel: 16
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -179,7 +220,7 @@ jobs:
           TEST_INDY: ${{ matrix.indy }}
           TEST_JAVA_PATH: ${{ steps.test-java.outputs.path }}
         run: |
-          ./gradlew check -x spotlessCheck listTestsInPartition "-PtestPartition=$TEST_PARTITION"
+          ./gradlew listBeaconTestsInPartition "-PtestPartition=$TEST_PARTITION"
           mapfile -t tasks < test-tasks.txt
           test "${#tasks[@]}" -gt 0
           for task in "${tasks[@]}"; do
@@ -187,7 +228,7 @@ jobs:
           done
           ./gradlew "${tasks[@]}" "-PtestJavaVersion=$TEST_JAVA" -PtestJavaVM=hotspot \
             "-PtestIndy=$TEST_INDY" "-Porg.gradle.java.installations.paths=$TEST_JAVA_PATH" \
-            -Porg.gradle.java.installations.auto-download=false
+            -Porg.gradle.java.installations.auto-download=false -PtestShowStandardStreams=false
       - name: Upload test reports
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -230,7 +271,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
         with:
           cache-read-only: true
-      - run: ./gradlew :smoke-tests:test -PskipOpenJ9SmokeTests=true
+      - run: ./gradlew :smoke-tests:test -PskipOpenJ9SmokeTests=true -PtestShowStandardStreams=false
       - if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -240,7 +281,7 @@ jobs:
 
   required:
     name: Beacon required
-    needs: [plan, build, quality, tests, muzzle, latest-deps, native, upstream-smoke]
+    needs: [plan, build, quality, partition-check, tests, muzzle, latest-deps, native, upstream-smoke]
     if: ${{ always() && github.repository == 'beacon-observability/beacon-java' }}
     runs-on: ubuntu-latest
     env:
@@ -254,6 +295,7 @@ jobs:
           const needs = JSON.parse(process.env.NEEDS_JSON);
           const lightweight = process.env.LIGHTWEIGHT === 'true';
           const required = lightweight ? ['plan', 'build'] : ['plan', 'build', 'quality', 'tests'];
+          if (!lightweight && needs.plan.outputs.partition_check === 'true') required.push('partition-check');
           if (!lightweight && needs.plan.outputs.muzzle === 'true') required.push('muzzle');
           if (!lightweight && needs.plan.outputs.full === 'true') {
             required.push('latest-deps', 'upstream-smoke');

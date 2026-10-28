@@ -1,0 +1,33 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
+import groovy.json.JsonOutput
+import org.gradle.api.tasks.testing.Test
+import java.util.concurrent.ConcurrentHashMap
+
+if (!gradle.startParameter.taskNames.contains('listTestsInPartition')) {
+  return
+}
+
+// Observe natural realization by the legacy check graph without realizing extra tasks.
+def observed = ConcurrentHashMap.newKeySet()
+gradle.beforeProject { child ->
+  child.tasks.withType(Test).configureEach { test -> observed.add(test.path) }
+}
+gradle.taskGraph.whenReady { graph ->
+  if (!graph.hasTask(':listTestsInPartition')) {
+    return
+  }
+  def partitions = (0..3).collectEntries { [(it.toString()): []] }
+  gradle.rootProject.subprojects.eachWithIndex { child, index ->
+    partitions[(index % 4).toString()].addAll(observed.findAll { path ->
+      path.substring(0, path.lastIndexOf(':')) == child.path &&
+        path != ':smoke-tests:test' && path != ':instrumentation:test'
+    })
+  }
+  partitions.values().each { it.sort() }
+  def output = new File(gradle.rootProject.layout.buildDirectory.get().asFile,
+    'beacon-ci/legacy-test-partitions.json')
+  output.parentFile.mkdirs()
+  output.text = JsonOutput.prettyPrint(JsonOutput.toJson(partitions))
+}

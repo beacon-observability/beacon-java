@@ -10,23 +10,41 @@ The product development branch is `main`. [Beacon CI](../.github/workflows/beaco
 | Upstream synchronization, shared build, or agent core changes | JDK 8 with classic transformation, JDK 17 with Indy, and JDK 21 with both modes, each across 4 partitions, for 16 test jobs | 4 Muzzle partitions |
 | Manual `full` selection | JDK 8/11/17/21/25/26 × 4 partitions × 2 Indy modes, for 48 test jobs | Muzzle, latest-dependency tests, and upstream Linux container smoke tests |
 
-All three pull-request and manual tiers build the complete agent; validate the Beacon file name, Manifest, and provenance; run maintainer-script and packaging regression tests; run packaged-agent HTTP instrumentation, TraceContext, OTLP trace export, and embedded-Security smoke tests; run the JDK 21 / Spring Boot 3.5.7 packaged-agent JDBC regression against PostgreSQL 16.15 with Trace, Logs, Metrics, and Security combinations; and run formatting, package-name, other static checks, and license-list checks. Module tests reuse upstream `listTestsInPartition` without excluding test modules by directory. Tests wired into Gradle for Beacon-specific enhancements are included. A module without tests does not automatically gain functional acceptance.
+All three pull-request and manual tiers build the complete agent; validate the Beacon file name, Manifest, and provenance; run maintainer-script and packaging regression tests; run packaged-agent HTTP instrumentation, TraceContext, OTLP trace export, and embedded-Security smoke tests; run the JDK 21 / Spring Boot 3.5.7 packaged-agent JDBC regression against PostgreSQL 16.15 with Trace, Logs, Metrics, and Security combinations; and run formatting, package-name, other static checks, and license-list checks. Module tests use `listBeaconTestsInPartition`, preserving upstream's four project partitions and separate smoke/aggregate exclusions. It realizes registered Test tasks directly after project configuration, including late and detached tasks, without resolving the full `check` dependency graph or executing tests. Tests wired into Gradle for Beacon-specific enhancements are included. A module without tests does not automatically gain functional acceptance.
 
 After a pull request has passed its selected tier and is merged, the `main` push runs only the clean agent build, packaging verification, and packaged-agent smoke test. The merge ruleset prevents direct pushes, so repeating the complete pull-request matrix on the resulting merge commit would add substantial latency without testing different file content. Manual `full` validation remains available when release acceptance or an explicit post-merge rerun is required.
 
 The [planning script](scripts/ci-plan.cjs) selects a tier from the complete Git diff rather than branch names or pull-request labels. Pull requests compare the base SHA with GitHub's default checked-out merge result; pushes compare the before SHA with the current commit. A missing baseline expands validation to the upgrade tier, while an unreadable otherwise-valid SHA fails rather than silently reducing coverage. Changes to settings, baselines, dependencies, shared test infrastructure, or CI itself expand the matrix. The script and its tests define the exact path rules.
 
-At most eight matrix jobs run concurrently. A new commit cancels an older Beacon CI run for the same pull request. It does not automatically cancel upstream workflows that began before migration.
+At most 16 matrix jobs run concurrently, subject to available GitHub runner capacity. The full
+48-job matrix therefore needs at least three batches. A new commit cancels an older Beacon CI run
+for the same pull request. It does not automatically cancel upstream workflows that began before migration.
+
+Beacon test jobs set `testShowStandardStreams=false` to avoid streaming successful tests' verbose
+Agent DEBUG output. Full per-test stdout/stderr remains in the uploaded JUnit XML and HTML reports;
+test failures and full exception details still appear in the console. Local Gradle runs retain
+standard-stream logging unless this property is explicitly set.
 
 Wrapper validation, path-triggered metadata checks, dependency review, CodeQL, and workflow security scans continue to run independently and are not included in the test-job counts above. `Beacon required` does not replace them; configure them separately as required checks when appropriate.
 
 ### Merge gate
 
-`Beacon required` summarizes the checks selected for the current change. A required job that fails, is canceled, or is unexpectedly skipped prevents the gate from passing; only optional jobs that were not selected may be skipped. The GitHub Ruleset for `main` requires this check and currently does not require pull-request approval. Editing workflow files does not automatically update GitHub branch protection.
+`Beacon required` summarizes the checks selected for the current change. Collector changes and manual
+full runs also compare all four direct-discovery partitions against an independent snapshot from the
+legacy `check` graph. Missing or duplicated tests fail the gate; additional registered tests are
+listed in the uploaded coverage report. A required job that fails, is canceled, or is unexpectedly skipped prevents the gate from passing; only optional jobs that were not selected may be skipped. The GitHub Ruleset for `main` requires this check and currently does not require pull-request approval. Editing workflow files does not automatically update GitHub branch protection.
 
 Fix the cause of a failing check; do not remove checks solely to obtain a green status. CI artifacts are development artifacts, not formal releases, and a successful build does not replace functional or release acceptance.
 
 The artifact-producing build disables Node package-manager and Gradle user-home caches so restored content cannot enter the downloadable agent. Quality, module-test, and upstream-smoke jobs may restore Gradle caches read-only because they upload only reports, not runtime artifacts. Formal release candidates must continue to come from the cache-isolated build path.
+
+[Warm Beacon test caches](../.github/workflows/beacon-test-cache.yml) refreshes those read-only
+test caches after a push to trusted `main`, or a manual dispatch on `main`. It uses the legacy
+disabled-task collector once for baseline dependencies and once for pinned latest dependencies,
+then builds the shared test Agent into the local build cache. Future test runners can restore
+current configuration, dependencies, and shared test infrastructure. This workflow runs
+no test suite, uploads no Agent, and does not serve as release acceptance. After merging CI or
+dependency changes, let this warmer finish before launching a manual full validation.
 
 ### Extended validation and test images
 

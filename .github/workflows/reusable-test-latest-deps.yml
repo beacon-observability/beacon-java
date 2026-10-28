@@ -68,8 +68,7 @@ jobs:
           DEVELOCITY_ACCESS_KEY: ${{ secrets.DEVELOCITY_ACCESS_KEY }}
         run: >
           ./gradlew
-          check -x spotlessCheck
-          listTestsInPartition
+          listBeaconTestsInPartition
           -PtestPartition=${{ matrix.test-partition }}
           -PtestLatestDeps=true
 
@@ -84,6 +83,7 @@ jobs:
           ./gradlew
           ${test_tasks}
           -PtestLatestDeps=true
+          -PtestShowStandardStreams=false
           ${{ inputs.no-build-cache && ' --no-build-cache' || '' }}
 
       - name: Build scan

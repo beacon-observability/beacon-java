@@ -1,0 +1,39 @@
+name: Warm Beacon test caches
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: beacon-test-cache-main
+  cancel-in-progress: false
+
+jobs:
+  warm:
+    if: github.repository == 'beacon-observability/beacon-java' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: .github/scripts/gha-free-disk-space.sh
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          distribution: temurin
+          java-version-file: .java-version
+      - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+        with:
+          cache-read-only: false
+      # Resolve the complete dependency graphs once on trusted main. The legacy collector
+      # disables execution; it warms metadata without running tests.
+      - name: Warm baseline test dependencies and build configuration
+        run: ./gradlew check -x spotlessCheck listTestsInPartition -PtestPartition=0
+      - name: Warm pinned latest-dependency test configuration
+        run: ./gradlew check -x spotlessCheck listTestsInPartition -PtestPartition=0 -PtestLatestDeps=true
+      - name: Cache shared test infrastructure
+        run: ./gradlew :testing:agent-for-testing:jar

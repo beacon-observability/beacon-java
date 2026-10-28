@@ -27,6 +27,9 @@ open class OtelPropsExtension(private val project: Project) {
   val maxTestRetries: Int?
     get() = project.findProperty("maxTestRetries")?.toString()?.toInt()
 
+  val testShowStandardStreams: Boolean
+    get() = project.findProperty("testShowStandardStreams")?.toString()?.toBoolean() ?: true
+
   val enableStrictContext: Boolean
     get() = project.findProperty("enableStrictContext")?.toString()?.toBoolean() ?: true
 }

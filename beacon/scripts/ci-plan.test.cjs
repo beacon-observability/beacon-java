@@ -49,8 +49,19 @@ test('manual full profile covers the expanded JDK matrix', () => {
   assert.equal(result.full, true);
   assert.equal(result.muzzle, true);
   assert.equal(result.matrix.include.length, 48);
+  assert.equal(result.partition_check, true);
   assert.deepEqual(modes(result), [
     '11:false', '11:true', '17:false', '17:true', '21:false', '21:true',
     '25:false', '25:true', '26:false', '26:true', '8:false', '8:true',
   ]);
+});
+
+test('collector changes require coverage comparison and cross-JDK regression', () => {
+  for (const file of ['build.gradle.kts', 'beacon/testing/test-partitions.gradle.kts',
+    'beacon/testing/record-test-partitions.init.gradle', 'beacon/scripts/verify-test-partitions.cjs']) {
+    const result = plan([file]);
+    assert.equal(result.partition_check, true, file);
+    assert.equal(result.profile, 'upgrade', file);
+  }
+  assert.equal(plan(['README.md']).partition_check, false);
 });

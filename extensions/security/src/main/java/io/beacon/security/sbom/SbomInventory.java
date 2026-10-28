@@ -42,6 +42,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.function.Consumer;
 import java.util.logging.Logger;
@@ -80,6 +81,8 @@ public final class SbomInventory implements AutoCloseable, ArchiveScanner.Receiv
   private long collectedUptimeMillis;
   private volatile long lastFailure;
   private volatile String lastErrorType;
+  private boolean awaitingApplication;
+  private final int refreshSeconds = Settings.limit("beacon.security.sbom.refresh.seconds", 300);
 
   public SbomInventory(Instrumentation instrumentation, Consumer<Map<String, Object>> events) {
     this(instrumentation, events, emptyMap());
@@ -115,16 +118,22 @@ public final class SbomInventory implements AutoCloseable, ArchiveScanner.Receiv
   }
 
   public void start() {
-    worker.scheduleWithFixedDelay(
-        this::refreshSafely,
-        0,
-        Settings.limit("beacon.security.sbom.refresh.seconds", 300),
-        SECONDS);
+    worker.execute(this::refreshAndSchedule);
+  }
+
+  private void refreshAndSchedule() {
+    refreshSafely();
+    try {
+      worker.schedule(this::refreshAndSchedule, awaitingApplication ? 1 : refreshSeconds, SECONDS);
+    } catch (RejectedExecutionException ignored) {
+      // close() may shut down the worker while its current collection is completing.
+    }
   }
 
   // Jackson returns erased CycloneDX maps; each document is checked before publication.
   @SuppressWarnings("unchecked")
   public synchronized void refresh() throws IOException {
+    awaitingApplication = false;
     collectedAt = Math.max(System.currentTimeMillis(), collectedAt + 1);
     collectedUptimeMillis = runtime.getUptime();
     components.clear();
@@ -358,7 +367,7 @@ public final class SbomInventory implements AutoCloseable, ArchiveScanner.Receiv
     Map<String, Map<String, Object>> metadata = new HashMap<>();
     for (Map.Entry<String, String> entry : locations.entrySet()) {
       Map<String, Object> record = records.get(entry.getValue());
-      if (record != null) {
+      if (record != null && "library".equals(record.get("type"))) {
         resolved.put(
             entry.getKey(),
             metadata.computeIfAbsent(
@@ -380,6 +389,12 @@ public final class SbomInventory implements AutoCloseable, ArchiveScanner.Receiv
       }
     }
     if (failure == null) {
+      if (refreshedAt == 0 && emptyList().equals(inventoryEvents.get(0).get("dependencies"))) {
+        // A premain collection can precede the application class loader. Do not publish a
+        // misleading empty inventory and then leave it visible for the full refresh interval.
+        awaitingApplication = true;
+        return;
+      }
       // One immutable mapping is visible to all request-side readers.
       published = Collections.unmodifiableMap(resolved);
       refreshedAt = collectedAt;

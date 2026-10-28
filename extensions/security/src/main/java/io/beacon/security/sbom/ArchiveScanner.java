@@ -26,6 +26,8 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.jar.Manifest;
 import java.util.logging.Logger;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.zip.CRC32;
 import java.util.zip.CheckedInputStream;
 import java.util.zip.ZipEntry;
@@ -39,6 +41,8 @@ import org.w3c.dom.NodeList;
 
 final class ArchiveScanner {
   private static final Logger logger = Logger.getLogger(ArchiveScanner.class.getName());
+  private static final Pattern manifestCoordinates =
+      Pattern.compile("([A-Za-z0-9_.-]+)#([A-Za-z0-9_.-]+);([^;#\\s]+)");
 
   interface Receiver {
     void component(Component component, String location, boolean primary);
@@ -229,6 +233,11 @@ final class ArchiveScanner {
       }
     }
     Properties primary = primaryCoordinates(coordinates, location);
+    String source = "maven-metadata";
+    if (primary == null && coordinates.isEmpty()) {
+      primary = manifestCoordinates(title, version, location);
+      source = "manifest-coordinates";
+    }
     if (primary != null) {
       Properties p = primary;
       Component component =
@@ -237,7 +246,7 @@ final class ArchiveScanner {
               p.getProperty("groupId"),
               p.getProperty("version"),
               hash,
-              "maven-metadata",
+              source,
               location);
       component.licenses.addAll(licenses);
       receiver.component(component, location, true);
@@ -277,6 +286,27 @@ final class ArchiveScanner {
     for (Map<String, Object> bom : imported) {
       receiver.imported(location, bom);
     }
+  }
+
+  @Nullable
+  private static Properties manifestCoordinates(
+      @Nullable String title, @Nullable String version, String location) {
+    if (title == null || version == null) {
+      return null;
+    }
+    // Some publishers encode Ivy coordinates in Implementation-Title. Require the explicit
+    // version and artifact filename to agree; vendor and OSGi bundle names are not Maven groups.
+    Matcher match = manifestCoordinates.matcher(title);
+    if (!match.matches()
+        || !version.equals(match.group(3))
+        || !fileName(location).equals(match.group(2) + "-" + version + ".jar")) {
+      return null;
+    }
+    Properties result = new Properties();
+    result.setProperty("groupId", match.group(1));
+    result.setProperty("artifactId", match.group(2));
+    result.setProperty("version", version);
+    return result;
   }
 
   @Nullable
@@ -397,7 +427,8 @@ final class ArchiveScanner {
     receiver.incomplete(reason);
     logger.log(
         WARNING,
-        "[BeaconSecurity] SBOM scan limit reached: reason={0}, location={1}, limit_bytes={2}, observed_bytes={3}",
+        "[BeaconSecurity] SBOM scan limit reached: reason={0}, location={1}, limit_bytes={2},"
+            + " observed_bytes={3}",
         new Object[] {reason, location, Long.toString(limit), Long.toString(observed)});
     throw new ScanLimitException(reason);
   }

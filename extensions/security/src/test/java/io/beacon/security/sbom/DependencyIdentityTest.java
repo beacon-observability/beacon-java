@@ -40,6 +40,24 @@ class DependencyIdentityTest {
   }
 
   @Test
+  void excludesGeneratedClassDirectoriesFromDependencies() throws IOException {
+    Component generated = new Component("tmall", "", "", null, "classes-directory");
+    generated.loaded = true;
+    Component application =
+        new Component("tmall", "com.xq.tmall", "1.0-SNAPSHOT", null, "maven-metadata");
+    application.loaded = true;
+
+    List<Map<String, Object>> events =
+        DependencyInventory.events(
+            map("event_name", "beacon.security.sbom.inventory"),
+            asList(generated.json(), application.json()));
+
+    assertThat(generated.json()).containsEntry("type", "application");
+    assertThat(events.get(0).get("dependencies"))
+        .isEqualTo(asList(DependencyInventory.dependency(application.json())));
+  }
+
+  @Test
   void deduplicatesCoordinatesAcrossPathsAndArtifactContents() throws IOException {
     Component first =
         new Component("library-a", "org.example", "1.0.0", "aabb", "maven-metadata", "/first.jar");

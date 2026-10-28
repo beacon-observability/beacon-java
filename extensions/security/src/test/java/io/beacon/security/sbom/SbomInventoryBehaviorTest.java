@@ -511,7 +511,8 @@ class SbomInventoryBehaviorTest {
     List<Map<String, Object>> events = new ArrayList<>();
     System.setProperty(
         "beacon.security.sbom.output", temp.resolve("first/application.cdx.json").toString());
-    SbomInventory first = new SbomInventory(instrumentation(), events::add, identity);
+    SbomInventory first =
+        new SbomInventory(instrumentation(typeAt(artifact.toUri().toURL())), events::add, identity);
     System.setProperty(
         "beacon.security.sbom.output", temp.resolve("second/application.cdx.json").toString());
     SbomInventory second = new SbomInventory(null, ignored -> {}, identity);
@@ -616,15 +617,18 @@ class SbomInventoryBehaviorTest {
     String originalClasspath = System.getProperty("java.class.path");
     System.setProperty("java.class.path", artifact.toString());
     List<Map<String, Object>> events = new ArrayList<>();
-    SbomInventory inventory = inventory(temp.resolve("application.cdx.json"), events, null);
+    AtomicReference<Class<?>[]> observed =
+        new AtomicReference<>(new Class<?>[] {typeAt(artifact.toUri().toURL())});
+    SbomInventory inventory =
+        inventory(temp.resolve("application.cdx.json"), events, instrumentation(observed));
     try {
       inventory.refresh();
       System.setProperty("java.class.path", "");
+      observed.set(new Class<?>[0]);
       inventory.refresh();
       Map<String, Object> current = read(inventory.output());
       assertTrue(((List<?>) current.get("components")).isEmpty());
-      Map<String, Object> snapshot =
-          event(events, "beacon.security.sbom.inventory", "source", "beacon_security_sbom");
+      Map<String, Object> snapshot = events.get(events.size() - 1);
       assertNotNull(snapshot);
       assertTrue(((List<?>) snapshot.get("dependencies")).isEmpty());
 
@@ -802,7 +806,11 @@ class SbomInventoryBehaviorTest {
     Path artifact = mavenJar(temp, "stable.jar", "org.example", "stable", "1.0.0", "stable");
     System.setProperty("java.class.path", artifact.toString());
     List<Map<String, Object>> events = new ArrayList<>();
-    SbomInventory inventory = inventory(temp.resolve("application.cdx.json"), events, null);
+    SbomInventory inventory =
+        inventory(
+            temp.resolve("application.cdx.json"),
+            events,
+            instrumentation(typeAt(artifact.toUri().toURL())));
     try {
       inventory.refresh();
       inventory.refresh();
@@ -823,7 +831,11 @@ class SbomInventoryBehaviorTest {
     Path second = mavenJar(temp, "second.jar", "org.example", "second", "1.0.0", "second");
     System.setProperty("java.class.path", first.toString());
     List<Map<String, Object>> events = new ArrayList<>();
-    SbomInventory inventory = inventory(temp.resolve("application.cdx.json"), events, null);
+    SbomInventory inventory =
+        inventory(
+            temp.resolve("application.cdx.json"),
+            events,
+            instrumentation(typeAt(first.toUri().toURL())));
     String previousLimit = System.getProperty("beacon.security.evidence.max.bytes");
     try {
       inventory.refresh();
@@ -854,7 +866,8 @@ class SbomInventoryBehaviorTest {
     Path output = temp.resolve("nested-output/application.cdx.json");
     System.setProperty("java.class.path", firstArtifact.toString());
     List<Map<String, Object>> events = new ArrayList<>();
-    SbomInventory inventory = inventory(output, events, null);
+    SbomInventory inventory =
+        inventory(output, events, instrumentation(typeAt(firstArtifact.toUri().toURL())));
     Set<PosixFilePermission> writable = PosixFilePermissions.fromString("rwx------");
     Set<PosixFilePermission> readOnly = PosixFilePermissions.fromString("r-x------");
     try {
@@ -1390,7 +1403,9 @@ class SbomInventoryBehaviorTest {
             mapOf(
                 "META-INF/MANIFEST.MF",
                 bytes(
-                    "Manifest-Version: 1.0\r\nImplementation-Title: Apache Tomcat\r\nImplementation-Version: 9.0.55\r\n\r\n")));
+                    "Manifest-Version: 1.0\r\n"
+                        + "Implementation-Title: Apache Tomcat\r\n"
+                        + "Implementation-Version: 9.0.55\r\n\r\n")));
     System.setProperty("beacon.security.local-output.enabled", "false");
 
     RecordingReceiver receiver = scan(artifact);
@@ -1402,6 +1417,58 @@ class SbomInventoryBehaviorTest {
     assertThat(component.hash).isNull();
     assertThat(DependencyInventory.dependency(component.json()))
         .isEqualTo(dependency(artifactId, "9.0.55"));
+  }
+
+  @Test
+  void recoversExplicitManifestCoordinates(@TempDir Path temp) throws IOException {
+    Path artifact =
+        archive(
+            temp,
+            "micrometer-core-1.8.0.jar",
+            mapOf(
+                "META-INF/MANIFEST.MF",
+                bytes(
+                    "Manifest-Version: 1.0\r\n"
+                        + "Implementation-Title: io.micrometer#micrometer-core;1.8.0\r\n"
+                        + "Implementation-Version: 1.8.0\r\n\r\n")));
+
+    RecordingReceiver receiver = scan(artifact);
+
+    assertThat(receiver.components).hasSize(1);
+    Component component = receiver.components.get(0).component;
+    assertThat(component.source).isEqualTo("manifest-coordinates");
+    assertThat(DependencyInventory.dependency(component.json()))
+        .isEqualTo(dependency("io.micrometer:micrometer-core", "1.8.0"));
+  }
+
+  @ParameterizedTest
+  @ValueSource(
+      strings = {
+        "io.micrometer#micrometer-core;2.0.0",
+        "io.micrometer#another-artifact;1.8.0",
+        "Micrometer Core"
+      })
+  void doesNotGuessCoordinatesFromConflictingOrGenericManifests(String title, @TempDir Path temp)
+      throws IOException {
+    Path artifact =
+        archive(
+            temp,
+            "micrometer-core-1.8.0.jar",
+            mapOf(
+                "META-INF/MANIFEST.MF",
+                bytes(
+                    "Manifest-Version: 1.0\r\nImplementation-Title: "
+                        + title
+                        + "\r\n"
+                        + "Implementation-Version: 1.8.0\r\n"
+                        + "Implementation-Vendor-Id: io.micrometer\r\n"
+                        + "Bundle-SymbolicName: io.micrometer.core\r\n\r\n")));
+
+    RecordingReceiver receiver = scan(artifact);
+
+    assertThat(receiver.components).hasSize(1);
+    assertThat(DependencyInventory.dependency(receiver.components.get(0).component.json()))
+        .isEqualTo(dependency("micrometer-core", "1.8.0"));
   }
 
   @Test
@@ -1489,18 +1556,60 @@ class SbomInventoryBehaviorTest {
   }
 
   @Test
-  void defaultIntervalDoesNotKeepTheOldFiveSecondRefresh() throws Exception {
+  void defaultIntervalDoesNotKeepTheOldFiveSecondRefresh(@TempDir Path temp) throws Exception {
+    Path artifact = mavenJar(temp, "library.jar", "org.example", "library", "1.0", "payload");
+    Class<?> loaded = typeAt(artifact.toUri().toURL());
     System.clearProperty("beacon.security.sbom.refresh.seconds");
     System.setProperty("beacon.security.local-output.enabled", "false");
     System.setProperty("java.class.path", "");
     CountDownLatch received = new CountDownLatch(2);
-    SbomInventory inventory = new SbomInventory(instrumentation(), event -> received.countDown());
+    SbomInventory inventory =
+        new SbomInventory(instrumentation(loaded), event -> received.countDown());
     try {
       inventory.start();
       assertThat(received.await(6, SECONDS)).isFalse();
       assertThat(received.getCount()).isEqualTo(1);
     } finally {
       inventory.close();
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void firstSnapshotWaitsForApplicationWithoutTheFiveMinuteDelay(
+      boolean generatedDirectoryLoaded, @TempDir Path temp) throws Exception {
+    Path artifact =
+        mavenJar(temp, "application.jar", "org.example", "application", "1.0", "payload");
+    Class<?> application = typeAt(artifact.toUri().toURL());
+    System.clearProperty("beacon.security.sbom.refresh.seconds");
+    System.setProperty("beacon.security.local-output.enabled", "false");
+    System.setProperty("java.class.path", "");
+    AtomicReference<Class<?>[]> observed =
+        new AtomicReference<>(
+            generatedDirectoryLoaded
+                ? new Class<?>[] {
+                  typeAt(Files.createDirectory(temp.resolve("tmall")).toUri().toURL())
+                }
+                : new Class<?>[0]);
+    CountDownLatch firstSample = new CountDownLatch(1);
+    CountDownLatch delivered = new CountDownLatch(1);
+    List<Map<String, Object>> events = new CopyOnWriteArrayList<>();
+    try (SbomInventory inventory =
+        new SbomInventory(
+            instrumentation(observed, firstSample::countDown),
+            event -> {
+              events.add(event);
+              delivered.countDown();
+            })) {
+      inventory.start();
+      assertThat(firstSample.await(5, SECONDS)).isTrue();
+      observed.set(new Class<?>[] {application});
+      assertThat(delivered.await(5, SECONDS)).isTrue();
+
+      assertThat(events).hasSize(1);
+      assertThat(events.get(0).get("dependencies"))
+          .isEqualTo(singletonList(dependency("org.example:application", "1.0")));
+      assertThat(inventory.health()).containsEntry("status", "ok");
     }
   }
 
@@ -1608,13 +1717,20 @@ class SbomInventoryBehaviorTest {
   }
 
   private static Instrumentation instrumentation(AtomicReference<Class<?>[]> loaded) {
+    return instrumentation(loaded, () -> {});
+  }
+
+  private static Instrumentation instrumentation(
+      AtomicReference<Class<?>[]> loaded, Runnable sampled) {
     return (Instrumentation)
         Proxy.newProxyInstance(
             SbomInventoryBehaviorTest.class.getClassLoader(),
             new Class<?>[] {Instrumentation.class},
             (proxy, method, args) -> {
               if (method.getName().equals("getAllLoadedClasses")) {
-                return loaded.get();
+                Class<?>[] snapshot = loaded.get();
+                sampled.run();
+                return snapshot;
               }
               if (method.getReturnType() == boolean.class) {
                 return false;

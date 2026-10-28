@@ -150,10 +150,14 @@ enclosing application. Unloaded classpath entries and nested libraries are not p
 entries select Maven/manifest metadata without inflating unrelated class files or resources.
 Maven coordinates are preferred, with `name=groupId:artifactId` and a separate `version`. For a
 shaded JAR, a unique Maven coordinate matching the actual `artifactId-version.jar` filename
-identifies its primary component. Without Maven coordinates, the actual JAR filename identifies
+identifies its primary component. Explicit `group#artifact;version` Manifest titles also provide
+coordinates when the artifact filename and Manifest version agree. Vendor IDs and OSGi bundle
+names are not treated as Maven groups. Without these coordinates, the actual JAR filename identifies
 the artifact; an exact known version suffix is removed. Generic product titles such as
 `Apache Tomcat` do not replace distinct artifact names. Unknown groups are omitted from `name`
 and unknown versions remain empty, rather than inventing Maven coordinates.
+Loaded class directories, including JSP compiler output, remain diagnostic application components
+and are excluded from dependency inventory and finding component resolution.
 
 Every exported dependency and finding component has the same `name`, `version`, `hash` shape.
 `hash` is the lowercase 32-character MD5 of the UTF-8 compact JSON array `[name,version]`, with
@@ -174,7 +178,9 @@ nested libraries, with content hashes, licenses, and embedded SBOM metadata.
 
 Successfully parsed metadata is reused while the outer file's size, modification time, and file key
 are unchanged. Every collection still rebuilds the currently loaded list and exports a complete
-snapshot, including when unchanged or empty. New origins and changed files are parsed; failures
+snapshot, including when unchanged or empty after a previous nonempty snapshot. Before the first
+dependency is observed, collection retries every second without publishing an empty startup list;
+the normal refresh interval starts after the first nonempty inventory. New origins and changed files are parsed; failures
 are retried on the next collection. `beacon.security.sbom.cache.seconds` is no longer used to expire
 successful parses. File attributes are a cache invalidation check, not a content-integrity check.
 

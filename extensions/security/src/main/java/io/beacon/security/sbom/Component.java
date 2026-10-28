@@ -93,7 +93,11 @@ final class Component {
   }
 
   Map<String, Object> json() {
-    Map<String, Object> result = map("type", "library", "bom-ref", ref, "name", name);
+    Map<String, Object> result =
+        map(
+            "type", source.equals("classes-directory") ? "application" : "library",
+            "bom-ref", ref,
+            "name", name);
     if (!group.isEmpty()) {
       result.put("group", group);
     }

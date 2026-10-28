@@ -201,6 +201,10 @@ test('only trusted main refreshes the test cache without uploading runtime artif
   assert.match(warm, /branches: \[main\]/);
   assert.match(warm, /github\.repository == 'beacon-observability\/beacon-java' && github\.ref == 'refs\/heads\/main'/);
   assert.match(warm, /cache-read-only: false/);
+  assert.match(warm, /schedule:\n    - cron:/);
+  assert.match(warm, /cache-generation: \['\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}'\]/);
+  assert.equal((warm.match(/warmBeaconTestDependencies -I beacon\/testing\/warm-dependencies\.init\.gradle/g) || []).length, 2);
+  assert.doesNotMatch(warm, /check -x spotlessCheck listTestsInPartition/);
   assert.match(warm, /-PtestLatestDeps=true/);
   assert.doesNotMatch(warm, /pull_request|upload-artifact|:javaagent:assemble|contents: write/);
 });

@@ -1,0 +1,45 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
+import org.gradle.api.artifacts.component.ModuleComponentIdentifier
+import org.gradle.api.tasks.SourceSetContainer
+
+if (!gradle.startParameter.taskNames.contains('warmBeaconTestDependencies')) {
+  return
+}
+
+gradle.projectsEvaluated {
+  def warmers = []
+  // Configure each project under its own state lock, as with test partition discovery.
+  gradle.rootProject.allprojects { child ->
+    def sources = child.extensions.findByType(SourceSetContainer)
+    if (sources == null) {
+      return
+    }
+    def names = sources.collectMany { source ->
+      [source.compileClasspathConfigurationName, source.runtimeClasspathConfigurationName,
+       source.annotationProcessorConfigurationName]
+    }.unique()
+    def artifacts = names.collect { name ->
+      child.configurations.getByName(name).incoming.artifactView {
+        // Project outputs are built separately. Do not execute compile, JAR, or test tasks
+        // merely to download third-party dependencies.
+        componentFilter { component -> component instanceof ModuleComponentIdentifier }
+      }.files
+    }
+    def projectPath = child.path
+    warmers.add(child.tasks.register('warmBeaconDependencies') {
+      notCompatibleWithConfigurationCache('Cache warming resolves external dependency file collections')
+      doLast {
+        def files = artifacts.collectMany { it.files }.toSet()
+        logger.lifecycle('Warmed {} external artifacts across {} classpaths in {}',
+          files.size(), artifacts.size(), projectPath)
+      }
+    })
+  }
+  gradle.rootProject.tasks.register('warmBeaconTestDependencies') {
+    group = 'Help'
+    description = 'Download external compile, runtime, and annotation processor dependencies'
+    dependsOn(warmers)
+  }
+}

@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+  schedule:
+    - cron: '17 19 * * *'
 
 permissions:
   contents: read
@@ -17,6 +19,11 @@ jobs:
     if: github.repository == 'beacon-observability/beacon-java' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    strategy:
+      # setup-gradle keys include the matrix. Give daily/manual runs a fresh immutable
+      # snapshot even if main has not changed; dependency files remain deduplicated.
+      matrix:
+        cache-generation: ['${{ github.run_id }}-${{ github.run_attempt }}']
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -29,11 +36,15 @@ jobs:
       - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
         with:
           cache-read-only: false
-      # Resolve the complete dependency graphs once on trusted main. The legacy collector
-      # disables execution; it warms metadata without running tests.
+      # Resolve artifact files, not only metadata. Disabled test tasks and Gradle's
+      # dependencies report do not guarantee that dependency JARs are downloaded.
       - name: Warm baseline test dependencies and build configuration
-        run: ./gradlew check -x spotlessCheck listTestsInPartition -PtestPartition=0
+        run: >-
+          ./gradlew warmBeaconTestDependencies -I beacon/testing/warm-dependencies.init.gradle
+          --no-configuration-cache --max-workers=4
       - name: Warm pinned latest-dependency test configuration
-        run: ./gradlew check -x spotlessCheck listTestsInPartition -PtestPartition=0 -PtestLatestDeps=true
+        run: >-
+          ./gradlew warmBeaconTestDependencies -I beacon/testing/warm-dependencies.init.gradle
+          -PtestLatestDeps=true --no-configuration-cache --max-workers=4
       - name: Cache shared test infrastructure
         run: ./gradlew :testing:agent-for-testing:jar

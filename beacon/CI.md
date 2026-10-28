@@ -39,12 +39,25 @@ Fix the cause of a failing check; do not remove checks solely to obtain a green 
 The artifact-producing build disables Node package-manager and Gradle user-home caches so restored content cannot enter the downloadable agent. Quality, module-test, and upstream-smoke jobs may restore Gradle caches read-only because they upload only reports, not runtime artifacts. Formal release candidates must continue to come from the cache-isolated build path.
 
 [Warm Beacon test caches](../.github/workflows/beacon-test-cache.yml) refreshes those read-only
-test caches after a push to trusted `main`, or a manual dispatch on `main`. It uses the legacy
-disabled-task collector once for baseline dependencies and once for pinned latest dependencies,
-then builds the shared test Agent into the local build cache. Future test runners can restore
+test caches after a push to trusted `main`, daily, or a manual dispatch on `main`. It downloads
+external dependency files for every JVM source set's compile, runtime, and annotation processor
+classpaths, once for baseline dependencies and once for pinned latest dependencies. Project outputs
+are excluded from dependency warming; the shared test Agent is then built into the local build cache.
+Resolving metadata or listing disabled tests alone does not guarantee that dependency JARs are cached.
+Future test runners can restore
 current configuration, dependencies, and shared test infrastructure. This workflow runs
 no test suite, uploads no Agent, and does not serve as release acceptance. After merging CI or
 dependency changes, let this warmer finish before launching a manual full validation.
+
+Cache hits restore existing files rather than redownloading every dependency from Maven. Missing
+artifacts, changed versions, and expired dynamic-version metadata can still require network access.
+The first warm run must populate the cache; read-only test consumers cannot save newly downloaded
+artifacts. Cache refresh failures remain visible and must be corrected. Cache warming does not
+eliminate test execution or guarantee that every tool or container image is cached.
+Each warm run uses a unique matrix value in setup-gradle's cache key, so daily/manual refreshes
+can save a new immutable snapshot even when the source commit has not changed.
+The Gradle distribution is cached as well. If it is missing, the wrapper allows a 60-second
+network timeout and three retries for the initial download, while retaining SHA-256 verification.
 
 ### Extended validation and test images
 

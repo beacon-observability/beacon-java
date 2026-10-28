@@ -109,7 +109,9 @@ class KafkaStreamsOwnershipTest extends KafkaStreamsBaseTest {
     producer.send(new ProducerRecord<>(inputTopic, 11, "VALUE"));
     assertThat(invoked.await(30, SECONDS)).isTrue();
 
+    // The stream thread throws deliberately; wait for the exported ERROR span.
     await()
+        .dontCatchUncaughtExceptions()
         .atMost(Duration.ofSeconds(30))
         .untilAsserted(
             () ->

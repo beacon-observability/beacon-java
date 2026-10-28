@@ -15,9 +15,8 @@ const gate = source.match(/          node <<'NODE'\n([\s\S]*?)          NODE/)[1
 
 function actionSteps(action) {
   const escaped = action.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return [...source.matchAll(
-    new RegExp(`(^      - uses: ${escaped}[^\\n]*\\n(?:(?!^      - ).*(?:\\n|$))*)`, 'gm'),
-  )].map((match) => match[1]);
+  return source.split(/(?=^      - )/m)
+    .filter((block) => new RegExp(`^\\s+(?:- )?uses: ${escaped}`, 'm').test(block));
 }
 
 function results(muzzle = false, full = false) {

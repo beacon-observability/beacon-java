@@ -18,6 +18,7 @@ import io.opentelemetry.instrumentation.test.utils.PortUtils;
 import io.opentelemetry.instrumentation.testing.internal.AutoCleanupExtension;
 import io.opentelemetry.instrumentation.testing.junit.AgentInstrumentationExtension;
 import io.opentelemetry.instrumentation.testing.junit.InstrumentationExtension;
+import java.time.Duration;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -115,32 +116,63 @@ class JedisSentinel40ClientTest {
                           }));
       testing.clearData();
 
+      // Listening ports do not guarantee that the replica is ready for Sentinel failover.
+      // Use redis-cli so fixture control does not add spans to the pool's target assertions.
+      await()
+          .atMost(Duration.ofSeconds(30))
+          .untilAsserted(
+              () -> {
+                Container.ExecResult replication =
+                    sentinelServer.execInContainer(
+                        "redis-cli", "-p", Integer.toString(replicaPort), "INFO", "replication");
+                assertThat(replication.getExitCode()).isZero();
+                assertThat(replication.getStdout()).contains("role:slave", "master_link_status:up");
+
+                Container.ExecResult replicas =
+                    sentinelServer.execInContainer(
+                        "redis-cli",
+                        "--raw",
+                        "-p",
+                        Integer.toString(sentinelPort),
+                        "SENTINEL",
+                        "replicas",
+                        MASTER_NAME);
+                assertThat(replicas.getExitCode()).isZero();
+                assertThat(replicas.getStdout())
+                    .contains(
+                        "port\n" + replicaPort + "\n",
+                        "flags\nslave\n",
+                        "master-link-status\nok\n");
+              });
+
       Container.ExecResult failover =
           sentinelServer.execInContainer(
               "redis-cli",
+              "-e",
               "-p",
               Integer.toString(sentinelPort),
               "SENTINEL",
               "failover",
               MASTER_NAME);
-      if (failover.getExitCode() != 0) {
-        throw new IllegalStateException(failover.getStderr());
-      }
+      assertThat(failover.getExitCode()).isZero();
+      assertThat(failover.getStdout().trim()).isEqualTo("OK");
 
-      Container.ExecResult promoted =
-          sentinelServer.execInContainer(
-              "sh",
-              "-c",
-              "for i in $(seq 1 100); do port=$(redis-cli -p "
-                  + sentinelPort
-                  + " SENTINEL get-master-addr-by-name "
-                  + MASTER_NAME
-                  + " | tail -n 1); [ \"$port\" = \""
-                  + replicaPort
-                  + "\" ] && exit 0; sleep 0.1; done; exit 1");
-      if (promoted.getExitCode() != 0) {
-        throw new IllegalStateException("Sentinel did not promote the replica");
-      }
+      await()
+          .atMost(Duration.ofSeconds(30))
+          .untilAsserted(
+              () -> {
+                Container.ExecResult promoted =
+                    sentinelServer.execInContainer(
+                        "redis-cli",
+                        "--raw",
+                        "-p",
+                        Integer.toString(sentinelPort),
+                        "SENTINEL",
+                        "get-master-addr-by-name",
+                        MASTER_NAME);
+                assertThat(promoted.getExitCode()).isZero();
+                assertThat(promoted.getStdout().trim()).isEqualTo("127.0.0.1\n" + replicaPort);
+              });
 
       await().untilAsserted(() -> set(pool, "after-failover"));
     } finally {

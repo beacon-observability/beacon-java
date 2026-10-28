@@ -7,6 +7,7 @@ package io.beacon.security.sbom;
 
 import static io.beacon.security.core.Values.map;
 import static java.util.Arrays.asList;
+import static java.util.Collections.emptyList;
 import static java.util.Collections.emptyMap;
 import static java.util.Collections.singletonList;
 import static java.util.concurrent.TimeUnit.SECONDS;

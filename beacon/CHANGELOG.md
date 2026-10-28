@@ -4,6 +4,8 @@ This file records Beacon product changes only. The root [CHANGELOG.md](../CHANGE
 
 ## Unreleased
 
+- Integrated official OTel Java Instrumentation [v2.33.1](https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/tag/v2.33.1), pinned to `d9045e02e0711837d54f0fd058cd55f77742506d`, with its SDK and build constraints. Review the root upstream changelog for compatibility and migration notes; Beacon product versioning remains independent.
+
 ## Version 1.3.3 (2026-10-27)
 
 - Add a separate GHCR distribution workflow for already published stable Agent JARs, with native

@@ -6,12 +6,15 @@
 package io.beacon.security.sbom;
 
 import static io.beacon.security.core.Values.map;
+import static java.util.Arrays.asList;
 import static java.util.Collections.emptyList;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.beacon.security.core.Events;
 import io.beacon.security.core.Settings;
 import java.io.IOException;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -19,13 +22,14 @@ import java.util.Map;
 import java.util.TreeMap;
 
 final class DependencyInventory {
+  private static final ObjectMapper json = new ObjectMapper();
+
   private DependencyInventory() {}
 
   // CycloneDX properties and hashes are validated as lists of objects before publication.
   @SuppressWarnings("unchecked")
   static List<Map<String, Object>> events(
       Map<String, Object> event, Iterable<Map<String, Object>> records) throws IOException {
-    ObjectMapper json = new ObjectMapper();
     Map<String, Map<String, Object>> unique = new TreeMap<>();
     for (Map<String, Object> record : records) {
       boolean loaded = false;
@@ -87,25 +91,24 @@ final class DependencyInventory {
     return result;
   }
 
-  // Component.json() constructs hashes as a list of string-keyed maps.
-  @SuppressWarnings("unchecked")
   static Map<String, Object> dependency(Map<String, Object> record) {
     String group = String.valueOf(record.getOrDefault("group", ""));
-    Map<String, Object> row =
-        map(
-            "name",
-            (group.isEmpty() ? "" : group + ":") + record.get("name"),
-            "version",
-            record.getOrDefault("version", ""));
-    if (group.isEmpty() || "".equals(row.get("version"))) {
-      for (Map<String, Object> hash :
-          (List<Map<String, Object>>) record.getOrDefault("hashes", emptyList())) {
-        if ("SHA-256".equals(hash.get("alg"))) {
-          row.put("hash", hash.get("content"));
-          break;
-        }
-      }
+    String artifact = String.valueOf(record.getOrDefault("name", ""));
+    String version = String.valueOf(record.getOrDefault("version", ""));
+    String name = (group.isEmpty() ? "" : group + ":") + artifact;
+    return map(
+        "name", name,
+        "version", version,
+        "hash", identityHash(name, version));
+  }
+
+  static String identityHash(String name, String version) {
+    try {
+      // This MD5 is a coordinate deduplication key, never an artifact-integrity checksum.
+      return Component.hex(
+          MessageDigest.getInstance("MD5").digest(json.writeValueAsBytes(asList(name, version))));
+    } catch (IOException | NoSuchAlgorithmException error) {
+      throw new IllegalStateException("Unable to encode dependency coordinates", error);
     }
-    return row;
   }
 }

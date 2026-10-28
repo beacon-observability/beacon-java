@@ -7,6 +7,7 @@ package io.beacon.security.sbom;
 
 import static io.beacon.security.core.Values.map;
 import static java.util.Arrays.asList;
+import static java.util.Collections.emptyList;
 import static java.util.Collections.emptyMap;
 import static java.util.Collections.singletonList;
 import static java.util.concurrent.TimeUnit.SECONDS;
@@ -42,6 +43,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.function.Consumer;
 import java.util.logging.Logger;
@@ -53,6 +55,7 @@ public final class SbomInventory implements AutoCloseable, ArchiveScanner.Receiv
 
   private final Instrumentation instrumentation;
   private final RuntimeMXBean runtime = ManagementFactory.getRuntimeMXBean();
+  private final Path javaHome = realPath(Paths.get(System.getProperty("java.home")));
   private final Map<String, String> identity;
   private final Consumer<Map<String, Object>> events;
   private final ObjectMapper json = new ObjectMapper();
@@ -79,6 +82,8 @@ public final class SbomInventory implements AutoCloseable, ArchiveScanner.Receiv
   private long collectedUptimeMillis;
   private volatile long lastFailure;
   private volatile String lastErrorType;
+  private boolean awaitingApplication;
+  private final int refreshSeconds = Settings.limit("beacon.security.sbom.refresh.seconds", 300);
 
   public SbomInventory(Instrumentation instrumentation, Consumer<Map<String, Object>> events) {
     this(instrumentation, events, emptyMap());
@@ -114,16 +119,22 @@ public final class SbomInventory implements AutoCloseable, ArchiveScanner.Receiv
   }
 
   public void start() {
-    worker.scheduleWithFixedDelay(
-        this::refreshSafely,
-        0,
-        Settings.limit("beacon.security.sbom.refresh.seconds", 300),
-        SECONDS);
+    worker.execute(this::refreshAndSchedule);
+  }
+
+  private void refreshAndSchedule() {
+    refreshSafely();
+    try {
+      worker.schedule(this::refreshAndSchedule, awaitingApplication ? 1 : refreshSeconds, SECONDS);
+    } catch (RejectedExecutionException ignored) {
+      // close() may shut down the worker while its current collection is completing.
+    }
   }
 
   // Jackson returns erased CycloneDX maps; each document is checked before publication.
   @SuppressWarnings("unchecked")
   public synchronized void refresh() throws IOException {
+    awaitingApplication = false;
     collectedAt = Math.max(System.currentTimeMillis(), collectedAt + 1);
     collectedUptimeMillis = runtime.getUptime();
     components.clear();
@@ -138,6 +149,7 @@ public final class SbomInventory implements AutoCloseable, ArchiveScanner.Receiv
         instrumentation == null ? new Class<?>[0] : instrumentation.getAllLoadedClasses();
     Set<String> observed = new LinkedHashSet<>();
     Set<String> infrastructure = new HashSet<>();
+    Map<String, Boolean> runtimeOrigins = new HashMap<>();
     // URL equality can perform DNS lookups, so deduplicate using its external text form.
     Set<String> processedOrigins = new HashSet<>();
     URL extensionOrigin = origin(SbomInventory.class);
@@ -158,6 +170,10 @@ public final class SbomInventory implements AutoCloseable, ArchiveScanner.Receiv
       if (location == null) {
         continue;
       }
+      if (runtimeOrigins.computeIfAbsent(
+          outer(location), root -> runtimeArtifact(Paths.get(root), javaHome))) {
+        continue;
+      }
       // Application dependencies can use these same namespaces. Only the actual
       // agent entry point and this extension identify infrastructure artifacts;
       // a nested dependency must never exclude its enclosing application JAR.
@@ -166,36 +182,48 @@ public final class SbomInventory implements AutoCloseable, ArchiveScanner.Receiv
       }
       observed.add(location);
     }
-    Set<String> roots = new LinkedHashSet<>();
-    for (String entry :
-        System.getProperty("java.class.path", "").split(Pattern.quote(File.pathSeparator))) {
-      if (!entry.isEmpty()) {
-        roots.add(Paths.get(entry).toAbsolutePath().normalize().toString());
+    Set<String> targets = new LinkedHashSet<>();
+    if (localOutputEnabled) {
+      for (String entry :
+          System.getProperty("java.class.path", "").split(Pattern.quote(File.pathSeparator))) {
+        if (!entry.isEmpty()) {
+          targets.add(Paths.get(entry).toAbsolutePath().normalize().toString());
+        }
       }
     }
     for (String location : observed) {
-      roots.add(outer(location));
+      targets.add(localOutputEnabled ? outer(location) : artifactLocation(location));
     }
-    scanned.keySet().retainAll(roots);
+    scanned.keySet().retainAll(targets);
+    Set<String> roots = new HashSet<>();
+    for (String target : targets) {
+      roots.add(outer(target));
+    }
     replacedOrigins.retainAll(roots);
-    int rootCount = 0;
-    for (String root : roots) {
-      if (infrastructure.contains(root)) {
+    Map<String, String> fingerprints = new HashMap<>();
+    int targetCount = 0;
+    for (String target : targets) {
+      String root = outer(target);
+      if (infrastructure.contains(target)
+          || infrastructure.contains(root)
+          || runtimeOrigins.computeIfAbsent(
+              root, origin -> runtimeArtifact(Paths.get(origin), javaHome))) {
         continue;
       }
-      if (++rootCount > maxComponents) {
+      if (++targetCount > maxComponents) {
         incomplete("artifact_count_limit");
         break;
       }
       Path path = Paths.get(root);
-      String fingerprint = ArtifactCache.fingerprint(path);
-      ArtifactCache cached = scanned.get(root);
+      String fingerprint =
+          fingerprints.computeIfAbsent(root, ignored -> ArtifactCache.fingerprint(path));
+      ArtifactCache cached = scanned.get(target);
       if (cached == null || !cached.reusable(fingerprint)) {
         if (cached != null && !cached.fingerprint.equals(fingerprint)) {
           replacedOrigins.add(root);
         }
-        cached = new ArtifactCache(path, fingerprint);
-        scanned.put(root, cached);
+        cached = new ArtifactCache(path, fingerprint, target);
+        scanned.put(target, cached);
       }
       cached.replay(this);
     }
@@ -219,13 +247,7 @@ public final class SbomInventory implements AutoCloseable, ArchiveScanner.Receiv
       }
     }
     for (String location : observed) {
-      String ref = locations.get(location);
-      if (ref == null && location.endsWith("!/BOOT-INF/classes")) {
-        ref = locations.get(outer(location));
-      }
-      if (ref == null && location.endsWith("!/WEB-INF/classes")) {
-        ref = locations.get(outer(location));
-      }
+      String ref = locations.get(artifactLocation(location));
       Component component = ref == null ? null : components.get(ref);
       if (component != null && !replacedOrigins.contains(outer(location))) {
         component.loaded = true;
@@ -310,12 +332,7 @@ public final class SbomInventory implements AutoCloseable, ArchiveScanner.Receiv
       URL origin = origin(Class.forName(className, false, loader));
       String location = origin == null ? null : location(origin);
       if (location != null) {
-        Map<String, Object> component = current.get(location);
-        if (component == null
-            && (location.endsWith("!/BOOT-INF/classes")
-                || location.endsWith("!/WEB-INF/classes"))) {
-          component = current.get(outer(location));
-        }
+        Map<String, Object> component = current.get(artifactLocation(location));
         if (component != null) {
           return new LinkedHashMap<>(component);
         }
@@ -351,7 +368,7 @@ public final class SbomInventory implements AutoCloseable, ArchiveScanner.Receiv
     Map<String, Map<String, Object>> metadata = new HashMap<>();
     for (Map.Entry<String, String> entry : locations.entrySet()) {
       Map<String, Object> record = records.get(entry.getValue());
-      if (record != null) {
+      if (record != null && "library".equals(record.get("type"))) {
         resolved.put(
             entry.getKey(),
             metadata.computeIfAbsent(
@@ -373,6 +390,12 @@ public final class SbomInventory implements AutoCloseable, ArchiveScanner.Receiv
       }
     }
     if (failure == null) {
+      if (refreshedAt == 0 && emptyList().equals(inventoryEvents.get(0).get("dependencies"))) {
+        // A premain collection can precede the application class loader. Do not publish a
+        // misleading empty inventory and then leave it visible for the full refresh interval.
+        awaitingApplication = true;
+        return;
+      }
       // One immutable mapping is visible to all request-side readers.
       published = Collections.unmodifiableMap(resolved);
       refreshedAt = collectedAt;
@@ -714,6 +737,36 @@ public final class SbomInventory implements AutoCloseable, ArchiveScanner.Receiv
   private static String outer(String location) {
     int split = location.indexOf("!/");
     return split < 0 ? location : location.substring(0, split);
+  }
+
+  private static String artifactLocation(String location) {
+    if (location.endsWith("!/BOOT-INF/classes")) {
+      return location.substring(0, location.length() - "!/BOOT-INF/classes".length());
+    }
+    if (location.endsWith("!/WEB-INF/classes")) {
+      return location.substring(0, location.length() - "!/WEB-INF/classes".length());
+    }
+    return location;
+  }
+
+  static boolean runtimeArtifact(Path artifact, Path home) {
+    Path file = realPath(artifact);
+    Path runtime = realPath(home);
+    if (file.startsWith(runtime.resolve("lib")) || file.startsWith(runtime.resolve("jre/lib"))) {
+      return true;
+    }
+    return runtime.getFileName() != null
+        && runtime.getFileName().toString().equalsIgnoreCase("jre")
+        && runtime.getParent() != null
+        && file.startsWith(runtime.getParent().resolve("lib"));
+  }
+
+  private static Path realPath(Path path) {
+    try {
+      return path.toRealPath();
+    } catch (IOException | SecurityException ignored) {
+      return path.toAbsolutePath().normalize();
+    }
   }
 
   @Override

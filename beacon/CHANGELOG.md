@@ -4,9 +4,35 @@ This file records Beacon product changes only. The root [CHANGELOG.md](../CHANGE
 
 ## Unreleased
 
+- SBOM scanning skips unrelated ZIP entry contents, avoiding false byte-limit failures on large
+  resources. Nested JARs use bounded temporary files instead of whole-archive heap buffers and are
+  hashed during copying in diagnostic mode. Production resolves only loaded artifact origins and
+  their exact nested entry chains without hashing artifact contents. Successful parses are reused
+  until file attributes change; `beacon.security.sbom.cache.seconds` no longer triggers periodic
+  rescans. Complete periodic
+  inventory updates and full local diagnostic scans are preserved. Byte-limit warnings identify
+  the affected artifact/entry and distinguish nested archive, metadata, and total read limits;
+  failed collections retain the previous inventory.
+
+- Dependency `name` preserves `groupId:artifactId` when Maven metadata is available; fallback names
+  retain the actual artifact identity instead of shared product titles such as `Apache Tomcat`.
+  A unique filename-matching Maven coordinate identifies the primary artifact in shaded JARs.
+  Exclude JDK installation libraries, including Java 8 extension JARs, from application inventory.
+  Exported `hash` now contains the lowercase MD5 of UTF-8 compact JSON `[name,version]` for
+  deduplication, including finding components. Migrate consumers that treated this field as an
+  artifact SHA-256; equal coordinates now deduplicate across physical copies. The existing
+  `name`/`version`/`hash` field layout and schema version 2 remain unchanged. Local CycloneDX
+  content hashes retain their standard SHA-256 meaning.
+
 - Integrated official OTel Java Instrumentation [v2.33.1](https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/tag/v2.33.1), pinned to `d9045e02e0711837d54f0fd058cd55f77742506d`, with its SDK and build constraints. Review the root upstream changelog for compatibility and migration notes; Beacon product versioning remains independent.
 
 ## Version 1.3.3 (2026-10-27)
+
+- Avoid publishing an empty premain dependency list: retry collection every second until the first
+  dependency is observed, then use the configured refresh interval. Preserve empty updates when
+  previously loaded dependencies disappear. Exclude generated class directories from dependency
+  and finding component identities. Recover explicit Manifest coordinates when artifact and
+  version agree, without guessing Maven groups from vendor or OSGi names.
 
 - Add a separate GHCR distribution workflow for already published stable Agent JARs, with native
   amd64/arm64 image acceptance, protected promotion, and a Kubernetes init-container smoke test.

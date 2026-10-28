@@ -123,7 +123,7 @@ previous list. A complete, valid empty list can clear it. Body `source` values a
 OTel record attributes; collector-specific source mapping may differ from the body.
 
 Findings carry `occurrence_id` instead of the duplicate `evidence_id`; component metadata is
-provided directly as name/version/optional hash, and counts are aggregated by the backend.
+provided directly as name/version/identity hash, and counts are aggregated by the backend.
 Fingerprint version 1 remains unchanged. `collection_complete` records actual collection quality;
 normal evidence sampling does not itself mark a record truncated. Full representative evidence
 is retained in process only when local debug output is explicitly enabled.
@@ -143,6 +143,65 @@ for schema version 2 before upgrading; a v1 event schema cannot validate v2 outp
 | `beacon.security.local-output.enabled` | `BEACON_SECURITY_LOCAL_OUTPUT_ENABLED` | `false` | Write process-local diagnostic snapshots. |
 | `beacon.security.output` | `BEACON_SECURITY_OUTPUT` | `./beacon-security-output/<instance-id>` | Diagnostic snapshot directory. |
 | `beacon.security.evidence.file` | `BEACON_SECURITY_EVIDENCE_FILE` | unset | Optional JSONL evidence file for diagnostics. |
+
+Production SBOM collection resolves only the artifact locations observed from loaded classes.
+For nested locations it follows the exact ZIP entry chain instead of scanning every library in the
+enclosing application. Unloaded classpath entries and nested libraries are not parsed. ZIP directory
+entries select Maven/manifest metadata without inflating unrelated class files or resources.
+Maven coordinates are preferred, with `name=groupId:artifactId` and a separate `version`. For a
+shaded JAR, a unique Maven coordinate matching the actual `artifactId-version.jar` filename
+identifies its primary component. Explicit `group#artifact;version` Manifest titles also provide
+coordinates when the artifact filename and Manifest version agree. Vendor IDs and OSGi bundle
+names are not treated as Maven groups. Without these coordinates, the actual JAR filename identifies
+the artifact; an exact known version suffix is removed. Generic product titles such as
+`Apache Tomcat` do not replace distinct artifact names. Unknown groups are omitted from `name`
+and unknown versions remain empty, rather than inventing Maven coordinates.
+Loaded class directories, including JSP compiler output, remain diagnostic application components
+and are excluded from dependency inventory and finding component resolution.
+
+Every exported dependency and finding component has the same `name`, `version`, `hash` shape.
+`hash` is the lowercase 32-character MD5 of the UTF-8 compact JSON array `[name,version]`, with
+the strings preserved exactly and no whitespace between array elements. For example,
+`["org.example:library-a","1.0.0"]` hashes to `b783176a5feb4aafd51a712235824a9c`.
+It is a metadata deduplication key and does not attest to file contents. Equal names and versions
+deduplicate across paths and repackaged JARs. Consumers that previously used artifact SHA-256
+values from `hash` must migrate their deduplication keys to this name/version identity.
+The event field layout and schema version 2 remain unchanged; this Java hash policy supersedes
+the earlier artifact-digest meaning of the optional schema field.
+
+JDK installation libraries under `java.home/lib`, `java.home/jre/lib`, and the enclosing JDK's
+`lib` directory when `java.home` ends in `jre` are excluded, including Java 8 extension libraries.
+Resolved filesystem paths distinguish these from application-supplied libraries with the same name.
+Production collection does not hash archive contents. The origin distinguishes physical copies
+internally. Local diagnostic output still scans the full classpath and supported
+nested libraries, with content hashes, licenses, and embedded SBOM metadata.
+
+Successfully parsed metadata is reused while the outer file's size, modification time, and file key
+are unchanged. Every collection still rebuilds the currently loaded list and exports a complete
+snapshot, including when unchanged or empty after a previous nonempty snapshot. Before the first
+dependency is observed, collection retries every second without publishing an empty startup list;
+the normal refresh interval starts after the first nonempty inventory. New origins and changed files are parsed; failures
+are retried on the next collection. `beacon.security.sbom.cache.seconds` is no longer used to expire
+successful parses. File attributes are a cache invalidation check, not a content-integrity check.
+
+Selected nested JARs are copied to bounded temporary files under the JVM temporary directory
+(`java.io.tmpdir`); the files are deleted after scanning, including when scanning fails. This directory
+must be writable when scanning nested libraries. Diagnostic scans hash during copying; production
+scans read only the selected metadata from staged archives. Standard local CycloneDX `hashes`
+remain actual SHA-256 artifact digests and are separate from exported MD5 identity keys.
+
+| JVM property | Environment variable | Default | Purpose |
+| --- | --- | --- | --- |
+| `beacon.security.sbom.max.archive.bytes` | `BEACON_SECURITY_SBOM_MAX_ARCHIVE_BYTES` | `67108864` (64 MiB) | Maximum size of each nested JAR copied for scanning. Does not limit unrelated resource entries. |
+| `beacon.security.sbom.max.scan.bytes` | `BEACON_SECURITY_SBOM_MAX_SCAN_BYTES` | `536870912` (512 MiB) | Read budget per resolved origin (per outer artifact in diagnostic mode): copied nested JARs, selected metadata, and any SHA-256 input. Skipped resource contents are not read or counted. |
+| `beacon.security.sbom.max.entries` | `BEACON_SECURITY_SBOM_MAX_ENTRIES` | `100000` | Maximum directory entries visited per resolved origin (per outer artifact in diagnostic mode), including the selected nested entry chain. |
+
+Metadata reads remain bounded to 256 KiB per Maven/manifest entry and 1 MiB per embedded CycloneDX
+JSON document. Nested archives are scanned to at most four levels. Byte-limit warnings include the
+artifact/entry location, configured limit, and observed size. `archive_byte_limit` identifies an
+oversized nested JAR, `metadata_byte_limit` an oversized metadata entry, and `scan_byte_limit` the
+total read budget. A collection that reaches a limit emits no inventory update and retains the
+previous published inventory.
 
 OpenTelemetry settings such as `OTEL_EXPORTER_OTLP_ENDPOINT`,
 `OTEL_EXPORTER_OTLP_HEADERS`, and `OTEL_RESOURCE_ATTRIBUTES` configure transport and resource

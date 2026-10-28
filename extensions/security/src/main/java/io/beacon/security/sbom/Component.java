@@ -54,7 +54,8 @@ final class Component {
                 + "/"
                 + encode(this.name)
                 + (this.version.isEmpty() ? "" : "@" + encode(this.version));
-    // A physical artifact retains its identity when renamed or deployed at another path.
+    // A content hash identifies copies across paths. Metadata-only runtime records use their
+    // origin to keep distinct physical copies apart without reading every archive for a digest.
     this.ref =
         "urn:beacon:security:component:"
             + (hash != null
@@ -92,7 +93,11 @@ final class Component {
   }
 
   Map<String, Object> json() {
-    Map<String, Object> result = map("type", "library", "bom-ref", ref, "name", name);
+    Map<String, Object> result =
+        map(
+            "type", source.equals("classes-directory") ? "application" : "library",
+            "bom-ref", ref,
+            "name", name);
     if (!group.isEmpty()) {
       result.put("group", group);
     }

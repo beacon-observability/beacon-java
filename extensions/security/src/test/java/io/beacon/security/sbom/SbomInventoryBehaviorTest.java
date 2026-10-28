@@ -60,6 +60,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /** Behavioural acceptance tests for archive discovery and CycloneDX publication. */
 class SbomInventoryBehaviorTest {
@@ -215,7 +217,7 @@ class SbomInventoryBehaviorTest {
     assertEquals("artifact-file", component.source);
     assertEquals("", component.group);
     assertEquals("", component.version);
-    assertEquals(Component.display(artifact.toString()), component.name);
+    assertEquals("unidentified", component.name);
     assertTrue(receiver.incomplete.contains("missing_maven_identity"));
   }
 
@@ -282,11 +284,10 @@ class SbomInventoryBehaviorTest {
         Map<String, Object> snapshot =
             event(events, "beacon.security.sbom.inventory", "source", "beacon_security_sbom");
         assertEquals(
-            singletonList(Values.map("name", "org.dynamic:dynamic-loaded", "version", "9.0.0")),
+            singletonList(dependency("org.dynamic:dynamic-loaded", "9.0.0")),
             snapshot.get("dependencies"));
         Map<String, Object> resolution = inventory.resolve("sample.dynamic.DynamicFixture", loader);
-        assertThat(resolution)
-            .isEqualTo(Values.map("name", "org.dynamic:dynamic-loaded", "version", "9.0.0"));
+        assertThat(resolution).isEqualTo(dependency("org.dynamic:dynamic-loaded", "9.0.0"));
       } finally {
         inventory.close();
       }
@@ -510,7 +511,8 @@ class SbomInventoryBehaviorTest {
     List<Map<String, Object>> events = new ArrayList<>();
     System.setProperty(
         "beacon.security.sbom.output", temp.resolve("first/application.cdx.json").toString());
-    SbomInventory first = new SbomInventory(instrumentation(), events::add, identity);
+    SbomInventory first =
+        new SbomInventory(instrumentation(typeAt(artifact.toUri().toURL())), events::add, identity);
     System.setProperty(
         "beacon.security.sbom.output", temp.resolve("second/application.cdx.json").toString());
     SbomInventory second = new SbomInventory(null, ignored -> {}, identity);
@@ -615,15 +617,18 @@ class SbomInventoryBehaviorTest {
     String originalClasspath = System.getProperty("java.class.path");
     System.setProperty("java.class.path", artifact.toString());
     List<Map<String, Object>> events = new ArrayList<>();
-    SbomInventory inventory = inventory(temp.resolve("application.cdx.json"), events, null);
+    AtomicReference<Class<?>[]> observed =
+        new AtomicReference<>(new Class<?>[] {typeAt(artifact.toUri().toURL())});
+    SbomInventory inventory =
+        inventory(temp.resolve("application.cdx.json"), events, instrumentation(observed));
     try {
       inventory.refresh();
       System.setProperty("java.class.path", "");
+      observed.set(new Class<?>[0]);
       inventory.refresh();
       Map<String, Object> current = read(inventory.output());
       assertTrue(((List<?>) current.get("components")).isEmpty());
-      Map<String, Object> snapshot =
-          event(events, "beacon.security.sbom.inventory", "source", "beacon_security_sbom");
+      Map<String, Object> snapshot = events.get(events.size() - 1);
       assertNotNull(snapshot);
       assertTrue(((List<?>) snapshot.get("dependencies")).isEmpty());
 
@@ -745,7 +750,7 @@ class SbomInventoryBehaviorTest {
       Map<String, Object> importedComponent = component(document, "declared-dependency");
       assertNotNull(importedComponent);
       assertEquals("pkg:maven/org.build/declared-dependency@5.0.0", importedComponent.get("purl"));
-      Map<String, Object> outerComponent = component(document, "with-build-sbom.jar");
+      Map<String, Object> outerComponent = component(document, "with-build-sbom");
       assertNotNull(outerComponent);
       List<?> dependencies = (List<?>) document.get("dependencies");
       assertTrue(
@@ -801,7 +806,11 @@ class SbomInventoryBehaviorTest {
     Path artifact = mavenJar(temp, "stable.jar", "org.example", "stable", "1.0.0", "stable");
     System.setProperty("java.class.path", artifact.toString());
     List<Map<String, Object>> events = new ArrayList<>();
-    SbomInventory inventory = inventory(temp.resolve("application.cdx.json"), events, null);
+    SbomInventory inventory =
+        inventory(
+            temp.resolve("application.cdx.json"),
+            events,
+            instrumentation(typeAt(artifact.toUri().toURL())));
     try {
       inventory.refresh();
       inventory.refresh();
@@ -822,7 +831,11 @@ class SbomInventoryBehaviorTest {
     Path second = mavenJar(temp, "second.jar", "org.example", "second", "1.0.0", "second");
     System.setProperty("java.class.path", first.toString());
     List<Map<String, Object>> events = new ArrayList<>();
-    SbomInventory inventory = inventory(temp.resolve("application.cdx.json"), events, null);
+    SbomInventory inventory =
+        inventory(
+            temp.resolve("application.cdx.json"),
+            events,
+            instrumentation(typeAt(first.toUri().toURL())));
     String previousLimit = System.getProperty("beacon.security.evidence.max.bytes");
     try {
       inventory.refresh();
@@ -853,7 +866,8 @@ class SbomInventoryBehaviorTest {
     Path output = temp.resolve("nested-output/application.cdx.json");
     System.setProperty("java.class.path", firstArtifact.toString());
     List<Map<String, Object>> events = new ArrayList<>();
-    SbomInventory inventory = inventory(output, events, null);
+    SbomInventory inventory =
+        inventory(output, events, instrumentation(typeAt(firstArtifact.toUri().toURL())));
     Set<PosixFilePermission> writable = PosixFilePermissions.fromString("rwx------");
     Set<PosixFilePermission> readOnly = PosixFilePermissions.fromString("r-x------");
     try {
@@ -904,25 +918,581 @@ class SbomInventoryBehaviorTest {
   }
 
   @Test
-  void appliesZipReadLimitToUninterestingEntries(@TempDir Path temp) throws Exception {
-    String previousLimit = System.getProperty("beacon.security.sbom.max.archive.bytes");
+  void skipsLargeUninterestingEntriesWithoutInflating(@TempDir Path temp) throws IOException {
     System.setProperty("beacon.security.sbom.max.archive.bytes", "64");
-    try {
-      byte[] uninteresting = new byte[2048];
-      for (int i = 0; i < uninteresting.length; i++) {
-        uninteresting[i] = (byte) (i * 17);
-      }
-      Path artifact =
-          archive(temp, "uninteresting-oversized.jar", mapOf("payload.bin", uninteresting));
-      RecordingReceiver receiver = scan(artifact);
-      assertTrue(receiver.incomplete.contains("archive_byte_limit"));
-    } finally {
-      if (previousLimit == null) {
-        System.clearProperty("beacon.security.sbom.max.archive.bytes");
-      } else {
-        System.setProperty("beacon.security.sbom.max.archive.bytes", previousLimit);
+    Path artifact =
+        archive(
+            temp,
+            "large-resource.jar",
+            mapOf(
+                "payload.bin",
+                new byte[2 * 1024 * 1024],
+                "META-INF/maven/org.example/library/pom.properties",
+                bytes("groupId=org.example\nartifactId=library\nversion=1.0\n")));
+    System.setProperty(
+        "beacon.security.sbom.max.scan.bytes", Long.toString(Files.size(artifact) + 128));
+
+    RecordingReceiver receiver = scan(artifact);
+
+    assertThat(receiver.incomplete).isEmpty();
+    assertThat(receiver.components).hasSize(1);
+    assertThat(receiver.components.get(0).component.name).isEqualTo("library");
+    assertThat(receiver.components.get(0).component.hash)
+        .isEqualTo(Component.digest(Files.readAllBytes(artifact)));
+  }
+
+  @Test
+  void skipsLargeResourcesInsideNestedLibraries(@TempDir Path temp) throws IOException {
+    Path dependency =
+        archive(
+            temp,
+            "dependency.jar",
+            mapOf(
+                "payload.bin",
+                new byte[2 * 1024 * 1024],
+                "META-INF/maven/org.example/library/pom.properties",
+                bytes("groupId=org.example\nartifactId=library\nversion=1.0\n")));
+    byte[] nested = Files.readAllBytes(dependency);
+    Path artifact =
+        archive(
+            temp,
+            "application.jar",
+            mapOf(
+                "BOOT-INF/lib/dependency.jar",
+                nested,
+                "META-INF/maven/org.example/application/pom.properties",
+                bytes("groupId=org.example\nartifactId=application\nversion=1.0\n")));
+    System.setProperty("beacon.security.sbom.max.archive.bytes", Integer.toString(nested.length));
+    System.setProperty(
+        "beacon.security.sbom.max.scan.bytes",
+        Long.toString(Files.size(artifact) + nested.length + 128));
+
+    RecordingReceiver receiver = scan(artifact);
+
+    assertThat(receiver.incomplete).isEmpty();
+    assertThat(receiver.components).hasSize(2);
+    Record library = find(receiver.components, "library");
+    assertThat(library).isNotNull();
+    assertThat(library.location).isEqualTo(artifact + "!/BOOT-INF/lib/dependency.jar");
+    assertThat(library.component.hash).isEqualTo(Component.digest(nested));
+  }
+
+  @Test
+  void reportsTotalReadBudgetSeparatelyFromArchiveSize(@TempDir Path temp) throws IOException {
+    Path artifact = mavenJar(temp, "library.jar", "org.example", "library", "1.0", "payload");
+    System.setProperty(
+        "beacon.security.sbom.max.scan.bytes", Long.toString(Files.size(artifact) + 8));
+
+    RecordingReceiver receiver = scan(artifact);
+
+    assertThat(receiver.incomplete).containsExactly("scan_byte_limit");
+    assertThat(receiver.components).isEmpty();
+  }
+
+  @Test
+  void stopsBeforeOpeningArchiveWhenHashExceedsBudget(@TempDir Path temp) throws IOException {
+    Path artifact = mavenJar(temp, "library.jar", "org.example", "library", "1.0", "payload");
+    System.setProperty(
+        "beacon.security.sbom.max.scan.bytes", Long.toString(Files.size(artifact) - 1));
+
+    RecordingReceiver receiver = scan(artifact);
+
+    assertThat(receiver.incomplete).containsExactly("scan_byte_limit");
+    assertThat(receiver.components).isEmpty();
+  }
+
+  @Test
+  void boundsMetadataReadsSeparatelyFromArchiveSize(@TempDir Path temp) throws IOException {
+    Path artifact =
+        archive(
+            temp,
+            "large-metadata.jar",
+            mapOf("META-INF/maven/org.example/library/pom.properties", new byte[256 * 1024 + 1]));
+
+    RecordingReceiver receiver = scan(artifact);
+
+    assertThat(receiver.incomplete).containsExactly("metadata_byte_limit");
+    assertThat(receiver.components).isEmpty();
+  }
+
+  @Test
+  void checksActualNestedBytesEvenWhenDirectoryUnderstatesSize(@TempDir Path temp)
+      throws IOException {
+    byte[] nested = mavenJarBytes("org.example", "library", "1.0", "payload");
+    Path artifact = archive(temp, "misleading-size.jar", mapOf("BOOT-INF/lib/library.jar", nested));
+    // Understate only the central directory's uncompressed size, leaving the data intact.
+    zeroCentralDirectoryField(artifact, 24);
+    System.setProperty("beacon.security.sbom.max.archive.bytes", "64");
+
+    RecordingReceiver receiver = scan(artifact);
+
+    assertThat(receiver.incomplete).containsExactly("archive_byte_limit");
+    assertThat(receiver.components).isEmpty();
+  }
+
+  @ParameterizedTest
+  @ValueSource(
+      strings = {"META-INF/maven/org.example/library/pom.properties", "BOOT-INF/lib/library.jar"})
+  void rejectsCorruptSelectedEntry(String entryName, @TempDir Path temp) throws IOException {
+    byte[] payload =
+        entryName.endsWith(".jar")
+            ? mavenJarBytes("org.example", "library", "1.0", "payload")
+            : bytes("groupId=org.example\nartifactId=library\nversion=1.0\n");
+    Path artifact = archive(temp, "corrupt.jar", mapOf(entryName, payload));
+    zeroCentralDirectoryField(artifact, 16);
+
+    RecordingReceiver receiver = scan(artifact);
+
+    assertThat(receiver.incomplete).containsExactly("artifact_scan_ZipException");
+    assertThat(receiver.components).isEmpty();
+  }
+
+  @Test
+  void countsSkippedDirectoryEntriesAcrossNestedArchives(@TempDir Path temp) throws IOException {
+    byte[] nested = mavenJarBytes("org.example", "library", "1.0", "payload");
+    Path artifact =
+        archive(
+            temp,
+            "entry-limit.jar",
+            mapOf("BOOT-INF/lib/library.jar", nested, "payload.bin", bytes("uninteresting")));
+    System.setProperty("beacon.security.sbom.max.entries", "4");
+
+    RecordingReceiver receiver = scan(artifact);
+
+    assertThat(receiver.incomplete).contains("archive_entry_limit");
+    assertThat(find(receiver.components, "library")).isNotNull();
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {true, false})
+  void limitsNestedArchiveDepth(boolean diagnostic, @TempDir Path temp) throws IOException {
+    Path artifact = mavenJar(temp, "leaf.jar", "org.example", "too-deep", "1.0", "payload");
+    String nestedPath = "";
+    for (int i = 0; i < 5; i++) {
+      byte[] nested = Files.readAllBytes(artifact);
+      artifact = archive(temp, "level-" + i + ".jar", mapOf("BOOT-INF/lib/inner.jar", nested));
+      nestedPath += "!/BOOT-INF/lib/inner.jar";
+    }
+    System.setProperty("beacon.security.local-output.enabled", Boolean.toString(diagnostic));
+
+    RecordingReceiver receiver = new RecordingReceiver();
+    new ArchiveScanner(receiver).scan(artifact, artifact + (diagnostic ? "" : nestedPath));
+
+    assertThat(receiver.incomplete).contains("archive_depth_limit");
+    assertThat(find(receiver.components, "too-deep")).isNull();
+  }
+
+  @Test
+  void retainsPublishedInventoryWhenNewArchiveExceedsBudget(@TempDir Path temp) throws Exception {
+    Path first = dynamicJar(temp);
+    Path oversized =
+        archive(temp, "oversized.jar", mapOf("BOOT-INF/lib/large.jar", new byte[4096]));
+    System.setProperty("beacon.security.local-output.enabled", "false");
+    System.setProperty("beacon.security.sbom.max.archive.bytes", "1024");
+    System.setProperty("java.class.path", first.toString());
+    try (URLClassLoader loader = new URLClassLoader(new URL[] {first.toUri().toURL()}, null)) {
+      Class<?> loaded = loader.loadClass("sample.dynamic.DynamicFixture");
+      AtomicReference<Class<?>[]> observed = new AtomicReference<>(new Class<?>[] {loaded});
+      List<Map<String, Object>> events = new ArrayList<>();
+      try (SbomInventory inventory = new SbomInventory(instrumentation(observed), events::add)) {
+        inventory.refresh();
+        Map<String, Object> previous = inventory.resolve(loaded.getName(), loader);
+        assertThat(previous).isNotEmpty();
+        assertThat(events).hasSize(1);
+
+        System.setProperty("java.class.path", first + File.pathSeparator + oversized);
+        observed.set(
+            new Class<?>[] {
+              loaded, typeAt(new URL(oversized.toUri().toURL() + "!/BOOT-INF/lib/large.jar"))
+            });
+        inventory.refresh();
+
+        assertThat(events).hasSize(1);
+        assertThat(inventory.resolve(loaded.getName(), loader)).isEqualTo(previous);
+        assertThat(inventory.health())
+            .containsEntry("status", "error")
+            .containsEntry("last_error_type", "archive_byte_limit");
       }
     }
+  }
+
+  @Test
+  void productionReadsMetadataWithoutHashingTheWholeArchive(@TempDir Path temp) throws IOException {
+    Path artifact = mavenJar(temp, "library.jar", "org.example", "library", "1.0", "payload");
+    System.setProperty("beacon.security.local-output.enabled", "false");
+    System.setProperty("beacon.security.sbom.max.scan.bytes", "128");
+    assertThat(Files.size(artifact)).isGreaterThan(128);
+
+    RecordingReceiver receiver = scan(artifact);
+
+    assertThat(receiver.incomplete).isEmpty();
+    assertThat(receiver.components).hasSize(1);
+    Component component = receiver.components.get(0).component;
+    assertThat(component.name).isEqualTo("library");
+    assertThat(component.hash).isNull();
+  }
+
+  @Test
+  void productionKeepsDistinctOriginsWithTheSameCoordinates(@TempDir Path temp) throws IOException {
+    Path first = mavenJar(temp, "first.jar", "org.example", "library", "1.0", "first");
+    Path second = mavenJar(temp, "second.jar", "org.example", "library", "1.0", "second");
+    System.setProperty("beacon.security.local-output.enabled", "false");
+
+    Component firstComponent = scan(first).components.get(0).component;
+    Component secondComponent = scan(second).components.get(0).component;
+
+    assertThat(firstComponent.hash).isNull();
+    assertThat(secondComponent.hash).isNull();
+    assertThat(firstComponent.purl).isEqualTo(secondComponent.purl);
+    assertThat(firstComponent.ref).isNotEqualTo(secondComponent.ref);
+  }
+
+  @Test
+  void productionIdentifiesIncompleteCoordinatesWithoutHashingArtifactContents(@TempDir Path temp)
+      throws IOException {
+    Path artifact =
+        archive(
+            temp,
+            "unknown.jar",
+            mapOf(
+                "META-INF/maven/org.example/library/pom.properties",
+                bytes("artifactId=library\nversion=1.0\n")));
+    System.setProperty("beacon.security.local-output.enabled", "false");
+
+    RecordingReceiver receiver = scan(artifact);
+
+    assertThat(receiver.incomplete).isEmpty();
+    assertThat(receiver.components.get(0).component.hash).isNull();
+    assertThat(DependencyInventory.dependency(receiver.components.get(0).component.json()))
+        .isEqualTo(dependency("library", "1.0"));
+  }
+
+  @ParameterizedTest
+  @ValueSource(
+      strings = {
+        "BOOT-INF/lib/library.jar",
+        "WEB-INF/lib/library.jar",
+        "WEB-INF/lib-provided/library.jar"
+      })
+  void productionScansOnlyTheSelectedNestedArchive(String entry, @TempDir Path temp)
+      throws IOException {
+    byte[] dependency = mavenJarBytes("org.example", "library", "1.0", "payload");
+    Path artifact =
+        archive(
+            temp,
+            "application.jar",
+            mapOf(
+                "BOOT-INF/lib/unloaded.jar",
+                new byte[8192],
+                "large-resource.bin",
+                new byte[2 * 1024 * 1024],
+                entry,
+                dependency));
+    System.setProperty("beacon.security.local-output.enabled", "false");
+    System.setProperty("beacon.security.sbom.max.archive.bytes", "1024");
+    System.setProperty(
+        "beacon.security.sbom.max.scan.bytes", Integer.toString(dependency.length + 128));
+    RecordingReceiver receiver = new RecordingReceiver();
+
+    new ArchiveScanner(receiver).scan(artifact, artifact + "!/" + entry);
+
+    assertThat(receiver.incomplete).isEmpty();
+    assertThat(receiver.components).hasSize(1);
+    assertThat(receiver.components.get(0).component.name).isEqualTo("library");
+    assertThat(receiver.components.get(0).component.hash).isNull();
+    assertThat(receiver.components.get(0).location).isEqualTo(artifact + "!/" + entry);
+  }
+
+  @Test
+  void productionFollowsMultipleNestedEntriesToTheLoadedLibrary(@TempDir Path temp)
+      throws IOException {
+    byte[] library = mavenJarBytes("org.example", "library", "1.0", "payload");
+    Path middle = archive(temp, "middle.jar", mapOf("BOOT-INF/lib/library.jar", library));
+    Path artifact =
+        archive(
+            temp, "application.jar", mapOf("BOOT-INF/lib/middle.jar", Files.readAllBytes(middle)));
+    String target = artifact + "!/BOOT-INF/lib/middle.jar!/BOOT-INF/lib/library.jar";
+    System.setProperty("beacon.security.local-output.enabled", "false");
+    System.setProperty(
+        "beacon.security.sbom.max.scan.bytes",
+        Long.toString(Files.size(middle) + library.length + 128));
+    RecordingReceiver receiver = new RecordingReceiver();
+
+    new ArchiveScanner(receiver).scan(artifact, target);
+
+    assertThat(receiver.incomplete).isEmpty();
+    assertThat(receiver.components).hasSize(1);
+    assertThat(receiver.components.get(0).location).isEqualTo(target);
+    assertThat(receiver.components.get(0).component.name).isEqualTo("library");
+    assertThat(receiver.components.get(0).component.hash).isNull();
+  }
+
+  @Test
+  void productionPublishesCurrentLoadedOriginsWithoutScanningUnusedLibraries(@TempDir Path temp)
+      throws Exception {
+    Path artifact =
+        archive(
+            temp,
+            "application.jar",
+            mapOf(
+                "META-INF/maven/org.example/application/pom.properties",
+                    bytes("groupId=org.example\nartifactId=application\nversion=1.0\n"),
+                "BOOT-INF/lib/unloaded.jar", new byte[8192],
+                "BOOT-INF/lib/library.jar",
+                    mavenJarBytes("org.example", "library", "2.0", "payload")));
+    System.setProperty("beacon.security.local-output.enabled", "false");
+    System.setProperty("beacon.security.sbom.max.archive.bytes", "1024");
+    System.setProperty("java.class.path", temp.resolve("missing-classpath.jar").toString());
+    URL root = artifact.toUri().toURL();
+    Class<?> application = typeAt(new URL(root + "!/BOOT-INF/classes/"));
+    Class<?> library = typeAt(new URL(root + "!/BOOT-INF/lib/library.jar!/"));
+    AtomicReference<Class<?>[]> observed = new AtomicReference<>(new Class<?>[] {application});
+    List<Map<String, Object>> events = new ArrayList<>();
+    try (SbomInventory inventory = new SbomInventory(instrumentation(observed), events::add)) {
+      inventory.refresh();
+      assertThat(events.get(0).get("dependencies"))
+          .isEqualTo(singletonList(dependency("org.example:application", "1.0")));
+
+      observed.set(new Class<?>[] {application, library});
+      inventory.refresh();
+      assertThat((List<?>) events.get(1).get("dependencies")).hasSize(2);
+      assertThat(inventory.resolve(application.getName(), application.getClassLoader()))
+          .containsEntry("name", "org.example:application");
+      assertThat(inventory.resolve(library.getName(), library.getClassLoader()))
+          .containsEntry("name", "org.example:library");
+
+      observed.set(new Class<?>[] {library});
+      inventory.refresh();
+      assertThat(events.get(2).get("dependencies"))
+          .isEqualTo(singletonList(dependency("org.example:library", "2.0")));
+      assertThat(inventory.resolve(application.getName(), application.getClassLoader())).isEmpty();
+
+      observed.set(new Class<?>[0]);
+      inventory.refresh();
+      assertThat(events).hasSize(4);
+      assertThat(events.get(3).get("dependencies")).isEqualTo(emptyList());
+    }
+  }
+
+  @Test
+  void productionReusesKnownOriginsWhileResolvingNewLibraries(@TempDir Path temp) throws Exception {
+    Path first = mavenJar(temp, "first.jar", "org.example", "first", "1.0", "payload");
+    Path second =
+        archive(
+            temp,
+            "second.jar",
+            mapOf(
+                "META-INF/maven/org.example/second/pom.properties",
+                bytes("groupId=org.example\nartifactId=second\nversion=1.0\n")));
+    System.setProperty("beacon.security.local-output.enabled", "false");
+    Class<?> firstType = typeAt(first.toUri().toURL());
+    Class<?> secondType = typeAt(second.toUri().toURL());
+    AtomicReference<Class<?>[]> observed = new AtomicReference<>(new Class<?>[] {firstType});
+    List<Map<String, Object>> events = new ArrayList<>();
+    try (SbomInventory inventory = new SbomInventory(instrumentation(observed), events::add)) {
+      inventory.refresh();
+      // Re-reading the first JAR would exceed this budget; the newly loaded JAR has one entry.
+      System.setProperty("beacon.security.sbom.max.entries", "1");
+      observed.set(new Class<?>[] {firstType, secondType});
+      inventory.refresh();
+      inventory.refresh();
+
+      assertThat(events).hasSize(3);
+      assertThat((List<?>) events.get(1).get("dependencies")).hasSize(2);
+      assertThat(events.get(2).get("dependencies")).isEqualTo(events.get(1).get("dependencies"));
+      assertThat(events.get(2).get("observed_at")).isNotEqualTo(events.get(1).get("observed_at"));
+    }
+  }
+
+  @Test
+  void productionExcludesLibrariesInsideTheAgentArchive(@TempDir Path temp) throws IOException {
+    Path application =
+        mavenJar(temp, "application.jar", "org.example", "application", "1.0", "app");
+    Path agent = mavenJar(temp, "agent.jar", "io.opentelemetry", "javaagent", "1.0", "agent");
+    URL agentOrigin = agent.toUri().toURL();
+    Class<?> helper = typeAt(new URL(agentOrigin + "!/internal/agent-helper.jar"));
+    Class<?> entry;
+    try (InputStream input =
+        getClass().getResourceAsStream("/io/opentelemetry/javaagent/OpenTelemetryAgent.class")) {
+      assertThat(input).isNotNull();
+      entry =
+          new NestedSourceLoader()
+              .define("io.opentelemetry.javaagent.OpenTelemetryAgent", readAll(input), agentOrigin);
+    }
+    Class<?> app = typeAt(application.toUri().toURL());
+    System.setProperty("beacon.security.local-output.enabled", "false");
+    List<Map<String, Object>> events = new ArrayList<>();
+    try (SbomInventory inventory =
+        new SbomInventory(instrumentation(helper, app, entry), events::add)) {
+      inventory.refresh();
+
+      assertThat(events).hasSize(1);
+      assertThat(events.get(0).get("dependencies"))
+          .isEqualTo(singletonList(dependency("org.example:application", "1.0")));
+    }
+  }
+
+  @Test
+  void productionInvalidatesReplacedOriginsWithoutAttributingNewBytesToLoadedClasses(
+      @TempDir Path temp) throws Exception {
+    Path artifact = mavenJar(temp, "application.jar", "org.example", "first", "1.0", "first");
+    Path replacement = mavenJar(temp, "replacement.jar", "org.example", "second", "2.0", "longer");
+    System.setProperty("beacon.security.local-output.enabled", "false");
+    Class<?> loaded = typeAt(artifact.toUri().toURL());
+    List<Map<String, Object>> events = new ArrayList<>();
+    try (SbomInventory inventory = new SbomInventory(instrumentation(loaded), events::add)) {
+      inventory.refresh();
+      assertThat(inventory.resolve(loaded.getName(), loaded.getClassLoader()))
+          .containsEntry("name", "org.example:first");
+
+      Files.copy(replacement, artifact, StandardCopyOption.REPLACE_EXISTING);
+      inventory.refresh();
+
+      assertThat(events).hasSize(2);
+      assertThat(events.get(1).get("dependencies")).isEqualTo(emptyList());
+      assertThat(inventory.resolve(loaded.getName(), loaded.getClassLoader())).isEmpty();
+    }
+  }
+
+  @Test
+  void failedCachesRetryWithoutWaitingForExpiration(@TempDir Path temp) throws IOException {
+    Path artifact = mavenJar(temp, "library.jar", "org.example", "library", "1.0", "payload");
+    System.setProperty("beacon.security.local-output.enabled", "false");
+    System.setProperty("beacon.security.sbom.max.scan.bytes", "1");
+    String fingerprint = ArtifactCache.fingerprint(artifact);
+    ArtifactCache failed = new ArtifactCache(artifact, fingerprint);
+    assertThat(failed.reusable(fingerprint)).isFalse();
+
+    System.setProperty("beacon.security.sbom.max.scan.bytes", "65536");
+    ArtifactCache recovered = new ArtifactCache(artifact, fingerprint);
+    assertThat(recovered.reusable(fingerprint)).isTrue();
+    RecordingReceiver receiver = new RecordingReceiver();
+    recovered.replay(receiver);
+    assertThat(receiver.incomplete).isEmpty();
+    assertThat(receiver.components).hasSize(1);
+  }
+
+  private Class<?> typeAt(URL source) throws IOException {
+    try (InputStream input =
+        getClass().getResourceAsStream("/sample/dynamic/DynamicFixture.class")) {
+      assertThat(input).isNotNull();
+      return new NestedSourceLoader()
+          .define("sample.dynamic.DynamicFixture", readAll(input), source);
+    }
+  }
+
+  private static Map<String, Object> dependency(String name, String version) {
+    return Values.map(
+        "name", name, "version", version, "hash", DependencyInventory.identityHash(name, version));
+  }
+
+  @ParameterizedTest
+  @ValueSource(
+      strings = {
+        "tomcat-embed-core",
+        "tomcat-embed-el",
+        "tomcat-embed-jasper",
+        "tomcat-embed-websocket"
+      })
+  void preservesArtifactNamesWhenManifestTitlesAreShared(String artifactId, @TempDir Path temp)
+      throws IOException {
+    Path artifact =
+        archive(
+            temp,
+            artifactId + "-9.0.55.jar",
+            mapOf(
+                "META-INF/MANIFEST.MF",
+                bytes(
+                    "Manifest-Version: 1.0\r\n"
+                        + "Implementation-Title: Apache Tomcat\r\n"
+                        + "Implementation-Version: 9.0.55\r\n\r\n")));
+    System.setProperty("beacon.security.local-output.enabled", "false");
+
+    RecordingReceiver receiver = scan(artifact);
+
+    assertThat(receiver.components).hasSize(1);
+    Component component = receiver.components.get(0).component;
+    assertThat(component.name).isEqualTo(artifactId);
+    assertThat(component.version).isEqualTo("9.0.55");
+    assertThat(component.hash).isNull();
+    assertThat(DependencyInventory.dependency(component.json()))
+        .isEqualTo(dependency(artifactId, "9.0.55"));
+  }
+
+  @Test
+  void recoversExplicitManifestCoordinates(@TempDir Path temp) throws IOException {
+    Path artifact =
+        archive(
+            temp,
+            "micrometer-core-1.8.0.jar",
+            mapOf(
+                "META-INF/MANIFEST.MF",
+                bytes(
+                    "Manifest-Version: 1.0\r\n"
+                        + "Implementation-Title: io.micrometer#micrometer-core;1.8.0\r\n"
+                        + "Implementation-Version: 1.8.0\r\n\r\n")));
+
+    RecordingReceiver receiver = scan(artifact);
+
+    assertThat(receiver.components).hasSize(1);
+    Component component = receiver.components.get(0).component;
+    assertThat(component.source).isEqualTo("manifest-coordinates");
+    assertThat(DependencyInventory.dependency(component.json()))
+        .isEqualTo(dependency("io.micrometer:micrometer-core", "1.8.0"));
+  }
+
+  @ParameterizedTest
+  @ValueSource(
+      strings = {
+        "io.micrometer#micrometer-core;2.0.0",
+        "io.micrometer#another-artifact;1.8.0",
+        "Micrometer Core"
+      })
+  void doesNotGuessCoordinatesFromConflictingOrGenericManifests(String title, @TempDir Path temp)
+      throws IOException {
+    Path artifact =
+        archive(
+            temp,
+            "micrometer-core-1.8.0.jar",
+            mapOf(
+                "META-INF/MANIFEST.MF",
+                bytes(
+                    "Manifest-Version: 1.0\r\nImplementation-Title: "
+                        + title
+                        + "\r\n"
+                        + "Implementation-Version: 1.8.0\r\n"
+                        + "Implementation-Vendor-Id: io.micrometer\r\n"
+                        + "Bundle-SymbolicName: io.micrometer.core\r\n\r\n")));
+
+    RecordingReceiver receiver = scan(artifact);
+
+    assertThat(receiver.components).hasSize(1);
+    assertThat(DependencyInventory.dependency(receiver.components.get(0).component.json()))
+        .isEqualTo(dependency("micrometer-core", "1.8.0"));
+  }
+
+  @Test
+  void usesMatchingMavenCoordinatesForTheOuterShadedArtifact(@TempDir Path temp)
+      throws IOException {
+    Path artifact =
+        archive(
+            temp,
+            "mybatis-3.5.7.jar",
+            mapOf(
+                "META-INF/maven/org.javassist/javassist/pom.properties",
+                    bytes("groupId=org.javassist\nartifactId=javassist\nversion=3.27.0\n"),
+                "META-INF/maven/org.mybatis/mybatis/pom.properties",
+                    bytes("groupId=org.mybatis\nartifactId=mybatis\nversion=3.5.7\n")));
+    System.setProperty("beacon.security.local-output.enabled", "false");
+
+    RecordingReceiver receiver = scan(artifact);
+
+    Record primary = find(receiver.components, "mybatis");
+    assertThat(primary).isNotNull();
+    assertThat(primary.primary).isTrue();
+    assertThat(DependencyInventory.dependency(primary.component.json()))
+        .isEqualTo(dependency("org.mybatis:mybatis", "3.5.7"));
+    assertThat(find(receiver.components, "javassist").primary).isFalse();
   }
 
   private static RecordingReceiver scan(Path path) {
@@ -931,8 +1501,20 @@ class SbomInventoryBehaviorTest {
     return receiver;
   }
 
+  private static void zeroCentralDirectoryField(Path path, int offset) throws IOException {
+    byte[] data = Files.readAllBytes(path);
+    for (int i = 0; i + 46 <= data.length; i++) {
+      if (data[i] == 'P' && data[i + 1] == 'K' && data[i + 2] == 1 && data[i + 3] == 2) {
+        Arrays.fill(data, i + offset, i + offset + 4, (byte) 0);
+        Files.write(path, data);
+        return;
+      }
+    }
+    throw new IOException("ZIP central directory not found");
+  }
+
   @Test
-  void compactSnapshotKeepsFallbackHashAndSplitsWithoutLosingDependencies() throws Exception {
+  void compactSnapshotUsesCoordinateHashesAndSplitsWithoutLosingDependencies() throws Exception {
     System.setProperty("beacon.security.evidence.max.bytes", "2048");
     List<Map<String, Object>> records = new ArrayList<>();
     for (int i = 0; i < 150; i++) {
@@ -966,8 +1548,7 @@ class SbomInventoryBehaviorTest {
       dependencies.addAll((List<?>) part.get("dependencies"));
     }
     assertEquals(151, dependencies.size());
-    assertTrue(
-        dependencies.contains(Values.map("name", "no-metadata", "version", "2.0", "hash", "abcd")));
+    assertTrue(dependencies.contains(dependency("no-metadata", "2.0")));
     List<Map<String, Object>> empty =
         DependencyInventory.events(
             Values.map("event_name", "beacon.security.sbom.inventory"), emptyList());
@@ -975,12 +1556,15 @@ class SbomInventoryBehaviorTest {
   }
 
   @Test
-  void defaultIntervalDoesNotKeepTheOldFiveSecondRefresh() throws Exception {
+  void defaultIntervalDoesNotKeepTheOldFiveSecondRefresh(@TempDir Path temp) throws Exception {
+    Path artifact = mavenJar(temp, "library.jar", "org.example", "library", "1.0", "payload");
+    Class<?> loaded = typeAt(artifact.toUri().toURL());
     System.clearProperty("beacon.security.sbom.refresh.seconds");
     System.setProperty("beacon.security.local-output.enabled", "false");
     System.setProperty("java.class.path", "");
     CountDownLatch received = new CountDownLatch(2);
-    SbomInventory inventory = new SbomInventory(instrumentation(), event -> received.countDown());
+    SbomInventory inventory =
+        new SbomInventory(instrumentation(loaded), event -> received.countDown());
     try {
       inventory.start();
       assertThat(received.await(6, SECONDS)).isFalse();
@@ -990,19 +1574,63 @@ class SbomInventoryBehaviorTest {
     }
   }
 
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void firstSnapshotWaitsForApplicationWithoutTheFiveMinuteDelay(
+      boolean generatedDirectoryLoaded, @TempDir Path temp) throws Exception {
+    Path artifact =
+        mavenJar(temp, "application.jar", "org.example", "application", "1.0", "payload");
+    Class<?> application = typeAt(artifact.toUri().toURL());
+    System.clearProperty("beacon.security.sbom.refresh.seconds");
+    System.setProperty("beacon.security.local-output.enabled", "false");
+    System.setProperty("java.class.path", "");
+    AtomicReference<Class<?>[]> observed =
+        new AtomicReference<>(
+            generatedDirectoryLoaded
+                ? new Class<?>[] {
+                  typeAt(Files.createDirectory(temp.resolve("tmall")).toUri().toURL())
+                }
+                : new Class<?>[0]);
+    CountDownLatch firstSample = new CountDownLatch(1);
+    CountDownLatch delivered = new CountDownLatch(1);
+    List<Map<String, Object>> events = new CopyOnWriteArrayList<>();
+    try (SbomInventory inventory =
+        new SbomInventory(
+            instrumentation(observed, firstSample::countDown),
+            event -> {
+              events.add(event);
+              delivered.countDown();
+            })) {
+      inventory.start();
+      assertThat(firstSample.await(5, SECONDS)).isTrue();
+      observed.set(new Class<?>[] {application});
+      assertThat(delivered.await(5, SECONDS)).isTrue();
+
+      assertThat(events).hasSize(1);
+      assertThat(events.get(0).get("dependencies"))
+          .isEqualTo(singletonList(dependency("org.example:application", "1.0")));
+      assertThat(inventory.health()).containsEntry("status", "ok");
+    }
+  }
+
   @Test
   void configuredIntervalPublishesUnchangedDependencies(@TempDir Path temp) throws Exception {
     long uptimeBefore = ManagementFactory.getRuntimeMXBean().getUptime();
+    Path artifact = mavenJar(temp, "library.jar", "org.example", "library", "1.0", "payload");
+    Class<?> loaded = typeAt(artifact.toUri().toURL());
     System.setProperty("beacon.security.sbom.refresh.seconds", "1");
+    System.setProperty("beacon.security.sbom.cache.seconds", "1");
     System.setProperty("beacon.security.local-output.enabled", "false");
     System.setProperty("java.class.path", "");
     List<Map<String, Object>> events = new CopyOnWriteArrayList<>();
     CountDownLatch received = new CountDownLatch(2);
     SbomInventory inventory =
         new SbomInventory(
-            instrumentation(),
+            instrumentation(loaded),
             event -> {
               events.add(event);
+              // The former cache TTL expires before the next collection. A reparse would fail.
+              System.setProperty("beacon.security.sbom.max.entries", "1");
               received.countDown();
             });
     try {
@@ -1010,10 +1638,10 @@ class SbomInventoryBehaviorTest {
       assertThat(received.await(5, SECONDS)).isTrue();
       assertThat(events).hasSizeGreaterThanOrEqualTo(2);
       assertThat(events.get(0))
-          .containsEntry("dependencies", emptyList())
+          .containsEntry("dependencies", singletonList(dependency("org.example:library", "1.0")))
           .doesNotContainKeys("status", "error");
       assertThat(events.get(1))
-          .containsEntry("dependencies", emptyList())
+          .containsEntry("dependencies", events.get(0).get("dependencies"))
           .doesNotContainKeys("revision", "sbom_id", "release_id", "part_index", "part_count");
       assertThat(events.get(1).get("observed_at")).isNotEqualTo(events.get(0).get("observed_at"));
       String startedAt = Events.timestamp(ManagementFactory.getRuntimeMXBean().getStartTime());
@@ -1089,13 +1717,20 @@ class SbomInventoryBehaviorTest {
   }
 
   private static Instrumentation instrumentation(AtomicReference<Class<?>[]> loaded) {
+    return instrumentation(loaded, () -> {});
+  }
+
+  private static Instrumentation instrumentation(
+      AtomicReference<Class<?>[]> loaded, Runnable sampled) {
     return (Instrumentation)
         Proxy.newProxyInstance(
             SbomInventoryBehaviorTest.class.getClassLoader(),
             new Class<?>[] {Instrumentation.class},
             (proxy, method, args) -> {
               if (method.getName().equals("getAllLoadedClasses")) {
-                return loaded.get();
+                Class<?>[] snapshot = loaded.get();
+                sampled.run();
+                return snapshot;
               }
               if (method.getReturnType() == boolean.class) {
                 return false;

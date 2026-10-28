@@ -20,11 +20,14 @@ final class ArtifactCache implements ArchiveScanner.Receiver {
   private final List<Declaration> declarations = new ArrayList<>();
   private final Set<String> reasons = new LinkedHashSet<>();
   final String fingerprint;
-  final long scannedAt = System.currentTimeMillis();
 
   ArtifactCache(Path path, String fingerprint) {
+    this(path, fingerprint, path.toString());
+  }
+
+  ArtifactCache(Path path, String fingerprint, String location) {
     this.fingerprint = fingerprint;
-    new ArchiveScanner(this).scan(path);
+    new ArchiveScanner(this).scan(path, location);
   }
 
   static String fingerprint(Path path) {
@@ -42,9 +45,9 @@ final class ArtifactCache implements ArchiveScanner.Receiver {
         && reasons.stream()
             .noneMatch(
                 reason ->
-                    reason.startsWith("artifact_scan_") || reason.equals("unreadable_artifact"))
-        && System.currentTimeMillis() - scannedAt
-            < Settings.limit("beacon.security.sbom.cache.seconds", 300) * 1000L;
+                    reason.startsWith("artifact_scan_")
+                        || reason.equals("unreadable_artifact")
+                        || reason.endsWith("_limit"));
   }
 
   void replay(ArchiveScanner.Receiver receiver) {

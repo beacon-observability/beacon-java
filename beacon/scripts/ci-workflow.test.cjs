@@ -180,6 +180,11 @@ test('test partitions avoid the check graph and keep full diagnostics in reports
 });
 
 test('selected partition verification cannot fail or silently skip', () => {
+  const comparison = source.split('\n  partition-check:\n')[1].split('\n  tests:\n')[0];
+  assert.match(comparison, /cache-read-only: true/);
+  assert.match(comparison, /build\/beacon-ci\/\*\.json/);
+  assert.match(comparison, /build\/beacon-ci\/\*\.txt/);
+  assert.doesNotMatch(comparison, /:javaagent:assemble|\.jar\b|cache-read-only: false/);
   for (const result of ['failure', 'cancelled', 'skipped']) {
     const needs = results();
     needs.plan.outputs.partition_check = 'true';

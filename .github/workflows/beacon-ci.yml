@@ -160,6 +160,7 @@ jobs:
         with:
           distribution: temurin
           java-version-file: .java-version
+      # zizmor: ignore[cache-poisoning] Only JSON/text coverage reports are uploaded; no runtime artifacts are promoted from this job.
       - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
         with:
           cache-read-only: true
@@ -176,8 +177,10 @@ jobs:
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: ${{ !cancelled() }}
         with:
-          name: test-partition-coverage
-          path: build/beacon-ci/
+          name: test-partition-coverage-reports
+          path: |
+            build/beacon-ci/*.json
+            build/beacon-ci/*.txt
           if-no-files-found: warn
 
   tests:

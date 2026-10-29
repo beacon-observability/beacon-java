@@ -4,6 +4,8 @@ This file records Beacon product changes only. The root [CHANGELOG.md](../CHANGE
 
 ## Unreleased
 
+## Version 1.3.3 (2026-10-30)
+
 - Reduce full CI matrix batching with up to 16 concurrent test jobs while retaining all 48
   JDK/mode/partition combinations. Discover test partitions without resolving the complete
   `check` task graph while preserving dependency/JDK suite selection and verifying exact legacy
@@ -33,8 +35,6 @@ This file records Beacon product changes only. The root [CHANGELOG.md](../CHANGE
   content hashes retain their standard SHA-256 meaning.
 
 - Integrated official OTel Java Instrumentation [v2.33.1](https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/tag/v2.33.1), pinned to `d9045e02e0711837d54f0fd058cd55f77742506d`, with its SDK and build constraints. Review the root upstream changelog for compatibility and migration notes; Beacon product versioning remains independent.
-
-## Version 1.3.3 (2026-10-27)
 
 - Avoid publishing an empty premain dependency list: retry collection every second until the first
   dependency is observed, then use the configured refresh interval. Preserve empty updates when

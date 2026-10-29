@@ -10,23 +10,56 @@ The product development branch is `main`. [Beacon CI](../.github/workflows/beaco
 | Upstream synchronization, shared build, or agent core changes | JDK 8 with classic transformation, JDK 17 with Indy, and JDK 21 with both modes, each across 4 partitions, for 16 test jobs | 4 Muzzle partitions |
 | Manual `full` selection | JDK 8/11/17/21/25/26 × 4 partitions × 2 Indy modes, for 48 test jobs | Muzzle, latest-dependency tests, and upstream Linux container smoke tests |
 
-All three pull-request and manual tiers build the complete agent; validate the Beacon file name, Manifest, and provenance; run maintainer-script and packaging regression tests; run packaged-agent HTTP instrumentation, TraceContext, OTLP trace export, and embedded-Security smoke tests; run the JDK 21 / Spring Boot 3.5.7 packaged-agent JDBC regression against PostgreSQL 16.15 with Trace, Logs, Metrics, and Security combinations; and run formatting, package-name, other static checks, and license-list checks. Module tests reuse upstream `listTestsInPartition` without excluding test modules by directory. Tests wired into Gradle for Beacon-specific enhancements are included. A module without tests does not automatically gain functional acceptance.
+All three pull-request and manual tiers build the complete agent; validate the Beacon file name, Manifest, and provenance; run maintainer-script and packaging regression tests; run packaged-agent HTTP instrumentation, TraceContext, OTLP trace export, and embedded-Security smoke tests; run the JDK 21 / Spring Boot 3.5.7 packaged-agent JDBC regression against PostgreSQL 16.15 with Trace, Logs, Metrics, and Security combinations; and run formatting, package-name, other static checks, and license-list checks. Module tests use `listBeaconTestsInPartition`, preserving upstream's four project partitions and separate smoke/aggregate exclusions. It discovers registered Test tasks after project configuration, including late custom tasks, and preserves JVM suite selection from the current dependency/JDK mode without resolving the complete `check` dependency graph or executing tests. Tests wired into Gradle for Beacon-specific enhancements are included. A module without tests does not automatically gain functional acceptance.
 
 After a pull request has passed its selected tier and is merged, the `main` push runs only the clean agent build, packaging verification, and packaged-agent smoke test. The merge ruleset prevents direct pushes, so repeating the complete pull-request matrix on the resulting merge commit would add substantial latency without testing different file content. Manual `full` validation remains available when release acceptance or an explicit post-merge rerun is required.
 
 The [planning script](scripts/ci-plan.cjs) selects a tier from the complete Git diff rather than branch names or pull-request labels. Pull requests compare the base SHA with GitHub's default checked-out merge result; pushes compare the before SHA with the current commit. A missing baseline expands validation to the upgrade tier, while an unreadable otherwise-valid SHA fails rather than silently reducing coverage. Changes to settings, baselines, dependencies, shared test infrastructure, or CI itself expand the matrix. The script and its tests define the exact path rules.
 
-At most eight matrix jobs run concurrently. A new commit cancels an older Beacon CI run for the same pull request. It does not automatically cancel upstream workflows that began before migration.
+At most 16 matrix jobs run concurrently, subject to available GitHub runner capacity. The full
+48-job matrix therefore needs at least three batches. A new commit cancels an older Beacon CI run
+for the same pull request. It does not automatically cancel upstream workflows that began before migration.
+
+Beacon test jobs set `testShowStandardStreams=false` to avoid streaming successful tests' verbose
+Agent DEBUG output. Full per-test stdout/stderr remains in the uploaded JUnit XML and HTML reports;
+test failures and full exception details still appear in the console. Local Gradle runs retain
+standard-stream logging unless this property is explicitly set.
 
 Wrapper validation, path-triggered metadata checks, dependency review, CodeQL, and workflow security scans continue to run independently and are not included in the test-job counts above. `Beacon required` does not replace them; configure them separately as required checks when appropriate.
 
 ### Merge gate
 
-`Beacon required` summarizes the checks selected for the current change. A required job that fails, is canceled, or is unexpectedly skipped prevents the gate from passing; only optional jobs that were not selected may be skipped. The GitHub Ruleset for `main` requires this check and currently does not require pull-request approval. Editing workflow files does not automatically update GitHub branch protection.
+`Beacon required` summarizes the checks selected for the current change. Collector changes and manual
+full runs also compare all four direct-discovery partitions against an independent snapshot from the
+legacy `check` graph. Missing, unexpected, moved, or duplicated tests fail the gate. JVM test suites
+must be selected by the project's `check` lifecycle for the current dependency/JDK mode. Discovery
+stops at Test tasks, avoiding their runtime/Agent prerequisite graphs, and uses the same JDK and
+Indy properties as execution. A required job that fails, is canceled, or is unexpectedly skipped prevents the gate from passing; only optional jobs that were not selected may be skipped. The GitHub Ruleset for `main` requires this check and currently does not require pull-request approval. Editing workflow files does not automatically update GitHub branch protection.
 
 Fix the cause of a failing check; do not remove checks solely to obtain a green status. CI artifacts are development artifacts, not formal releases, and a successful build does not replace functional or release acceptance.
 
 The artifact-producing build disables Node package-manager and Gradle user-home caches so restored content cannot enter the downloadable agent. Quality, module-test, and upstream-smoke jobs may restore Gradle caches read-only because they upload only reports, not runtime artifacts. Formal release candidates must continue to come from the cache-isolated build path.
+
+[Warm Beacon test caches](../.github/workflows/beacon-test-cache.yml) refreshes those read-only
+test caches after a push to trusted `main`, daily, or a manual dispatch on `main`. It downloads
+external dependency files for every JVM source set's compile, runtime, and annotation processor
+classpaths, once for baseline dependencies and once for pinned latest dependencies. Project outputs
+are excluded from dependency warming; the shared test Agent is then built into the local build cache.
+Resolving metadata or listing disabled tests alone does not guarantee that dependency JARs are cached.
+Future test runners can restore
+current configuration, dependencies, and shared test infrastructure. This workflow runs
+no test suite, uploads no Agent, and does not serve as release acceptance. After merging CI or
+dependency changes, let this warmer finish before launching a manual full validation.
+
+Cache hits restore existing files rather than redownloading every dependency from Maven. Missing
+artifacts, changed versions, and expired dynamic-version metadata can still require network access.
+The first warm run must populate the cache; read-only test consumers cannot save newly downloaded
+artifacts. Cache refresh failures remain visible and must be corrected. Cache warming does not
+eliminate test execution or guarantee that every tool or container image is cached.
+Each warm run uses a unique matrix value in setup-gradle's cache key, so daily/manual refreshes
+can save a new immutable snapshot even when the source commit has not changed.
+The Gradle distribution is cached as well. If it is missing, the wrapper allows a 60-second
+network timeout and three retries for the initial download, while retaining SHA-256 verification.
 
 ### Extended validation and test images
 

@@ -9,7 +9,8 @@ function plan(files, full = false, unknownBase = false) {
   const broad = unknownBase || files.some((file) =>
     /^(beacon\/upstream\.lock\.json|version\.gradle\.kts|settings\.gradle\.kts|build\.gradle\.kts|gradle\.properties|\.java-version)$/.test(file) ||
     /^(gradle\/|conventions\/|dependencyManagement\/|javaagent[^/]*\/|instrumentation-api[^/]*\/|testing[^/]*\/|buildscripts\/|declarative-config-bridge\/|instrumentation-annotations\/|bom[^/]*\/|custom-checks\/|\.github\/|beacon\/scripts\/)/.test(file) ||
-    /^beacon\/(agent\.gradle\.kts|version\.properties)$/.test(file));
+    /^beacon\/(agent\.gradle\.kts|version\.properties)$/.test(file) ||
+    /^beacon\/testing\/(test-partitions\.gradle\.kts|record-test-partitions\.init\.gradle)$/.test(file));
   const modes = full
     ? [8, 11, 17, 21, 25, 26].flatMap((java) => [false, true].map((indy) => ({ java, indy })))
     : broad
@@ -32,6 +33,10 @@ function plan(files, full = false, unknownBase = false) {
     matrix,
     muzzle: full || broad || files.some((file) => file.startsWith('instrumentation/')),
     full,
+    partition_check: full || unknownBase || files.some((file) => [
+      'build.gradle.kts', 'beacon/testing/test-partitions.gradle.kts',
+      'beacon/testing/record-test-partitions.init.gradle', 'beacon/scripts/verify-test-partitions.cjs',
+    ].includes(file)),
   };
 }
 

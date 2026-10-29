@@ -386,7 +386,7 @@ tasks.withType<Test>().configureEach {
 
   testLogging {
     exceptionFormat = TestExceptionFormat.FULL
-    showStandardStreams = true
+    showStandardStreams = otelProps.testShowStandardStreams
   }
 }
 

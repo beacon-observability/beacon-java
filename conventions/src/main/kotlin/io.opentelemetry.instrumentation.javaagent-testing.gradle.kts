@@ -78,11 +78,11 @@ dependencies {
 class JavaagentTestArgumentsProvider(
   @InputFile
   @PathSensitive(PathSensitivity.RELATIVE)
-  val agentShadowJar: File,
+  val agentShadowJar: Provider<RegularFile>,
 
   @InputFile
   @PathSensitive(PathSensitivity.RELATIVE)
-  val shadowJar: File,
+  val shadowJar: Provider<RegularFile>,
 
   @get:Input
   val failOnContextLeak: Boolean,
@@ -94,6 +94,8 @@ class JavaagentTestArgumentsProvider(
   val denyUnsafe: Boolean,
 ) : CommandLineArgumentProvider {
   override fun asArguments(): Iterable<String> {
+    val agentShadowJar = agentShadowJar.get().asFile
+    val shadowJar = shadowJar.get().asFile
     val list = mutableListOf(
       "-Dotel.javaagent.debug=true",
       "-javaagent:${agentShadowJar.absolutePath}",
@@ -134,8 +136,8 @@ class JavaagentTestArgumentsProvider(
 // need to run this after evaluate because testSets plugin adds new test tasks
 afterEvaluate {
   tasks.withType<Test>().configureEach {
-    val shadowJar = tasks.shadowJar.get()
-    val agentShadowJar = agentForTesting.resolve().first()
+    val shadowJar = tasks.shadowJar
+    val agentShadowJar = layout.file(agentForTesting.elements.map { it.first().asFile })
 
     dependsOn(shadowJar)
     // TODO: Figure out why dependsOn override is still needed in otel.javaagent-testing despite
@@ -153,7 +155,7 @@ afterEvaluate {
     jvmArgumentProviders.add(
       JavaagentTestArgumentsProvider(
         agentShadowJar,
-        shadowJar.archiveFile.get().asFile,
+        shadowJar.flatMap { it.archiveFile },
         failOnContextLeakOverride,
         testIndyEnabled,
         otelProps.denyUnsafe

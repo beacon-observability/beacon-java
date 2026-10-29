@@ -86,6 +86,10 @@ subprojects {
   }
 }
 
+if (gradle.startParameter.taskNames.any { it.substringAfterLast(':') == "listBeaconTestsInPartition" }) {
+  apply(from = "beacon/testing/test-partitions.gradle.kts")
+}
+
 if (gradle.startParameter.taskNames.contains("listTestsInPartition")) {
   tasks {
     register<DefaultTask>("listTestsInPartition") {

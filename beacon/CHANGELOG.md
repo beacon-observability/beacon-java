@@ -6,7 +6,8 @@ This file records Beacon product changes only. The root [CHANGELOG.md](../CHANGE
 
 - Reduce full CI matrix batching with up to 16 concurrent test jobs while retaining all 48
   JDK/mode/partition combinations. Discover test partitions without resolving the complete
-  `check` task graph, refresh read-only test caches from trusted main on pushes and daily by
+  `check` task graph while preserving dependency/JDK suite selection and verifying exact legacy
+  partition coverage. Refresh read-only test caches from trusted main on pushes and daily by
   downloading external dependency JARs for baseline/latest classpaths, and retain verbose
   per-test output in reports instead of streaming it for successful tests. Distributable Agent
   builds and formal release candidates remain isolated from restored dependency caches.

@@ -166,6 +166,9 @@ test('same-repository reusable workflows use pinned self-repository references',
 
 test('test partitions avoid the check graph and keep full diagnostics in reports', () => {
   assert.match(source, /\.\/gradlew listBeaconTestsInPartition "-PtestPartition=\$TEST_PARTITION"/);
+  const discovery = source.match(/\.\/gradlew listBeaconTestsInPartition[^\n]*\\\n([^\n]+)/)[1];
+  assert.match(discovery, /-PtestJavaVersion=\$TEST_JAVA/);
+  assert.match(discovery, /-PtestIndy=\$TEST_INDY/);
   assert.match(source, /-I beacon\/testing\/record-test-partitions\.init\.gradle --no-configuration-cache/);
   assert.match(source, /-PtestShowStandardStreams=false/);
   const tests = source.split('\n  tests:\n')[1].split('\n  muzzle:\n')[0];

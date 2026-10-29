@@ -10,7 +10,6 @@ function verify(baseline, legacyFirst, optimized) {
     'Recorded baseline differs from the legacy collector output');
   const seen = new Set();
   let count = 0;
-  const added = [];
   for (let partition = 0; partition < 4; partition += 1) {
     const previous = baseline[String(partition)];
     const current = optimized[partition];
@@ -21,11 +20,11 @@ function verify(baseline, legacyFirst, optimized) {
       assert.match(task, /^:[A-Za-z0-9_.:-]+$/);
       assert(!seen.has(task), `Duplicate test task: ${task}`);
       seen.add(task);
-      if (!previous.includes(task)) added.push(task);
+      assert(previous.includes(task), `Unexpected partition ${partition} task: ${task}`);
     }
     count += previous.length;
   }
-  return { baseline_tasks: count, optimized_tasks: seen.size, added_tasks: added };
+  return { baseline_tasks: count, optimized_tasks: seen.size, added_tasks: [] };
 }
 
 if (require.main === module) {
@@ -37,7 +36,7 @@ if (require.main === module) {
     [0, 1, 2, 3].map((index) => lines(`optimized-partition-${index}.txt`)),
   );
   writeFileSync(resolve(directory, 'partition-coverage.json'), `${JSON.stringify(report, null, 2)}\n`);
-  console.log(`Verified ${report.baseline_tasks} baseline test tasks across four disjoint partitions; ${report.added_tasks.length} additional registered tests.`);
+  console.log(`Verified exactly ${report.baseline_tasks} baseline test tasks across four disjoint partitions.`);
 }
 
 module.exports = { verify };

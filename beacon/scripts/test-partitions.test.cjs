@@ -11,12 +11,68 @@ const { verify } = require('./verify-test-partitions.cjs');
 
 const root = resolve(__dirname, '../..');
 
-test('coverage comparison rejects omissions, moves and duplicate tasks', () => {
+test('suite discovery honors dependency and JDK mode through lifecycle aggregators', (t) => {
+  const fixture = mkdtempSync(resolve(tmpdir(), 'beacon-suite-selection-'));
+  t.after(() => rmSync(fixture, { recursive: true, force: true }));
+  writeFileSync(resolve(fixture, 'settings.gradle.kts'), 'include(":a", ":b", ":c", ":d")\n');
+  copyFileSync(resolve(root, 'beacon/testing/test-partitions.gradle.kts'),
+    resolve(fixture, 'partitions.gradle.kts'));
+  writeFileSync(resolve(fixture, 'build.gradle.kts'), 'apply(from = "partitions.gradle.kts")\n');
+  for (const name of ['a', 'b', 'c', 'd']) {
+    mkdirSync(resolve(fixture, name));
+    writeFileSync(resolve(fixture, name, 'build.gradle.kts'), `
+plugins { java }
+testing.suites {
+  register<JvmTestSuite>("baselineTest")
+  register<JvmTestSuite>("latestTest")
+  register<JvmTestSuite>("modernTest")
+}
+val selectedSuites = tasks.register("selectedSuites") {
+  val latest = providers.gradleProperty("testLatestDeps").orNull == "true"
+  val modern = providers.gradleProperty("testJavaVersion").orNull?.toInt() == 17
+  if (latest) {
+    if (modern) dependsOn(testing.suites.named("latestTest"))
+  } else {
+    dependsOn(testing.suites.named("baselineTest"))
+  }
+  if (modern) dependsOn(testing.suites.named("modernTest"))
+}
+val unrelatedQualityCheck = tasks.register("unrelatedQualityCheck") {
+  dependsOn(tasks.compileTestJava)
+  doLast { throw GradleException("Discovery must not execute quality checks") }
+}
+tasks.check { dependsOn(selectedSuites, unrelatedQualityCheck) }
+repositories { mavenCentral() }
+dependencies { testImplementation("invalid.example:must-not-resolve:0") }
+tasks.withType<Test>().configureEach {
+  doFirst { throw GradleException("Discovery must not execute tests") }
+}
+`);
+  }
+  for (const [java, latest, expected] of [
+    [8, false, ['baselineTest', 'test']],
+    [17, false, ['baselineTest', 'modernTest', 'test']],
+    [8, true, ['test']],
+    [17, true, ['latestTest', 'modernTest', 'test']],
+  ]) {
+    const result = spawnSync(resolve(root, 'gradlew'), [
+      '-p', fixture, 'listBeaconTestsInPartition', '-PtestPartition=0',
+      `-PtestJavaVersion=${java}`, `-PtestLatestDeps=${latest}`,
+      '--offline', '--configuration-cache', '--console=plain', '--max-workers=2',
+    ], { encoding: 'utf8', timeout: 0, maxBuffer: 4 * 1024 * 1024 });
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    assert.deepEqual(readFileSync(resolve(fixture, 'test-tasks.txt'), 'utf8').trim().split('\n'),
+      expected.map((task) => `:a:${task}`));
+  }
+});
+
+test('coverage comparison rejects omissions, moves, duplicates and unexpected tasks', () => {
   const baseline = { 0: [':a:test'], 1: [':b:test'], 2: [':c:test'], 3: [':d:test'] };
   const optimized = Object.values(baseline).map((tasks) => [...tasks]);
   assert.equal(verify(baseline, baseline[0], optimized).baseline_tasks, 4);
   optimized[0].push(':a:lateTest');
-  assert.deepEqual(verify(baseline, baseline[0], optimized).added_tasks, [':a:lateTest']);
+  assert.throws(() => verify(baseline, baseline[0], optimized), /Unexpected partition/);
+  optimized[0].pop();
   assert.throws(() => verify(baseline, [':wrong:test'], optimized));
   const missing = structuredClone(optimized);
   missing[1] = [':other:test'];
@@ -26,7 +82,7 @@ test('coverage comparison rejects omissions, moves and duplicate tasks', () => {
   assert.throws(() => verify(baseline, baseline[0], duplicate), /Duplicate test task/);
 });
 
-test('partition discovery includes late and detached tests without resolving or executing them', (t) => {
+test('partition discovery includes late and custom tests without resolving or executing them', (t) => {
   const fixture = mkdtempSync(resolve(tmpdir(), 'beacon-test-partitions-'));
   t.after(() => rmSync(fixture, { recursive: true, force: true }));
   const modules = ['a', 'b', 'c', 'd', 'instrumentation', 'smoke-tests'];
@@ -43,6 +99,7 @@ repositories { mavenCentral() }
 dependencies { testImplementation("invalid.example:must-not-resolve:0") }
 tasks.register<Test>("detachedTest")
 afterEvaluate { tasks.register<Test>("lateTest") }
+tasks.check { dependsOn("detachedTest", "lateTest") }
 tasks.withType<Test>().configureEach {
   doFirst { throw GradleException("Discovery must not execute tests") }
 }
@@ -108,7 +165,7 @@ tasks.withType<Test>().configureEach {
   const baseline = JSON.parse(readFileSync(resolve(fixture, 'build/beacon-ci/legacy-test-partitions.json'), 'utf8'));
   const previous = readFileSync(resolve(fixture, 'test-tasks.txt'), 'utf8').trim().split('\n');
   const report = verify(baseline, previous, partitions);
-  assert.equal(report.baseline_tasks, 4);
+  assert.equal(report.baseline_tasks, 16);
   assert.equal(report.optimized_tasks, 16);
-  assert.equal(report.added_tasks.length, 12);
+  assert.equal(report.added_tasks.length, 0);
 });

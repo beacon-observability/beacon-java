@@ -224,7 +224,9 @@ jobs:
           TEST_INDY: ${{ matrix.indy }}
           TEST_JAVA_PATH: ${{ steps.test-java.outputs.path }}
         run: |
-          ./gradlew listBeaconTestsInPartition "-PtestPartition=$TEST_PARTITION"
+          ./gradlew listBeaconTestsInPartition "-PtestPartition=$TEST_PARTITION" \
+            "-PtestJavaVersion=$TEST_JAVA" -PtestJavaVM=hotspot "-PtestIndy=$TEST_INDY" \
+            "-Porg.gradle.java.installations.paths=$TEST_JAVA_PATH" -Porg.gradle.java.installations.auto-download=false
           mapfile -t tasks < test-tasks.txt
           test "${#tasks[@]}" -gt 0
           for task in "${tasks[@]}"; do

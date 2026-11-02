@@ -22,6 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.beacon.security.core.AttackEvidence;
 import io.beacon.security.core.Identity;
 import io.beacon.security.core.SecurityState;
 import io.opentelemetry.api.GlobalOpenTelemetry;
@@ -62,10 +63,14 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class EvidenceExporterTest {
   private static final String[] SETTINGS = {
     "beacon.security.enabled",
+    "beacon.security.export.no-evidence.enabled",
     "beacon.security.export.queue.size",
     "beacon.security.export.sbom.queue.size",
     "beacon.security.export.security.events-per-second",
@@ -83,6 +88,116 @@ class EvidenceExporterTest {
 
   private final Map<String, String> previousSettings = new HashMap<>();
   private final ObjectMapper json = new ObjectMapper();
+
+  @ParameterizedTest
+  @CsvSource({"unset, false", "false, false", "invalid, false", "true, true"})
+  void filtersOnlyNoEvidenceBeforeDelivery(String setting, boolean include, @TempDir Path temp)
+      throws IOException {
+    if (setting.equals("unset")) {
+      System.clearProperty("beacon.security.export.no-evidence.enabled");
+    } else {
+      System.setProperty("beacon.security.export.no-evidence.enabled", setting);
+    }
+    Path file = temp.resolve("evidence.jsonl");
+    System.setProperty("beacon.security.output", temp.toString());
+    System.setProperty("beacon.security.evidence.file", file.toString());
+    CapturingExporter logs = new CapturingExporter();
+    OpenTelemetrySdk sdk = installLogs(logs);
+    EvidenceExporter exporter = new EvidenceExporter();
+    try {
+      for (String status : asList("no_evidence", "unknown", "suspected")) {
+        exporter.emit(
+            map(
+                "event_name",
+                "beacon.security.finding",
+                "occurrence_id",
+                status,
+                "attack_evidence",
+                map("status", status, "reason", "test")),
+            Context.root(),
+            true);
+      }
+      exporter.emit(
+          map("event_name", "beacon.security.sbom.inventory", "dependencies", emptyList()),
+          Context.root(),
+          false);
+    } finally {
+      exporter.close();
+      sdk.close();
+    }
+    assertThat(logs.records).hasSize(include ? 4 : 3);
+    assertThat(logs.bodies().stream().anyMatch(body -> body.contains("no_evidence")))
+        .isEqualTo(include);
+    assertThat(Files.readAllLines(file)).hasSize(include ? 3 : 2);
+    assertThat(new String(Files.readAllBytes(file), UTF_8).contains("no_evidence"))
+        .isEqualTo(include);
+    assertThat(counter(exporter.delivery(), "security.queued")).isEqualTo(include ? 3 : 2);
+    assertThat(exporter.dropped()).isZero();
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"unknown", "suspected"})
+  void filteredObservationCanUpgradeWithinTheSameRequest(String status, @TempDir Path temp)
+      throws IOException {
+    System.setProperty("beacon.security.enabled", "true");
+    System.setProperty("beacon.security.export.no-evidence.enabled", "false");
+    System.setProperty("beacon.security.output", temp.toString());
+    CapturingExporter logs = new CapturingExporter();
+    OpenTelemetrySdk sdk = installLogs(logs);
+    EvidenceExporter exporter = new EvidenceExporter();
+    Object occurrenceId;
+    try (SecurityState state = new SecurityState()) {
+      exporter.ledger().begin(state);
+      String input = new String("guest");
+      state.source(input, "http.parameter", "value", "fixture:source");
+      Map<String, Object> first =
+          state.evidence(
+              "sql_injection",
+              "sql_template",
+              "Statement.executeQuery",
+              "fixture:sql",
+              state.marks(input),
+              "",
+              AttackEvidence.none("sql_data_only"));
+      state.pending(first);
+      occurrenceId = first.get("occurrence_id");
+      exporter.emit(first, Context.root(), true);
+      assertThat(counter(exporter.delivery(), "security.queued")).isZero();
+      AttackEvidence stronger =
+          status.equals("unknown")
+              ? AttackEvidence.unknown("sql_dialect_unsupported")
+              : AttackEvidence.suspected("tainted_sql_structure");
+      Map<String, Object> upgrade =
+          state.evidence(
+              "sql_injection",
+              "sql_template",
+              "Statement.executeQuery",
+              "fixture:sql",
+              state.marks(input),
+              "",
+              stronger);
+      state.pending(upgrade);
+      assertThat(upgrade.get("occurrence_id")).isEqualTo(occurrenceId);
+      assertThat(state.pending()).hasSize(1);
+      for (Map<String, Object> event : exporter.ledger().end(state)) {
+        exporter.emit(event, Context.root(), true);
+      }
+    } finally {
+      exporter.close();
+      sdk.close();
+    }
+    assertThat(logs.records).hasSize(1);
+    Map<?, ?> body = json.readValue(logs.bodies().get(0), Map.class);
+    assertThat(body.get("occurrence_id")).isEqualTo(occurrenceId);
+    assertThat(body.get("attack_evidence"))
+        .isEqualTo(
+            map(
+                "status",
+                status,
+                "reason",
+                status.equals("unknown") ? "sql_dialect_unsupported" : "tainted_sql_structure"));
+    assertThat(exporter.dropped()).isZero();
+  }
 
   @Test
   void ordinaryOccurrencesCannotConsumeTheReservedAttackBudget() throws Exception {

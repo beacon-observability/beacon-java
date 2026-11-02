@@ -140,6 +140,7 @@ for schema version 2 before upgrading; a v1 event schema cannot validate v2 outp
 | `beacon.security.enabled` | `BEACON_SECURITY_ENABLED` | `false` | Enable runtime observation and Security lifecycle. |
 | `beacon.security.sbom.enabled` | `BEACON_SECURITY_SBOM_ENABLED` | `true` | Collect runtime SBOM while Security is enabled. |
 | `beacon.security.sbom.refresh.seconds` | `BEACON_SECURITY_SBOM_REFRESH_SECONDS` | `300` | Delay between completed dependency collections; each collection is exported. |
+| `beacon.security.export.no-evidence.enabled` | `BEACON_SECURITY_EXPORT_NO_EVIDENCE_ENABLED` | `false` | Include findings classified as `no_evidence` in OTel Logs and evidence JSONL. |
 | `beacon.security.local-output.enabled` | `BEACON_SECURITY_LOCAL_OUTPUT_ENABLED` | `false` | Write process-local diagnostic snapshots. |
 | `beacon.security.output` | `BEACON_SECURITY_OUTPUT` | `./beacon-security-output/<instance-id>` | Diagnostic snapshot directory. |
 | `beacon.security.evidence.file` | `BEACON_SECURITY_EVIDENCE_FILE` | unset | Optional JSONL evidence file for diagnostics. |
@@ -256,12 +257,12 @@ are per-process diagnostics, not a Kubernetes aggregation or durable delivery me
 
 ## Finding occurrences and attack evidence
 
-Every request that triggers a finding now exports an occurrence, even inside the full-evidence
-sampling interval. The fingerprint remains stable; `occurrence_id` uniquely identifies this
-request's finding. Repeated detections of that fingerprint within one request are deduplicated, with
+Every request with a finding eligible under the export policy below exports an occurrence, even
+inside the full-evidence sampling interval. The fingerprint remains stable; `occurrence_id` uniquely
+identifies this request's finding. Repeated detections of that fingerprint within one request are deduplicated, with
 stronger evidence allowed to upgrade the record without incrementing its count.
 
-Online findings are emitted only when a security rule detects input flowing into a modeled
+Findings are generated only when a security rule detects input flowing into a modeled
 sensitive call. All Security logs use OTel INFO severity. `attack_evidence.status` retains
 `unknown`, `no_evidence`, and `suspected`, with a `reason` explaining the classification.
 Unavailable analysis does not suppress an otherwise matching finding.
@@ -278,6 +279,19 @@ repeated body maps. Request metadata is limited to method, route, status code, a
 error type; empty sink fields are omitted. A current span ID equal to the server span ID is omitted.
 Raw SQL, shell scripts, and request values are not added to exported evidence. Fixed SQL parameter
 binding remains separate from concatenation into a template before preparation.
+
+### Exporting findings without attack evidence
+
+Findings with `attack_evidence.status=no_evidence` are excluded from OpenTelemetry Logs and
+the evidence JSONL stream by default. Set `BEACON_SECURITY_EXPORT_NO_EVIDENCE_ENABLED=true`
+to include them. `unknown` and `suspected` remain eligible for export, and SBOM inventories
+are unaffected. Filtering happens before queue admission and is not counted as export loss.
+Detection, request deduplication, and stronger evidence upgrades still run; optional local
+finding snapshots and span summaries can retain observations excluded from event export.
+This changes the previous default, which exported all three statuses. `no_evidence` remains
+a classification, not a safety verdict.
+
+Java also accepts `-Dbeacon.security.export.no-evidence.enabled=true`.
 
 ### Analysis support and limits
 
@@ -369,7 +383,9 @@ node beacon/scripts/security-smoke.cjs \
   beacon/testing/security-smoke-fixture/build/libs/beacon-security-smoke-fixture.jar
 ```
 
-It verifies separate trace correlation for repeated dynamic-SQL requests, immediate export of
+It runs with default filtering and with `BEACON_SECURITY_EXPORT_NO_EVIDENCE_ENABLED=true`,
+checking both event streams and retained local findings. It verifies separate trace correlation
+for repeated dynamic-SQL requests, immediate export of
 stronger evidence inside the sampling window, and independent classification of later ordinary
 requests. It also verifies that a dynamically concatenated prepared template retains its risk,
 fixed parameterized and constant SQL do not produce findings, runtime SBOM is present, the product

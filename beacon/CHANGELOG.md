@@ -4,6 +4,10 @@ This file records Beacon product changes only. The root [CHANGELOG.md](../CHANGE
 
 ## Unreleased
 
+- Exclude `no_evidence` Security findings from event export by default. Set
+  `BEACON_SECURITY_EXPORT_NO_EVIDENCE_ENABLED=true` to restore their export;
+  retain `unknown`, `suspected`, and request-level evidence upgrades.
+
 ## Version 1.3.3 (2026-10-30)
 
 - Reduce full CI matrix batching with up to 16 concurrent test jobs while retaining all 48

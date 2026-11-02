@@ -35,3 +35,26 @@ tasks {
     jvmArgs("-Dotel.instrumentation.common.mdc.resource-attributes=service.name,telemetry.sdk.language")
   }
 }
+
+// Exercise actual layout rendering with the opt-in flag, including custom logging keys.
+tasks {
+  val testPatternInjection = register<Test>("testPatternInjection") {
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    filter { includeTestsMatching("*LogPatternTest") }
+    jvmArgs("-Dotel.instrumentation.common.logging.experimental.pattern-injection.enabled=true")
+  }
+  val testPatternInjectionCustomKeys = register<Test>("testPatternInjectionCustomKeys") {
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    filter { includeTestsMatching("*LogPatternTest") }
+    jvmArgs("-Dotel.instrumentation.common.logging.experimental.pattern-injection.enabled=true")
+    jvmArgs("-Dotel.instrumentation.common.logging.trace-id-key=custom_trace")
+    jvmArgs("-Dotel.instrumentation.common.logging.span-id-key=custom_span")
+  }
+  named("check") { dependsOn(testPatternInjection, testPatternInjectionCustomKeys) }
+}
+
+tasks.withType<Test>().configureEach {
+  systemProperty("testLatestDeps", otelProps.testLatestDeps)
+}

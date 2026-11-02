@@ -172,6 +172,13 @@ instrumentation/development:
           # `http.server.request.body.size` and `http.server.response.body.size` metrics.
           emit_experimental_telemetry/development: false
       logging:
+        experimental:
+          pattern_injection:
+            # Adds missing service.name and configured trace and span MDC fields to text patterns
+            # after the first complete field. Supports Logback classic, Log4j 1.2, and Log4j2 2.7+.
+            # JSON layouts and Log4j2 PatternSelector branches are excluded.
+            enabled: false
+
         # Specifies the key name used to store the span ID in the logging context.
         span_id_key: span_id
         structured_attributes:

@@ -25,6 +25,9 @@ public class LogbackMdcInstrumentationModule extends InstrumentationModule {
 
   @Override
   public List<TypeInstrumentation> typeInstrumentations() {
-    return asList(new LoggerInstrumentation(), new LoggingEventInstrumentation());
+    return asList(
+        new LoggerInstrumentation(),
+        new LoggingEventInstrumentation(),
+        new PatternLayoutInstrumentation());
   }
 }

@@ -37,7 +37,12 @@ public final class Log4j1PatternInjection {
     }
 
     // This method is absent from the earliest supported Log4j releases.
-    @SuppressWarnings("MissingOverride")
+    @SuppressWarnings({
+      "MissingOverride",
+      "UnusedMethod",
+      "MethodCanBeStatic",
+      "EffectivelyPrivate"
+    })
     public Map<String, Object> getProperties() {
       return emptyMap();
     }

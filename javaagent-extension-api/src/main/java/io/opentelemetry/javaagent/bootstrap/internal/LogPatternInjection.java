@@ -70,6 +70,10 @@ public final class LogPatternInjection {
       if (Character.isWhitespace(c)) {
         break;
       }
+      if (framework == 0 && c == '\\') {
+        end = Math.min(pattern.length(), end + 2);
+        continue;
+      }
       if (c == '%') {
         if (converterSeen) {
           break;
@@ -89,6 +93,10 @@ public final class LogPatternInjection {
 
   private static boolean contains(String pattern, int framework, String key) {
     for (int i = 0; i < pattern.length(); i++) {
+      if (framework == 0 && pattern.charAt(i) == '\\') {
+        i++;
+        continue;
+      }
       if (pattern.charAt(i) != '%') {
         continue;
       }
@@ -243,10 +251,14 @@ public final class LogPatternInjection {
     if (framework == 0 && open == '{') {
       return logbackOptionEnd(pattern, start);
     }
+    if ((framework == 1 || framework == 3) && open == '{') {
+      int end = pattern.indexOf('}', start + 1);
+      return end < 0 ? pattern.length() : end + 1;
+    }
     int depth = 0;
     for (int i = start; i < pattern.length(); i++) {
       char c = pattern.charAt(i);
-      if (c == '\\') {
+      if (framework == 0 && c == '\\') {
         i++;
       } else if (framework == 0 && open == '(' && c == '{') {
         i = logbackOptionEnd(pattern, i) - 1;

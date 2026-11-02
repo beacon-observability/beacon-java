@@ -7,6 +7,7 @@ package io.opentelemetry.javaagent.instrumentation.logback.v1_0;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.LoggerContext;
 import ch.qos.logback.classic.PatternLayout;
@@ -17,6 +18,7 @@ import io.opentelemetry.instrumentation.testing.junit.AgentInstrumentationExtens
 import io.opentelemetry.instrumentation.testing.junit.InstrumentationExtension;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
+import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 
 class LogPatternTest {
@@ -33,7 +35,11 @@ class LogPatternTest {
 
   @Test
   void rendersCorrelationAndPreservesApplicationValues() {
-    LoggerContext context = new LoggerContext();
+    LoggerContext context = (LoggerContext) LoggerFactory.getILoggerFactory();
+    Logger logger = context.getLogger("pattern-test");
+    boolean additive = logger.isAdditive();
+    Level level = logger.getLevel();
+    ListAppender<ILoggingEvent> appender = new ListAppender<>();
     try {
       PatternLayout layout = new PatternLayout();
       layout.setContext(context);
@@ -50,10 +56,10 @@ class LogPatternTest {
       layout.stop();
       layout.start();
       assertThat(layout.getPattern()).isEqualTo(enhanced);
-      ListAppender<ILoggingEvent> appender = new ListAppender<>();
       appender.setContext(context);
       appender.start();
-      Logger logger = context.getLogger("pattern-test");
+      logger.setLevel(Level.INFO);
+      logger.setAdditive(false);
       logger.addAppender(appender);
       logger.info("outside");
       String outside = layout.doLayout(appender.list.get(0));
@@ -87,7 +93,10 @@ class LogPatternTest {
       }
     } finally {
       MDC.clear();
-      context.stop();
+      logger.detachAppender(appender);
+      logger.setAdditive(additive);
+      logger.setLevel(level);
+      appender.stop();
     }
   }
 }

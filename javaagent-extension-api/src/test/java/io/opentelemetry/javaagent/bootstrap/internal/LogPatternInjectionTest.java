@@ -90,6 +90,30 @@ class LogPatternInjectionTest {
         .isEqualTo("  timestamp=%d{HH:mm:ss} " + FIELDS + " %m");
   }
 
+  @ParameterizedTest
+  @ValueSource(ints = {1, 3})
+  void log4j1DateOptionsEndAtTheFirstClosingBrace(int framework) {
+    String field = "%d{yyyy-MM-dd '{'}";
+    assertThat(LogPatternInjection.enhance(field + " %m", framework, "trace_id", "span_id"))
+        .isEqualTo(field + " " + FIELDS + " %m");
+  }
+
+  @Test
+  void log4j2BackslashDoesNotEscapeAnOptionBoundary() {
+    String field = "%d{HH:mm:ss\\}";
+    assertThat(LogPatternInjection.enhance(field + " %m", 2, "trace_id", "span_id"))
+        .isEqualTo(field + " " + FIELDS + " %m");
+  }
+
+  @ParameterizedTest
+  @ValueSource(ints = {0, 1, 2, 3})
+  void respectsFrameworkSpecificPercentEscaping(int framework) {
+    String suffix = " \\%X{trace_id} %m";
+    String fields = framework == 0 ? FIELDS : "service.name=%X{service.name} span_id=%X{span_id}";
+    assertThat(LogPatternInjection.enhance("%d" + suffix, framework, "trace_id", "span_id"))
+        .isEqualTo("%d " + fields + suffix);
+  }
+
   @Test
   void emptyPatternsAreUnchanged() {
     assertThat(LogPatternInjection.enhance(null, 0, "trace_id", "span_id")).isNull();

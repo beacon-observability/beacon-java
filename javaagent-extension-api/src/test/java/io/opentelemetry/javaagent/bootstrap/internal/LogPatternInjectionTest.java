@@ -55,6 +55,20 @@ class LogPatternInjectionTest {
         .contains("custom_trace=%X{custom_trace}", "custom_span=%X{custom_span}");
   }
 
+  @ParameterizedTest
+  @ValueSource(strings = {"'trace_id'", " trace_id ", "trace_id,ignored"})
+  void recognizesNativeLogbackOptions(String option) {
+    assertThat(LogPatternInjection.enhance("%d %X{" + option + "} %m", 0, "trace_id", "span_id"))
+        .isEqualTo("%d service.name=%X{service.name} span_id=%X{span_id} %X{" + option + "} %m");
+  }
+
+  @Test
+  void preservesQuotedDateOptionsAndBraces() {
+    String field = "%d{\"yyyy-MM-dd '{'\"}";
+    assertThat(LogPatternInjection.enhance(field + " %m", 0, "trace_id", "span_id"))
+        .isEqualTo(field + " " + FIELDS + " %m");
+  }
+
   @Test
   void wrapperOptionTextDoesNotCountAsAnMdcConverter() {
     String field = "%replace(%d{HH:mm:ss}){'%X{trace_id}', 'date'}";

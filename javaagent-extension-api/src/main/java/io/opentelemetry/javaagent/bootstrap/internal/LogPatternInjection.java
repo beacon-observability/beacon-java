@@ -118,8 +118,11 @@ public final class LogPatternInjection {
             return true;
           }
         } else {
-          int close = balancedEnd(pattern, end, '{', '}');
+          int close = balancedEnd(pattern, end, '{', '}', framework);
           String option = pattern.substring(end + 1, Math.max(end + 1, close - 1));
+          if (framework == 0) {
+            option = firstLogbackOption(option);
+          }
           if (option.equals(key)
               || (framework == 0 && option.startsWith(key + ":-"))
               || ((framework == 0 || framework == 2) && option.isEmpty())) {
@@ -136,7 +139,7 @@ public final class LogPatternInjection {
       }
       // Descend into presentation wrappers, but never interpret option text as converters.
       if (framework == 0 && end < pattern.length() && pattern.charAt(end) == '(') {
-        int close = balancedEnd(pattern, end, '(', ')');
+        int close = balancedEnd(pattern, end, '(', ')', framework);
         if (close > end + 1 && contains(pattern.substring(end + 1, close - 1), framework, key)) {
           return true;
         }
@@ -144,7 +147,7 @@ public final class LogPatternInjection {
       }
       i = end - 1;
       if (end < pattern.length() && pattern.charAt(end) == '{') {
-        int close = balancedEnd(pattern, end, '{', '}');
+        int close = balancedEnd(pattern, end, '{', '}', framework);
         if (framework == 2
             && (converter.equals("highlight")
                 || converter.equals("style")
@@ -159,7 +162,7 @@ public final class LogPatternInjection {
         }
         i = close - 1;
         while (i + 1 < pattern.length() && pattern.charAt(i + 1) == '{') {
-          i = balancedEnd(pattern, i + 1, '{', '}') - 1;
+          i = balancedEnd(pattern, i + 1, '{', '}', framework) - 1;
         }
       }
     }
@@ -181,20 +184,72 @@ public final class LogPatternInjection {
       }
     }
     if (framework != 1 && framework != 3 && end < pattern.length() && pattern.charAt(end) == '(') {
-      end = balancedEnd(pattern, end, '(', ')');
+      end = balancedEnd(pattern, end, '(', ')', framework);
     }
     while (end < pattern.length() && pattern.charAt(end) == '{') {
-      end = balancedEnd(pattern, end, '{', '}');
+      end = balancedEnd(pattern, end, '{', '}', framework);
     }
     return end;
   }
 
-  private static int balancedEnd(String pattern, int start, char open, char close) {
+  private static String firstLogbackOption(String options) {
+    options = options.trim();
+    if (options.isEmpty()) {
+      return options;
+    }
+    char quote = options.charAt(0);
+    if (quote == '\'' || quote == '"') {
+      for (int i = 1; i < options.length(); i++) {
+        if (options.charAt(i) == '\\') {
+          i++;
+        } else if (options.charAt(i) == quote) {
+          return options.substring(1, i);
+        }
+      }
+      return options;
+    }
+    int comma = options.indexOf(',');
+    return (comma < 0 ? options : options.substring(0, comma)).trim();
+  }
+
+  private static int logbackOptionEnd(String pattern, int start) {
+    // Logback options are comma-separated tokens, not nested brace groups. Only a quote
+    // at the beginning of an option starts quoted text (OptionTokenizer semantics).
+    boolean optionStart = true;
+    char quote = 0;
+    for (int i = start + 1; i < pattern.length(); i++) {
+      char c = pattern.charAt(i);
+      if (quote != 0) {
+        if (c == '\\') {
+          i++;
+        } else if (c == quote) {
+          quote = 0;
+        }
+      } else if (c == '}') {
+        return i + 1;
+      } else if (c == ',') {
+        optionStart = true;
+      } else if (optionStart && !Character.isWhitespace(c)) {
+        optionStart = false;
+        if (c == '\'' || c == '"') {
+          quote = c;
+        }
+      }
+    }
+    return pattern.length();
+  }
+
+  private static int balancedEnd(String pattern, int start, char open, char close, int framework) {
+    if (framework == 0 && open == '{') {
+      return logbackOptionEnd(pattern, start);
+    }
     int depth = 0;
     for (int i = start; i < pattern.length(); i++) {
       char c = pattern.charAt(i);
       if (c == '\\') {
         i++;
+      } else if (framework == 0 && open == '(' && c == '{') {
+        i = logbackOptionEnd(pattern, i) - 1;
       } else if (c == open) {
         depth++;
       } else if (c == close && --depth == 0) {

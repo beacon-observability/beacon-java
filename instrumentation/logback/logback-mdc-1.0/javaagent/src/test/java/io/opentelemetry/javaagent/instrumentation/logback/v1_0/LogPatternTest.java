@@ -39,6 +39,13 @@ class LogPatternTest {
       layout.setContext(context);
       layout.setPattern("%d{yyyy-MM-dd HH:mm:ss} %m%n");
       layout.start();
+      PatternLayout quoted = new PatternLayout();
+      quoted.setContext(context);
+      quoted.setPattern("%d{HH:mm:ss} %X{'" + TRACE + "'} %m%n");
+      quoted.start();
+      if (ENABLED) {
+        assertThat(quoted.getPattern()).doesNotContain(TRACE + "=%X{" + TRACE + "}");
+      }
       String enhanced = layout.getPattern();
       layout.stop();
       layout.start();
@@ -63,6 +70,8 @@ class LogPatternTest {
             logger.info("inside");
             String text = layout.doLayout(appender.list.get(1));
             if (ENABLED) {
+              assertThat(quoted.doLayout(appender.list.get(1)))
+                  .contains(Span.current().getSpanContext().getTraceId());
               assertThat(text)
                   .contains(
                       TRACE + "=" + Span.current().getSpanContext().getTraceId(),

@@ -35,6 +35,9 @@ class PatternLayoutInstrumentation implements TypeInstrumentation {
     @AssignReturned.ToArguments(@AssignReturned.ToArguments.ToArgument(0))
     @Advice.OnMethodEnter(suppress = Throwable.class, inline = false)
     public static String onEnter(@Advice.Argument(0) String pattern) {
+      if (!LogPatternInjection.isEnabled()) {
+        return pattern;
+      }
       return LogPatternInjection.inject(pattern, Log4j1PatternInjection.FRAMEWORK);
     }
   }

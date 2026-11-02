@@ -71,7 +71,7 @@ class LogPatternInjectionTest {
 
   @Test
   void wrapperOptionTextDoesNotCountAsAnMdcConverter() {
-    String field = "%replace(%d{HH:mm:ss}){'%X{trace_id}', 'date'}";
+    String field = "%replace(%d{HH:mm:ss}){':', '%X{trace_id}'}";
     assertThat(LogPatternInjection.enhance(field + " %m", 0, "trace_id", "span_id"))
         .isEqualTo(field + " " + FIELDS + " %m");
   }

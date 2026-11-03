@@ -91,6 +91,12 @@ test('release validation requires the exact commit and complete 48-job profile',
     writeFileSync(runFile, JSON.stringify(run));
     writeFileSync(jobsFile, JSON.stringify({ jobs }));
     assert.doesNotThrow(() => verifyCi(runFile, jobsFile, sourceCommit));
+    writeFileSync(jobsFile, JSON.stringify([
+      { jobs: jobs.slice(0, 30) }, { jobs: jobs.slice(30) },
+    ]));
+    assert.doesNotThrow(() => verifyCi(runFile, jobsFile, sourceCommit));
+    writeFileSync(jobsFile, JSON.stringify([{ jobs: jobs.slice(0, 30) }]));
+    assert.throws(() => verifyCi(runFile, jobsFile, sourceCommit), /48-job/);
     assert.throws(() => verifyCi(runFile, jobsFile, 'b'.repeat(40)), /differs/);
     writeFileSync(jobsFile, JSON.stringify({ jobs: jobs.slice(0, -1) }));
     assert.throws(() => verifyCi(runFile, jobsFile, sourceCommit), /48-job/);

@@ -54,9 +54,11 @@ jobs:
         run: |
           [[ "$RUN_ID" =~ ^[1-9][0-9]*$ ]]
           gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" > validation-run.json
-          gh api \
-            "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/jobs?filter=latest&per_page=100" \
-            > validation-jobs.json
+          # Large job pages can time out in GitHub's API after a partial rerun.
+          gh api --paginate \
+            "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/jobs?filter=latest&per_page=30" \
+            > validation-job-pages.json
+          jq --slurp . validation-job-pages.json > validation-jobs.json
           node beacon/scripts/release-metadata.cjs verify-ci \
             validation-run.json validation-jobs.json "$GITHUB_SHA"
       - name: Reject an existing release or a conflicting tag

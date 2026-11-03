@@ -4,6 +4,8 @@ This file records Beacon product changes only. The root [CHANGELOG.md](../CHANGE
 
 ## Unreleased
 
+## Version 1.3.4 (2026-11-03)
+
 - Exclude `no_evidence` Security findings from event export by default. Set
   `BEACON_SECURITY_EXPORT_NO_EVIDENCE_ENABLED=true` to restore their export;
   retain `unknown`, `suspected`, and request-level evidence upgrades.

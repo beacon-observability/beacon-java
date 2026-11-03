@@ -4,6 +4,9 @@ on:
     branches: [codex/validate-vaadin-latest-webpack]
 permissions:
   contents: read
+concurrency:
+  group: vaadin-release-diagnostics
+  cancel-in-progress: true
 jobs:
   vaadin:
     name: Vaadin comparison (${{ matrix.scenario }})
@@ -56,7 +59,7 @@ jobs:
           set -e
           if [[ "$SCENARIO" == baseline ]]; then
             [[ "$result" -ne 0 ]]
-            rg 'Unable to read webpack stats file' "$RUNNER_TEMP/vaadin-$SCENARIO.log"
+            grep -F 'Unable to read webpack stats file' "$RUNNER_TEMP/vaadin-$SCENARIO.log"
           else
             [[ "$result" -eq 0 ]]
           fi

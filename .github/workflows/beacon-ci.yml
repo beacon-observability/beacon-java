@@ -199,6 +199,12 @@ jobs:
         with:
           persist-credentials: false
       - run: .github/scripts/gha-free-disk-space.sh
+      # Legacy GWT compiles with JDK 8 independently of the test runtime.
+      - id: compiler-java8
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          distribution: zulu
+          java-version: '8'
       - id: test-java
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
@@ -223,17 +229,19 @@ jobs:
           TEST_JAVA: ${{ matrix.java }}
           TEST_INDY: ${{ matrix.indy }}
           TEST_JAVA_PATH: ${{ steps.test-java.outputs.path }}
+          COMPILER_JAVA8_PATH: ${{ steps.compiler-java8.outputs.path }}
         run: |
+          TOOLCHAIN_PATHS="$COMPILER_JAVA8_PATH,$TEST_JAVA_PATH"
           ./gradlew listBeaconTestsInPartition "-PtestPartition=$TEST_PARTITION" \
             "-PtestJavaVersion=$TEST_JAVA" -PtestJavaVM=hotspot "-PtestIndy=$TEST_INDY" \
-            "-Porg.gradle.java.installations.paths=$TEST_JAVA_PATH" -Porg.gradle.java.installations.auto-download=false
+            "-Porg.gradle.java.installations.paths=$TOOLCHAIN_PATHS" -Porg.gradle.java.installations.auto-download=false
           mapfile -t tasks < test-tasks.txt
           test "${#tasks[@]}" -gt 0
           for task in "${tasks[@]}"; do
             [[ "$task" =~ ^:[A-Za-z0-9_.:-]+$ ]] || exit 1
           done
           ./gradlew "${tasks[@]}" "-PtestJavaVersion=$TEST_JAVA" -PtestJavaVM=hotspot \
-            "-PtestIndy=$TEST_INDY" "-Porg.gradle.java.installations.paths=$TEST_JAVA_PATH" \
+            "-PtestIndy=$TEST_INDY" "-Porg.gradle.java.installations.paths=$TOOLCHAIN_PATHS" \
             -Porg.gradle.java.installations.auto-download=false -PtestShowStandardStreams=false
       - name: Upload test reports
         if: ${{ !cancelled() }}

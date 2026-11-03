@@ -55,3 +55,22 @@ tasks {
     dependsOn(testAddBaggage, testLoggingKeys)
   }
 }
+
+// Exercise actual layout rendering with the opt-in flag, including custom logging keys.
+tasks {
+  val testPatternInjection = register<Test>("testPatternInjection") {
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    filter { includeTestsMatching("*LogPatternTest") }
+    jvmArgs("-Dotel.instrumentation.logging.pattern-injection.enabled=true")
+  }
+  val testPatternInjectionCustomKeys = register<Test>("testPatternInjectionCustomKeys") {
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    filter { includeTestsMatching("*LogPatternTest") }
+    environment("OTEL_INSTRUMENTATION_LOGGING_PATTERN_INJECTION_ENABLED", "true")
+    jvmArgs("-Dotel.instrumentation.common.logging.trace-id-key=custom_trace")
+    jvmArgs("-Dotel.instrumentation.common.logging.span-id-key=custom_span")
+  }
+  named("check") { dependsOn(testPatternInjection, testPatternInjectionCustomKeys) }
+}

@@ -14,6 +14,7 @@ Download the [latest stable Beacon Java release](https://github.com/beacon-obser
 - [Beacon contributors](beacon/CONTRIBUTORS.md)
 - [Contributing guide](CONTRIBUTING.md)
 - [CI and initial launch checklist](beacon/CI.md)
+- [Automatic text log correlation for Logback and Log4j](beacon/LOGGING.md)
 - [Beacon Security for Java](extensions/security/README.md)
 - [Shared Beacon Security specification](https://github.com/beacon-observability/beacon-security-spec)
 

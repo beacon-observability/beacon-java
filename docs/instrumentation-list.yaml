@@ -244,6 +244,15 @@ definitions:
             type: boolean
             description: Whether this rule overrides an already-applied template.
             default: false
+    logging.pattern-injection.enabled:
+      name: otel.instrumentation.logging.pattern-injection.enabled
+      declarative_name: java.logging.pattern_injection.enabled
+      description: Adds missing service.name and configured trace and span MDC fields
+        to text patterns after the first complete field. Supports Logback classic,
+        Log4j 1.2, and Log4j2 2.7+. JSON layouts and Log4j2 PatternSelector branches
+        are excluded.
+      type: boolean
+      default: false
     messaging.batch-send.message-creation-spans.enabled:
       name: otel.instrumentation.common.messaging.message-create-spans.enabled
       declarative_name: java.common.messaging.message_create_spans.enabled
@@ -15106,6 +15115,7 @@ libraries:
   javaagent_target_versions:
   - org.apache.logging.log4j:log4j-core:[2.7,2.17.0)
   configuration_refs:
+  - logging.pattern-injection.enabled
   - common.logging.span-id
   - common.logging.span-id-key
   - common.logging.trace-flags
@@ -15126,6 +15136,7 @@ libraries:
   javaagent_target_versions:
   - org.apache.logging.log4j:log4j-core:[2.17.0,)
   configuration_refs:
+  - logging.pattern-injection.enabled
   - common.logging.span-id
   - common.logging.span-id-key
   - common.logging.trace-flags
@@ -15146,6 +15157,7 @@ libraries:
   javaagent_target_versions:
   - log4j:log4j:[1.2,)
   configuration_refs:
+  - logging.pattern-injection.enabled
   - common.logging.span-id
   - common.logging.span-id-key
   - common.logging.trace-flags
@@ -15203,6 +15215,7 @@ libraries:
   javaagent_target_versions:
   - ch.qos.logback:logback-classic:[1.0.0,1.2.3]
   configuration_refs:
+  - logging.pattern-injection.enabled
   - common.logging.span-id
   - common.logging.span-id-key
   - common.logging.trace-flags

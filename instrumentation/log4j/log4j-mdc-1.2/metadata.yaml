@@ -4,7 +4,7 @@ description: >
 display_name: Log4j
 library_link: https://logging.apache.org/log4j/1.2/
 configurations:
-  - ref: common.logging.experimental.pattern-injection.enabled
+  - ref: logging.pattern-injection.enabled
   - ref: common.logging.trace-id-key
   - ref: common.logging.span-id-key
   - ref: common.logging.trace-flags-key

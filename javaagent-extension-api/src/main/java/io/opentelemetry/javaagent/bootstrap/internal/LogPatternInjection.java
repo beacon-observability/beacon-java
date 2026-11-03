@@ -17,9 +17,7 @@ import javax.annotation.Nullable;
  */
 public final class LogPatternInjection {
   private static final boolean ENABLED =
-      DeclarativeConfigUtil.getInstrumentationConfig(GlobalOpenTelemetry.get(), "common")
-          .get("logging")
-          .get("experimental")
+      DeclarativeConfigUtil.getInstrumentationConfig(GlobalOpenTelemetry.get(), "logging")
           .get("pattern_injection")
           .getBoolean("enabled", false);
 

@@ -5,11 +5,17 @@ Beacon can add missing correlation fields to existing text patterns without edit
 ```sh
 java -javaagent:beacon-javaagent.jar \
   -Dotel.service.name=checkout \
-  -Dotel.instrumentation.common.logging.experimental.pattern-injection.enabled=true \
+  -Dotel.instrumentation.logging.pattern-injection.enabled=true \
   -jar app.jar
 ```
 
-The equivalent environment variable is `OTEL_INSTRUMENTATION_COMMON_LOGGING_EXPERIMENTAL_PATTERN_INJECTION_ENABLED=true`. The default is `false`.
+The equivalent environment variable is `OTEL_INSTRUMENTATION_LOGGING_PATTERN_INJECTION_ENABLED`. The default is `false`. For example:
+
+```sh
+OTEL_INSTRUMENTATION_LOGGING_PATTERN_INJECTION_ENABLED=true \
+OTEL_SERVICE_NAME=checkout \
+java -javaagent:beacon-javaagent.jar -jar app.jar
+```
 
 Supported layouts are Logback classic 1.0+, Log4j 1.2 PatternLayout, and Log4j2 2.7+ PatternLayout. The corresponding MDC/context-data instrumentation must remain enabled. JSON layouts and Log4j2 PatternSelector branches are excluded.
 

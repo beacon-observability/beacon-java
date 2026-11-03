@@ -62,13 +62,13 @@ tasks {
     testClassesDirs = sourceSets.test.get().output.classesDirs
     classpath = sourceSets.test.get().runtimeClasspath
     filter { includeTestsMatching("*LogPatternTest") }
-    jvmArgs("-Dotel.instrumentation.common.logging.experimental.pattern-injection.enabled=true")
+    jvmArgs("-Dotel.instrumentation.logging.pattern-injection.enabled=true")
   }
   val testPatternInjectionCustomKeys = register<Test>("testPatternInjectionCustomKeys") {
     testClassesDirs = sourceSets.test.get().output.classesDirs
     classpath = sourceSets.test.get().runtimeClasspath
     filter { includeTestsMatching("*LogPatternTest") }
-    jvmArgs("-Dotel.instrumentation.common.logging.experimental.pattern-injection.enabled=true")
+    environment("OTEL_INSTRUMENTATION_LOGGING_PATTERN_INJECTION_ENABLED", "true")
     jvmArgs("-Dotel.instrumentation.common.logging.trace-id-key=custom_trace")
     jvmArgs("-Dotel.instrumentation.common.logging.span-id-key=custom_span")
   }

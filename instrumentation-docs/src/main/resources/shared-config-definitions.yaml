@@ -208,9 +208,9 @@ configurations:
     deprecated: true
     replaced_by: java.common.db.sqlcommenter/development.enabled
 
-  common.logging.experimental.pattern-injection.enabled:
-    name: otel.instrumentation.common.logging.experimental.pattern-injection.enabled
-    declarative_name: java.common.logging.experimental.pattern_injection.enabled
+  logging.pattern-injection.enabled:
+    name: otel.instrumentation.logging.pattern-injection.enabled
+    declarative_name: java.logging.pattern_injection.enabled
     description: Adds missing service.name and configured trace and span MDC fields to text patterns after the first complete field. Supports Logback classic, Log4j 1.2, and Log4j2 2.7+. JSON layouts and Log4j2 PatternSelector branches are excluded.
     type: boolean
     default: false

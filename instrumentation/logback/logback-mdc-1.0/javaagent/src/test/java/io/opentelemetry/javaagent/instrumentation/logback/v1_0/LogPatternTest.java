@@ -26,8 +26,10 @@ class LogPatternTest {
   static final InstrumentationExtension testing = AgentInstrumentationExtension.create();
 
   private static final boolean ENABLED =
-      Boolean.getBoolean(
-          "otel.instrumentation.common.logging.experimental.pattern-injection.enabled");
+      Boolean.parseBoolean(
+          System.getProperty(
+              "otel.instrumentation.logging.pattern-injection.enabled",
+              System.getenv("OTEL_INSTRUMENTATION_LOGGING_PATTERN_INJECTION_ENABLED")));
   private static final String TRACE =
       System.getProperty("otel.instrumentation.common.logging.trace-id-key", "trace_id");
   private static final String SPAN =

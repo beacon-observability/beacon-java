@@ -546,6 +546,12 @@ instrumentation/development:
     logback_mdc:
       # Enables adding baggage entries to the Logback MDC, prefixed with "baggage.".
       add_baggage: false
+    logging:
+      pattern_injection:
+        # Adds missing service.name and configured trace and span MDC fields to text patterns after
+        # the first complete field. Supports Logback classic, Log4j 1.2, and Log4j2 2.7+. JSON
+        # layouts and Log4j2 PatternSelector branches are excluded.
+        enabled: false
     methods:
       # Semicolon-separated list of fully qualified class and method patterns to instrument.
       include: []

@@ -33,6 +33,9 @@ public class Log4j1InstrumentationModule extends InstrumentationModule {
 
   @Override
   public List<TypeInstrumentation> typeInstrumentations() {
-    return asList(new CategoryInstrumentation(), new LoggingEventInstrumentation());
+    return asList(
+        new CategoryInstrumentation(),
+        new LoggingEventInstrumentation(),
+        new PatternLayoutInstrumentation());
   }
 }

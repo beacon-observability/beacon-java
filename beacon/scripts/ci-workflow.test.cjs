@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 const assert = require('node:assert/strict');
-const { readFileSync, readdirSync, statSync } = require('node:fs');
+const { readFileSync, readdirSync, statSync, mkdtempSync, writeFileSync, rmSync } = require('node:fs');
 const { resolve } = require('node:path');
+const { tmpdir } = require('node:os');
 const { spawnSync } = require('node:child_process');
 const { test } = require('node:test');
 
@@ -210,4 +211,49 @@ test('only trusted main refreshes the test cache without uploading runtime artif
   assert.doesNotMatch(warm, /check -x spotlessCheck listTestsInPartition/);
   assert.match(warm, /-PtestLatestDeps=true/);
   assert.doesNotMatch(warm, /pull_request|upload-artifact|:javaagent:assemble|contents: write/);
+});
+
+
+test('test discovery and execution retain the Java 8 compiler alongside every test JDK', () => {
+  const job = source.split('\n  tests:\n')[1].split('\n  muzzle:\n')[0];
+  const steps = job.split(/(?=^      - )/m);
+  const compiler = steps.find((step) => step.includes('id: compiler-java8'));
+  assert.match(compiler, /uses: actions\/setup-java@/);
+  assert.match(compiler, /java-version: '8'/);
+  assert(job.indexOf('id: compiler-java8') < job.indexOf('id: test-java'));
+  assert(job.indexOf('id: test-java') < job.indexOf('java-version-file: .java-version'));
+  assert.match(job, /COMPILER_JAVA8_PATH: \$\{\{ steps\.compiler-java8\.outputs\.path \}\}/);
+  const runStep = steps.find((step) => step.includes('name: Run upstream test partition'));
+  const script = runStep.split('        run: |\n')[1].replace(/^          /gm, '');
+  for (const version of ['8', '17', '21']) {
+    const dir = mkdtempSync(resolve(tmpdir(), 'beacon-ci-toolchains-'));
+    try {
+      writeFileSync(resolve(dir, 'gradlew'), `#!/usr/bin/env node
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+fs.appendFileSync('calls.jsonl', JSON.stringify(args) + '\\n');
+if (args[0] === 'listBeaconTestsInPartition') {
+  fs.writeFileSync('test-tasks.txt', ':instrumentation:gwt-2.0:javaagent:test\\n');
+}
+`, { mode: 0o755 });
+      const result = spawnSync('bash', ['-e', '-c', script], {
+        cwd: dir,
+        env: { ...process.env, TEST_PARTITION: '3', TEST_JAVA: version, TEST_INDY: 'true',
+          COMPILER_JAVA8_PATH: '/fixture/jdk8', TEST_JAVA_PATH: '/fixture/jdk' + version },
+        encoding: 'utf8',
+      });
+      assert.equal(result.status, 0, result.stderr);
+      const calls = readFileSync(resolve(dir, 'calls.jsonl'), 'utf8').trim().split('\n').map(JSON.parse);
+      assert.equal(calls.length, 2);
+      assert.equal(calls[0][0], 'listBeaconTestsInPartition');
+      assert.equal(calls[1][0], ':instrumentation:gwt-2.0:javaagent:test');
+      for (const args of calls) {
+        assert(args.includes('-PtestJavaVersion=' + version));
+        assert(args.includes('-Porg.gradle.java.installations.paths=/fixture/jdk8,/fixture/jdk' + version));
+        assert(args.includes('-Porg.gradle.java.installations.auto-download=false'));
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
 });

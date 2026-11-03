@@ -4,6 +4,10 @@ This file records Beacon product changes only. The root [CHANGELOG.md](../CHANGE
 
 ## Unreleased
 
+- Add opt-in automatic `service.name`, trace ID, and span ID fields to Logback and Log4j
+  text patterns with `otel.instrumentation.logging.pattern-injection.enabled`.
+  Preserve the date prefix and existing MDC converters; service name is available outside spans.
+
 ## Version 1.3.3 (2026-10-30)
 
 - Reduce full CI matrix batching with up to 16 concurrent test jobs while retaining all 48

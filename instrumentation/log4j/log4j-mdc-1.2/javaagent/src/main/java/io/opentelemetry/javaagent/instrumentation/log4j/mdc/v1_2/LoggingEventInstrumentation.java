@@ -5,6 +5,7 @@
 
 package io.opentelemetry.javaagent.instrumentation.log4j.mdc.v1_2;
 
+import static java.util.Collections.unmodifiableMap;
 import static net.bytebuddy.matcher.ElementMatchers.isPublic;
 import static net.bytebuddy.matcher.ElementMatchers.named;
 import static net.bytebuddy.matcher.ElementMatchers.takesArgument;
@@ -15,8 +16,11 @@ import io.opentelemetry.context.Context;
 import io.opentelemetry.javaagent.bootstrap.Java8BytecodeBridge;
 import io.opentelemetry.javaagent.bootstrap.internal.AgentCommonConfig;
 import io.opentelemetry.javaagent.bootstrap.internal.ConfiguredResourceAttributesHolder;
+import io.opentelemetry.javaagent.bootstrap.internal.LogPatternInjection;
 import io.opentelemetry.javaagent.extension.instrumentation.TypeInstrumentation;
 import io.opentelemetry.javaagent.extension.instrumentation.TypeTransformer;
+import java.util.HashMap;
+import java.util.Map;
 import javax.annotation.Nullable;
 import net.bytebuddy.asm.Advice;
 import net.bytebuddy.asm.Advice.AssignReturned;
@@ -35,6 +39,37 @@ class LoggingEventInstrumentation implements TypeInstrumentation {
     transformer.applyAdviceToMethod(
         isPublic().and(named("getMDC")).and(takesArguments(1)).and(takesArgument(0, String.class)),
         getClass().getName() + "$GetMdcAdvice");
+    transformer.applyAdviceToMethod(
+        isPublic().and(named("getProperties")).and(takesArguments(0)),
+        getClass().getName() + "$GetPropertiesAdvice");
+  }
+
+  @SuppressWarnings("unused")
+  public static class GetPropertiesAdvice {
+    @AssignReturned.ToReturned
+    @Advice.OnMethodExit(suppress = Throwable.class, inline = false)
+    public static Map<String, Object> onExit(
+        @Advice.This LoggingEvent event, @Advice.Return Map<String, Object> properties) {
+      if (!LogPatternInjection.isEnabled()) {
+        return properties;
+      }
+      Map<String, Object> result = new HashMap<>(properties);
+      for (Map.Entry<String, String> entry :
+          ConfiguredResourceAttributesHolder.getResourceAttributes().entrySet()) {
+        result.putIfAbsent(entry.getKey(), entry.getValue());
+      }
+      Context context = VirtualFieldHelper.CONTEXT.get(event);
+      if (context != null) {
+        SpanContext span = Java8BytecodeBridge.spanFromContext(context).getSpanContext();
+        if (span.isValid()) {
+          result.putIfAbsent(AgentCommonConfig.get().getTraceIdKey(), span.getTraceId());
+          result.putIfAbsent(AgentCommonConfig.get().getSpanIdKey(), span.getSpanId());
+          result.putIfAbsent(
+              AgentCommonConfig.get().getTraceFlagsKey(), span.getTraceFlags().asHex());
+        }
+      }
+      return unmodifiableMap(result);
+    }
   }
 
   @SuppressWarnings("unused")

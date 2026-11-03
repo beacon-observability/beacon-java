@@ -6,8 +6,13 @@ permissions:
   contents: read
 jobs:
   vaadin:
+    name: Vaadin comparison (${{ matrix.scenario }})
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario: [baseline, fixed]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -17,21 +22,51 @@ jobs:
         with:
           distribution: temurin
           java-version-file: .java-version
+      - name: Restore the same pnpm cache used by release validation
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.pnpm-store
+          key: ${{ runner.os }}-test-latest-cache-pnpm-modules
       - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
         with:
           cache-read-only: true
-      - name: Run the actual latest Vaadin 14 browser acceptance
+      - name: Select the original or fixed fixture
+        if: matrix.scenario == 'baseline'
+        run: |
+          python3 - <<'PYBASE'
+          from pathlib import Path
+          p = Path('instrumentation/vaadin-14.2/javaagent/src/vaadin14LatestTest/resources/application.properties')
+          s = p.read_text()
+          assert 'vaadin.devmode.webpack.options=--host 0.0.0.0' in s
+          s = s.replace('# Keep the webpack listener reachable by the JVM over IPv4.\n', '')
+          s = s.replace('vaadin.devmode.webpack.options=--host 0.0.0.0\n', '')
+          p.write_text(s)
+          PYBASE
+      - name: Run the actual browser acceptance without test retries
+        env:
+          SCENARIO: ${{ matrix.scenario }}
         run: |
           node --version
           sed -i 's/org.gradle.jvmargs=/org.gradle.jvmargs=-Xmx3g /' gradle.properties
+          set +e
           ./gradlew :instrumentation:vaadin-14.2:javaagent:vaadin14LatestTest \
-            -PtestLatestDeps=true -PtestShowStandardStreams=true --console=plain
+            -PtestLatestDeps=true -PtestShowStandardStreams=true -PmaxTestRetries=0 \
+            --console=plain > "$RUNNER_TEMP/vaadin-$SCENARIO.log" 2>&1
+          result=$?
+          set -e
+          if [[ "$SCENARIO" == baseline ]]; then
+            [[ "$result" -ne 0 ]]
+            rg 'Unable to read webpack stats file' "$RUNNER_TEMP/vaadin-$SCENARIO.log"
+          else
+            [[ "$result" -eq 0 ]]
+          fi
       - name: Upload diagnostic reports
         if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: vaadin-release-fixture-diagnostics
+          name: vaadin-comparison-${{ matrix.scenario }}
           path: |
+            ${{ runner.temp }}/vaadin-*.log
             instrumentation/vaadin-14.2/javaagent/build/reports/tests/
             instrumentation/vaadin-14.2/javaagent/build/test-results/
             instrumentation/vaadin-14.2/javaagent/build/vaadin-*/webpack*.js

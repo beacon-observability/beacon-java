@@ -15,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        scenario: [baseline, fixed]
+        scenario: [baseline, dns_ipv4]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -33,17 +33,27 @@ jobs:
       - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
         with:
           cache-read-only: true
-      - name: Select the original or fixed fixture
-        if: matrix.scenario == 'baseline'
+      - name: Compare Node DNS behavior with the original fixture
+        env:
+          SCENARIO: ${{ matrix.scenario }}
         run: |
           python3 - <<'PYBASE'
           from pathlib import Path
+          import os
           p = Path('instrumentation/vaadin-14.2/javaagent/src/vaadin14LatestTest/resources/application.properties')
           s = p.read_text()
           assert 'vaadin.devmode.webpack.options=--host 0.0.0.0' in s
           s = s.replace('# Keep the webpack listener reachable by the JVM over IPv4.\n', '')
           s = s.replace('vaadin.devmode.webpack.options=--host 0.0.0.0\n', '')
+          s += 'logging.level.dev-webpack=DEBUG\n'
           p.write_text(s)
+          if os.environ['SCENARIO'] == 'dns_ipv4':
+              b = Path('instrumentation/vaadin-14.2/javaagent/build.gradle.kts')
+              text = b.read_text()
+              old = 'environment("NODE_OPTIONS", "--openssl-legacy-provider")'
+              assert text.count(old) == 1
+              text = text.replace(old, 'environment("NODE_OPTIONS", "--openssl-legacy-provider --dns-result-order=ipv4first")')
+              b.write_text(text)
           PYBASE
       - name: Run the actual browser acceptance without test retries
         env:
@@ -59,7 +69,7 @@ jobs:
           set -e
           if [[ "$SCENARIO" == baseline ]]; then
             [[ "$result" -ne 0 ]]
-            grep -F 'Unable to read webpack stats file' "$RUNNER_TEMP/vaadin-$SCENARIO.log"
+            grep -F 'Watchdog connection error. Terminating webpack process' "$RUNNER_TEMP/vaadin-$SCENARIO.log"
           else
             [[ "$result" -eq 0 ]]
           fi
@@ -70,6 +80,8 @@ jobs:
           name: vaadin-comparison-${{ matrix.scenario }}
           path: |
             ${{ runner.temp }}/vaadin-*.log
+            instrumentation/vaadin-14.2/javaagent/build.gradle.kts
+            instrumentation/vaadin-14.2/javaagent/src/vaadin14LatestTest/resources/application.properties
             instrumentation/vaadin-14.2/javaagent/build/reports/tests/
             instrumentation/vaadin-14.2/javaagent/build/test-results/
             instrumentation/vaadin-14.2/javaagent/build/vaadin-*/webpack*.js

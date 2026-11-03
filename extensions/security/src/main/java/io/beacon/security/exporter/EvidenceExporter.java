@@ -129,6 +129,11 @@ public final class EvidenceExporter implements AutoCloseable {
     if (!"beacon.security.finding".equals(name) && !"beacon.security.sbom.inventory".equals(name)) {
       return;
     }
+    if ("beacon.security.finding".equals(name)
+        && "no_evidence".equals(AttackEvidence.status(event))
+        && !Settings.enabled("beacon.security.export.no-evidence.enabled", false)) {
+      return;
+    }
     String channel = "beacon.security.sbom.inventory".equals(name) ? "sbom" : "security";
     if (channel.equals("sbom")
         && (!(event.get("dependencies") instanceof List)

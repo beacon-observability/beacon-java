@@ -77,7 +77,7 @@ async function stop(child) {
   }
 }
 
-async function main() {
+async function verify(includeNoEvidence) {
   assert(process.argv[2] && process.argv[3],
     'Usage: node beacon/scripts/security-smoke.cjs <agent.jar> <fixture.jar>');
   const agent = resolve(process.argv[2]);
@@ -89,6 +89,10 @@ async function main() {
   const output = join(directory, 'output');
   const java = process.env.JAVA_HOME ? join(process.env.JAVA_HOME, 'bin', 'java') : 'java';
   if (process.env.JAVA_HOME) assert(existsSync(java), `Missing Java launcher: ${java}`);
+
+  const exportEnvironment = { ...process.env };
+  delete exportEnvironment.BEACON_SECURITY_EXPORT_NO_EVIDENCE_ENABLED;
+  if (includeNoEvidence) exportEnvironment.BEACON_SECURITY_EXPORT_NO_EVIDENCE_ENABLED = 'true';
 
   let application;
   let completed = false;
@@ -110,7 +114,7 @@ async function main() {
       '--server.port=0',
     ], {
       env: {
-        ...process.env,
+        ...exportEnvironment,
         BEACON_SECURITY_ENABLED: 'true',
         BEACON_SECURITY_ANALYSIS_SQL_DIALECT: 'ansi',
         BEACON_SECURITY_LOCAL_OUTPUT_ENABLED: 'true',
@@ -195,25 +199,26 @@ async function main() {
     const evidence = await eventually(() => {
       const records = readFileSync(join(output, 'evidence.jsonl'), 'utf8')
         .trim().split('\n').map((line) => JSON.parse(line));
-      assert.equal(records.filter((event) => event.event_name === 'beacon.security.finding').length, 5);
+      assert.equal(records.filter((event) => event.event_name === 'beacon.security.finding').length, includeNoEvidence ? 5 : 2);
       return records;
-    }, 'all five request occurrences');
+    }, 'request occurrences matching the export policy');
     const prepared = evidence.find((event) => event.event_name === 'beacon.security.finding'
       && event.request.route === '/api/sql/dynamic-prepared');
     assert.equal(prepared.attack_evidence.status, 'suspected');
     assert.ok(!Object.hasOwn(prepared.attack_evidence, 'outcome'));
     const occurrences = evidence.filter((event) => event.event_name === 'beacon.security.finding'
       && event.request.route === '/api/sql');
-    assert.equal(occurrences.length, 4);
+    const expectedOccurrences = includeNoEvidence ? 4 : 1;
+    assert.equal(occurrences.length, expectedOccurrences);
     assert.equal(new Set(occurrences.map((event) => event.finding_id)).size, 1);
-    assert.equal(new Set(occurrences.map((event) => event.occurrence_id)).size, 4);
-    assert.equal(new Set(occurrences.map((event) => event.trace_id)).size, 4);
+    assert.equal(new Set(occurrences.map((event) => event.occurrence_id)).size, expectedOccurrences);
+    assert.equal(new Set(occurrences.map((event) => event.trace_id)).size, expectedOccurrences);
     assert(occurrences.every((event) => /^[0-9a-f]{32}$/.test(event.trace_id)));
     // Priority lanes deliberately permit delivery order to differ from request order.
     const ordinary = occurrences.filter((event) => event.attack_evidence.status === 'no_evidence');
     const attacks = occurrences.filter((event) => event.attack_evidence.status === 'suspected');
-    assert.equal(ordinary.length, 3);
-    assert.equal(ordinary.filter((event) => event.evidence_sampled).length, 1);
+    assert.equal(ordinary.length, includeNoEvidence ? 3 : 0);
+    assert.equal(ordinary.filter((event) => event.evidence_sampled).length, includeNoEvidence ? 1 : 0);
     assert.equal(attacks.length, 1);
     assert.equal(attacks[0].evidence_sampled, true);
     assert(occurrences.every((event) => !Object.hasOwn(event, 'execution_observation')));
@@ -221,8 +226,9 @@ async function main() {
       await request(port, `/api/coverage/${route}?name=sample.txt`);
     }
     await request(port, `/api/coverage/https?target=${encodeURIComponent('https://fixture.invalid/path')}`);
-    await request(port, '/api/coverage/batch?value=guest');
-    await request(port, '/api/coverage/large-update?value=guest');
+    const attackValue = encodeURIComponent("' OR '1'='1");
+    await request(port, `/api/coverage/batch?value=${attackValue}`);
+    await request(port, `/api/coverage/large-update?value=${attackValue}`);
     await request(port, '/api/coverage/cleared-batch?value=guest');
     await request(port, '/api/coverage/prepared-batch?value=guest');
     await request(port, '/api/coverage/async-timeout');
@@ -241,12 +247,17 @@ async function main() {
       assert.equal(current.active_requests, 0, 'HTTP async timeout must release its request lease');
     }, 'file, HTTPS, batch, large update, and async lifecycle coverage');
     completed = true;
-    console.log('PASS: per-request correlation, evidence upgrades, ordinary SQL classification, parameter binding, and runtime SBOM.');
+    console.log(`PASS: per-request correlation, evidence upgrades, ordinary SQL classification, parameter binding, and runtime SBOM (no-evidence export: ${includeNoEvidence ? 'enabled' : 'default-disabled'}).`);
   } finally {
     if (application) await stop(application);
     if (!completed) console.error(`Security smoke output: ${directory}`);
     else rmSync(directory, { recursive: true, force: true });
   }
+}
+
+async function main() {
+  await verify(false);
+  await verify(true);
 }
 
 main().catch((error) => { console.error(error); process.exitCode = 1; });

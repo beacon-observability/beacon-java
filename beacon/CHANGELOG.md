@@ -4,6 +4,9 @@ This file records Beacon product changes only. The root [CHANGELOG.md](../CHANGE
 
 ## Unreleased
 
+- Exclude `no_evidence` Security findings from event export by default. Set
+  `BEACON_SECURITY_EXPORT_NO_EVIDENCE_ENABLED=true` to restore their export;
+  retain `unknown`, `suspected`, and request-level evidence upgrades.
 - Add opt-in automatic `service.name`, trace ID, and span ID fields to Logback and Log4j
   text patterns with `otel.instrumentation.logging.pattern-injection.enabled`.
   Preserve the date prefix and existing MDC converters; service name is available outside spans.

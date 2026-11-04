@@ -108,6 +108,38 @@ test('main pushes use the lightweight build and smoke-test path', () => {
   }
 });
 
+test('identical main content skips the duplicate build only after a successful evidence lookup', () => {
+  assert.match(source, /reuse_run_id: \$\{\{ steps\.reuse\.outputs\.reuse_run_id \}\}/);
+  assert.match(source, /if: github\.event_name == 'push' && github\.ref == 'refs\/heads\/main'[\s\S]*?ci-evidence\.cjs find/);
+  assert.match(source, /build:\n    needs: plan\n    if: needs\.plan\.outputs\.reuse_run_id == ''/);
+  const needs = results();
+  needs.plan.outputs.reuse_run_id = '42';
+  needs.build.result = 'skipped';
+  assert.equal(check(needs, false, true).status, 0);
+  for (const state of ['failure', 'cancelled', 'success']) {
+    needs.build.result = state;
+    assert.equal(check(needs, false, true).status, 1);
+  }
+  needs.build.result = 'skipped';
+  needs.plan.result = 'failure';
+  assert.equal(check(needs, false, true).status, 1);
+  needs.plan.result = 'success';
+  needs.plan.outputs.reuse_run_id = '';
+  assert.equal(check(needs, false, true).status, 1);
+  needs.plan.outputs.reuse_run_id = '42';
+  assert.equal(check(needs, false, false).status, 1, 'PR checks cannot skip their own build');
+});
+
+test('each build uploads one immutable candidate with its matching evidence attempt', () => {
+  assert.match(source, /:javaagent:assemble :javaagent:spdxSbom --no-build-cache/);
+  assert.match(source, /CI_PLAN: \$\{\{ needs\.plan\.outputs\.selected_plan \}\}/);
+  assert.match(source, /ci-evidence\.cjs stage ci-candidate/);
+  assert.match(source, /name: beacon-javaagent-\$\{\{ github\.run_attempt \}\}/);
+  assert.match(source, /name: beacon-ci-evidence-\$\{\{ github\.run_attempt \}\}/);
+  assert.match(source, /path: ci-candidate\/ci-evidence\.json/);
+  assert(source.indexOf('Verify packaged-agent JDBC tracing') < source.indexOf('ci-evidence.cjs stage'));
+});
+
 test('ordinary, upgrade and full successes pass with unselected jobs skipped', () => {
   for (const needs of [results(), results(true), results(true, true)]) {
     assert.equal(check(needs).status, 0);

@@ -18,6 +18,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: beacon-ci-${{ github.event.pull_request.number || github.ref }}
@@ -27,7 +28,10 @@ jobs:
   plan:
     if: github.repository == 'beacon-observability/beacon-java'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
+      reuse_run_id: ${{ steps.reuse.outputs.reuse_run_id }}
+      selected_plan: ${{ steps.plan.outputs.selected_plan }}
       matrix: ${{ steps.plan.outputs.matrix }}
       muzzle: ${{ steps.plan.outputs.muzzle }}
       full: ${{ steps.plan.outputs.full }}
@@ -42,6 +46,12 @@ jobs:
           node-version: '22'
           cache: ''
           package-manager-cache: false
+      - id: reuse
+        name: Reuse successful validation for identical merged content
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node beacon/scripts/ci-evidence.cjs find
       - id: plan
         env:
           CI_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
@@ -50,6 +60,7 @@ jobs:
 
   build:
     needs: plan
+    if: needs.plan.outputs.reuse_run_id == ''
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -74,7 +85,7 @@ jobs:
           bash -n beacon/scripts/fetch-upstream-tag.sh
           node --test beacon/scripts/*.test.cjs
       - name: Assemble and verify complete Beacon Agent
-        run: ./gradlew :javaagent:assemble
+        run: ./gradlew :javaagent:assemble :javaagent:spdxSbom --no-build-cache
       - name: Build Beacon Security smoke fixture
         run: ./gradlew -p beacon/testing/security-smoke-fixture shadowJar --no-build-cache
       - name: Smoke test the packaged Agent
@@ -103,12 +114,22 @@ jobs:
             beacon/testing/jdbc-smoke/build/reports/tests/
             beacon/testing/jdbc-smoke/build/test-results/
           retention-days: 7
+      - name: Stage the tested candidate and validation evidence
+        env:
+          CI_PLAN: ${{ needs.plan.outputs.selected_plan }}
+        run: node beacon/scripts/ci-evidence.cjs stage ci-candidate
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: beacon-javaagent
-          path: javaagent/build/libs/beacon-javaagent-*.jar
+          name: beacon-javaagent-${{ github.run_attempt }}
+          path: ci-candidate/
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 30
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: beacon-ci-evidence-${{ github.run_attempt }}
+          path: ci-candidate/ci-evidence.json
+          if-no-files-found: error
+          retention-days: 30
 
   quality:
     needs: plan
@@ -124,7 +145,9 @@ jobs:
         with:
           distribution: temurin
           java-version-file: .java-version
-      - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+      - name: Set up Gradle for report-only checks
+        # zizmor: ignore[cache-poisoning] Static checks and license validation produce no promoted runtime artifacts.
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
         with:
           cache-read-only: true
       - name: Format and static checks
@@ -219,7 +242,9 @@ jobs:
           node-version: '22'
           cache: ''
           package-manager-cache: false
-      - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+      - name: Set up Gradle for report-only checks
+        # zizmor: ignore[cache-poisoning] This job uploads only JUnit/HTML reports; runtime candidates come from the cache-isolated build.
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
         with:
           cache-read-only: true
       - name: Run upstream test partition (includes Beacon modules)
@@ -282,7 +307,9 @@ jobs:
         with:
           distribution: temurin
           java-version-file: .java-version
-      - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+      - name: Set up Gradle for report-only checks
+        # zizmor: ignore[cache-poisoning] This job uploads only test reports; its cached test Agent is never promoted.
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
         with:
           cache-read-only: true
       - run: ./gradlew :smoke-tests:test -PskipOpenJ9SmokeTests=true -PtestShowStandardStreams=false
@@ -308,7 +335,12 @@ jobs:
           node <<'NODE'
           const needs = JSON.parse(process.env.NEEDS_JSON);
           const lightweight = process.env.LIGHTWEIGHT === 'true';
-          const required = lightweight ? ['plan', 'build'] : ['plan', 'build', 'quality', 'tests'];
+          const reused = lightweight && /^[1-9][0-9]*$/.test(needs.plan.outputs.reuse_run_id || '');
+          const required = lightweight ? (reused ? ['plan'] : ['plan', 'build']) : ['plan', 'build', 'quality', 'tests'];
+          if (reused && needs.build.result !== 'skipped') {
+            console.error('A reused validation must skip the duplicate build');
+            process.exitCode = 1;
+          }
           if (!lightweight && needs.plan.outputs.partition_check === 'true') required.push('partition-check');
           if (!lightweight && needs.plan.outputs.muzzle === 'true') required.push('muzzle');
           if (!lightweight && needs.plan.outputs.full === 'true') {

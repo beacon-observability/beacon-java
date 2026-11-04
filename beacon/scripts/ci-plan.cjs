@@ -49,6 +49,7 @@ if (require.main === module) {
   const result = plan(files, process.env.CI_FULL === 'true', unknownBase);
   console.log(JSON.stringify(result, null, 2));
   if (process.env.GITHUB_OUTPUT) {
+    appendFileSync(process.env.GITHUB_OUTPUT, `selected_plan=${JSON.stringify(result)}\n`);
     for (const [key, value] of Object.entries(result)) {
       appendFileSync(process.env.GITHUB_OUTPUT, `${key}=${typeof value === 'object' ? JSON.stringify(value) : value}\n`);
     }

@@ -162,36 +162,6 @@ function verifySbom(file, version, sourceCommit) {
     'SPDX document is missing a Beacon Security runtime dependency');
 }
 
-function jobsFrom(value) {
-  if (Array.isArray(value)) return value.flatMap(jobsFrom);
-  if (value && Array.isArray(value.jobs)) return value.jobs;
-  return [];
-}
-
-function verifyCi(runFile, jobsFile, sourceCommit) {
-  assert.match(sourceCommit, /^[0-9a-f]{40}$/);
-  const run = JSON.parse(readFileSync(runFile, 'utf8'));
-  assert.equal(run.path, '.github/workflows/beacon-ci.yml', 'Validation used the wrong workflow');
-  assert.equal(run.event, 'workflow_dispatch', 'Validation must be a manual full run');
-  assert.equal(run.head_sha, sourceCommit, 'Validation commit differs from release source');
-  assert.equal(run.status, 'completed', 'Validation is not complete');
-  assert.equal(run.conclusion, 'success', 'Validation did not succeed');
-  assert.equal(run.repository.full_name, 'beacon-observability/beacon-java',
-    'Validation came from the wrong repository');
-
-  const jobs = jobsFrom(JSON.parse(readFileSync(jobsFile, 'utf8')));
-  const requireSuccess = (name) => {
-    const job = jobs.find((candidate) => candidate.name === name);
-    assert(job, `Validation is missing ${name}`);
-    assert.equal(job.conclusion, 'success', `${name} did not succeed`);
-  };
-  requireSuccess('Beacon required');
-  requireSuccess('upstream-smoke');
-  const matrix = jobs.filter((job) => job.name.startsWith('tests (JDK '));
-  assert.equal(matrix.length, 48, 'Validation did not run the 48-job full JDK matrix');
-  for (const job of matrix) assert.equal(job.conclusion, 'success', `${job.name} did not succeed`);
-}
-
 function writeNotes(version, output, sourceCommit, digest, validationUrl) {
   assert.match(sourceCommit, /^[0-9a-f]{40}$/);
   assert.match(digest, /^[0-9a-f]{64}$/);
@@ -199,9 +169,9 @@ function writeNotes(version, output, sourceCommit, digest, validationUrl) {
   const section = changelogSection(version);
   writeFileSync(output, `${section}\n\n### Release evidence\n\n`
     + `- Source commit: \`${sourceCommit}\`\n`
-    + `- Full validation: ${validationUrl}\n`
+    + `- CI validation: ${validationUrl}\n`
     + `- Agent SHA-256: \`${digest}\`\n`
-    + '- The attached JAR is the exact candidate tested by this release workflow; the publish job does not rebuild it.\n');
+    + '- The attached JAR is the exact candidate tested by the linked CI run; publication does not rebuild it.\n');
 }
 
 function main(args) {
@@ -219,15 +189,12 @@ function main(args) {
   } else if (command === 'verify-sbom') {
     assert(rest[0] && rest[1] && rest[2], 'Usage: verify-sbom <spdx.json> <version> <commit>');
     verifySbom(rest[0], rest[1], rest[2]);
-  } else if (command === 'verify-ci') {
-    assert(rest[0] && rest[1] && rest[2], 'Usage: verify-ci <run.json> <jobs.json> <commit>');
-    verifyCi(rest[0], rest[1], rest[2]);
   } else if (command === 'write-notes') {
     assert(rest.length === 5,
       'Usage: write-notes <version> <output> <commit> <sha256> <validation-url>');
     writeNotes(...rest);
   } else {
-    throw new Error('Usage: release-metadata.cjs <version|validate-source|prepare|verify-artifact|verify-sbom|verify-ci|write-notes> ...');
+    throw new Error('Usage: release-metadata.cjs <version|validate-source|prepare|verify-artifact|verify-sbom|write-notes> ...');
   }
 }
 
@@ -241,6 +208,6 @@ if (require.main === module) {
 }
 
 module.exports = {
-  assertReleaseVersion, changelogSection, compareVersions, jobsFrom, parseManifest, verifyCi,
+  assertReleaseVersion, changelogSection, compareVersions, parseManifest, productVersion, verifyArtifact,
   verifySbom,
 };

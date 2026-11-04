@@ -8,8 +8,8 @@ on:
         required: true
         type: string
       validation_run_id:
-        description: Successful full Beacon CI run ID for this exact source commit
-        required: true
+        description: Optional successful PR or manual CI run ID (auto-discover identical content when empty)
+        required: false
         type: string
 
 permissions:
@@ -24,9 +24,10 @@ jobs:
   candidate:
     if: github.repository == 'beacon-observability/beacon-java'
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 15
     outputs:
-      digest: ${{ steps.candidate.outputs.digest }}
+      digest: ${{ steps.validation.outputs.digest }}
+      build_commit: ${{ steps.validation.outputs.build_commit }}
       tag: ${{ steps.metadata.outputs.tag }}
       version: ${{ steps.metadata.outputs.version }}
     steps:
@@ -47,20 +48,12 @@ jobs:
           version=$(node beacon/scripts/release-metadata.cjs validate-source "$REQUESTED_VERSION")
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "tag=v$version" >> "$GITHUB_OUTPUT"
-      - name: Require full validation for this exact commit
+      - id: validation
+        name: Download the tested candidate for identical source content
         env:
           GH_TOKEN: ${{ github.token }}
-          RUN_ID: ${{ inputs.validation_run_id }}
-        run: |
-          [[ "$RUN_ID" =~ ^[1-9][0-9]*$ ]]
-          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" > validation-run.json
-          # Large job pages can time out in GitHub's API after a partial rerun.
-          gh api --paginate \
-            "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/jobs?filter=latest&per_page=30" \
-            > validation-job-pages.json
-          jq --slurp . validation-job-pages.json > validation-jobs.json
-          node beacon/scripts/release-metadata.cjs verify-ci \
-            validation-run.json validation-jobs.json "$GITHUB_SHA"
+          VALIDATION_RUN_ID: ${{ inputs.validation_run_id }}
+        run: node beacon/scripts/ci-evidence.cjs download release-candidate
       - name: Reject an existing release or a conflicting tag
         env:
           GH_TOKEN: ${{ github.token }}
@@ -75,63 +68,35 @@ jobs:
             echo "Release already exists: $TAG" >&2
             exit 1
           fi
-      - run: .github/scripts/gha-free-disk-space.sh
-      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
-        with:
-          distribution: temurin
-          java-version-file: .java-version
-      - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
-        with:
-          cache-disabled: true
-      - name: Build the release candidate once
-        run: ./gradlew :javaagent:assemble :javaagent:verifyBeaconAgent :javaagent:spdxSbom --no-build-cache
-      - name: Build Security smoke fixture
-        run: ./gradlew -p beacon/testing/security-smoke-fixture shadowJar --no-build-cache
-      - name: Test the exact candidate
-        env:
-          VERSION: ${{ steps.metadata.outputs.version }}
-        run: |
-          agent="javaagent/build/libs/beacon-javaagent-$VERSION.jar"
-          fixture="beacon/testing/security-smoke-fixture/build/libs/beacon-security-smoke-fixture.jar"
-          node beacon/scripts/agent-smoke.cjs "$agent"
-          node beacon/scripts/security-smoke.cjs "$agent" "$fixture"
       - id: candidate
-        name: Stage the immutable candidate
+        name: Record release provenance without rebuilding
         env:
-          VALIDATION_RUN_ID: ${{ inputs.validation_run_id }}
+          VALIDATION_RUN_ID: ${{ steps.validation.outputs.reuse_run_id }}
+          BUILD_COMMIT: ${{ steps.validation.outputs.build_commit }}
+          DIGEST: ${{ steps.validation.outputs.digest }}
           VERSION: ${{ steps.metadata.outputs.version }}
         run: |
           stage="release-candidate"
-          mkdir -p "$stage/verification"
           agent="beacon-javaagent-$VERSION.jar"
-          sbom="beacon-javaagent-$VERSION.spdx.json"
-          cp "javaagent/build/libs/$agent" "$stage/$agent"
-          cp javaagent/build/spdx/beacon-javaagent.spdx.json "$stage/$sbom"
-          cp LICENSE "$stage/LICENSE"
-          cp licenses/licenses.md "$stage/THIRD_PARTY_LICENSES.md"
-          cp beacon/testing/security-smoke-fixture/build/libs/beacon-security-smoke-fixture.jar \
-            "$stage/verification/security-smoke-fixture.jar"
-          digest=$(node beacon/scripts/release-metadata.cjs verify-artifact \
-            "$stage/$agent" "$VERSION")
-          node beacon/scripts/release-metadata.cjs verify-sbom \
-            "$stage/$sbom" "$VERSION" "$GITHUB_SHA"
-          printf '%s  %s\n' "$digest" "$agent" > "$stage/$agent.sha256"
+          printf '%s  %s\n' "$DIGEST" "$agent" > "$stage/$agent.sha256"
           validation_url="https://github.com/$GITHUB_REPOSITORY/actions/runs/$VALIDATION_RUN_ID"
           node beacon/scripts/release-metadata.cjs write-notes \
-            "$VERSION" "$stage/release-notes.md" "$GITHUB_SHA" "$digest" "$validation_url"
+            "$VERSION" "$stage/release-notes.md" "$GITHUB_SHA" "$DIGEST" "$validation_url"
           jq -n \
             --arg version "$VERSION" \
             --arg source_commit "$GITHUB_SHA" \
-            --arg agent_sha256 "$digest" \
+            --arg build_source_commit "$BUILD_COMMIT" \
+            --arg source_tree "$(git rev-parse 'HEAD^{tree}')" \
+            --arg agent_sha256 "$DIGEST" \
             --arg validation_run_id "$VALIDATION_RUN_ID" \
             --arg validation_url "$validation_url" \
             --slurpfile upstream beacon/upstream.lock.json \
             '{schema_version: 1, product: "Beacon Java", version: $version,
               source_repository: "https://github.com/beacon-observability/beacon-java",
-              source_commit: $source_commit, agent_sha256: $agent_sha256,
+              source_commit: $source_commit, build_source_commit: $build_source_commit,
+              source_tree: $source_tree, agent_sha256: $agent_sha256,
               validation_run_id: $validation_run_id, validation_url: $validation_url,
               upstream: $upstream[0].upstream}' > "$stage/provenance.json"
-          echo "digest=$digest" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: beacon-release-candidate-${{ steps.metadata.outputs.version }}
@@ -172,13 +137,15 @@ jobs:
         env:
           DIGEST: ${{ needs.candidate.outputs.digest }}
           VERSION: ${{ needs.candidate.outputs.version }}
+          BUILD_COMMIT: ${{ needs.candidate.outputs.build_commit }}
         run: |
+          node beacon/scripts/ci-evidence.cjs verify-payload release-candidate
           cd release-candidate
           sha256sum --check "beacon-javaagent-$VERSION.jar.sha256"
           node ../beacon/scripts/release-metadata.cjs verify-artifact \
             "beacon-javaagent-$VERSION.jar" "$VERSION" "$DIGEST"
           node ../beacon/scripts/release-metadata.cjs verify-sbom \
-            "beacon-javaagent-$VERSION.spdx.json" "$VERSION" "$GITHUB_SHA"
+            "beacon-javaagent-$VERSION.spdx.json" "$VERSION" "$BUILD_COMMIT"
       - uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
         with:
           subject-path: |
@@ -219,6 +186,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.candidate.outputs.tag }}
           VERSION: ${{ needs.candidate.outputs.version }}
+          BUILD_COMMIT: ${{ needs.candidate.outputs.build_commit }}
         run: |
           mkdir published
           gh release download "$TAG" --dir published
@@ -233,7 +201,7 @@ jobs:
           node ../beacon/scripts/release-metadata.cjs verify-artifact \
             "beacon-javaagent-$VERSION.jar" "$VERSION" "$DIGEST"
           node ../beacon/scripts/release-metadata.cjs verify-sbom \
-            "beacon-javaagent-$VERSION.spdx.json" "$VERSION" "$GITHUB_SHA"
+            "beacon-javaagent-$VERSION.spdx.json" "$VERSION" "$BUILD_COMMIT"
           cd ..
           node beacon/scripts/agent-smoke.cjs "published/beacon-javaagent-$VERSION.jar"
           node beacon/scripts/security-smoke.cjs "published/beacon-javaagent-$VERSION.jar" \

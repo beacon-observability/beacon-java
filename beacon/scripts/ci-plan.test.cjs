@@ -65,3 +65,21 @@ test('collector changes require coverage comparison and cross-JDK regression', (
   }
   assert.equal(plan(['README.md']).partition_check, false);
 });
+
+
+test('the workflow receives the same complete plan used for matrix selection', () => {
+  const { mkdtempSync, readFileSync, rmSync } = require('node:fs');
+  const { tmpdir } = require('node:os');
+  const { join } = require('node:path');
+  const { execFileSync } = require('node:child_process');
+  const directory = mkdtempSync(join(tmpdir(), 'beacon-selected-plan-'));
+  try {
+    const output = join(directory, 'outputs');
+    const selected = JSON.parse(execFileSync(process.execPath, [join(__dirname, 'ci-plan.cjs')], {
+      env: { ...process.env, CI_BASE_SHA: '', CI_FULL: 'false', GITHUB_OUTPUT: output }, encoding: 'utf8',
+    }));
+    const line = readFileSync(output, 'utf8').split('\n').find((entry) => entry.startsWith('selected_plan='));
+    assert.deepEqual(JSON.parse(line.slice('selected_plan='.length)), selected);
+    assert.equal(selected.profile, 'upgrade');
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});

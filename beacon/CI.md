@@ -17,7 +17,21 @@ The Gradle build JVM is still selected by `.java-version`.
 
 All three pull-request and manual tiers build the complete agent; validate the Beacon file name, Manifest, and provenance; run maintainer-script and packaging regression tests; run packaged-agent HTTP instrumentation, TraceContext, OTLP trace export, and embedded-Security smoke tests; run the JDK 21 / Spring Boot 3.5.7 packaged-agent JDBC regression against PostgreSQL 16.15 with Trace, Logs, Metrics, and Security combinations; and run formatting, package-name, other static checks, and license-list checks. Module tests use `listBeaconTestsInPartition`, preserving upstream's four project partitions and separate smoke/aggregate exclusions. It discovers registered Test tasks after project configuration, including late custom tasks, and preserves JVM suite selection from the current dependency/JDK mode without resolving the complete `check` dependency graph or executing tests. Tests wired into Gradle for Beacon-specific enhancements are included. A module without tests does not automatically gain functional acceptance.
 
-After a pull request has passed its selected tier and is merged, the `main` push runs only the clean agent build, packaging verification, and packaged-agent smoke test. The merge ruleset prevents direct pushes, so repeating the complete pull-request matrix on the resulting merge commit would add substantial latency without testing different file content. Manual `full` validation remains available when release acceptance or an explicit post-merge rerun is required.
+After a pull request has passed its selected tier and is merged, the `main` push first looks for
+successful same-repository PR/manual validation with a retained candidate for the identical complete
+Git tree. If found, `Beacon required` records the reused run and skips the duplicate build. Otherwise,
+the push falls back to the clean build and packaged-agent acceptance; it still does not repeat the
+module matrix. API/network failures are retried and then fail visibly rather than being reported as
+successful reuse. Manual validation remains available for different merged content and explicitly
+requested extended coverage.
+
+CI creates the candidate once, including SPDX SBOM and a digest inventory, after HTTP, Security,
+and JDBC acceptance. Artifacts `beacon-javaagent-<attempt>` and `beacon-ci-evidence-<attempt>` are
+retained for 30 days. Release consumes the same candidate and the selected tier's successful checks;
+it no longer requires a second manual 48-job full run or rebuilds the JAR. Git tree equality includes
+all tracked files, so changes to scripts or release metadata cannot borrow earlier validation.
+Fork candidates are never promoted; validate their merged source in a same-repository manual run.
+See the [release process](RELEASING.md) for discovery limits, retry behavior, and provenance.
 
 The [planning script](scripts/ci-plan.cjs) selects a tier from the complete Git diff rather than branch names or pull-request labels. Pull requests compare the base SHA with GitHub's default checked-out merge result; pushes compare the before SHA with the current commit. A missing baseline expands validation to the upgrade tier, while an unreadable otherwise-valid SHA fails rather than silently reducing coverage. Changes to settings, baselines, dependencies, shared test infrastructure, or CI itself expand the matrix. The script and its tests define the exact path rules.
 
@@ -41,7 +55,7 @@ must be selected by the project's `check` lifecycle for the current dependency/J
 stops at Test tasks, avoiding their runtime/Agent prerequisite graphs, and uses the same JDK and
 Indy properties as execution. A required job that fails, is canceled, or is unexpectedly skipped prevents the gate from passing; only optional jobs that were not selected may be skipped. The GitHub Ruleset for `main` requires this check and currently does not require pull-request approval. Editing workflow files does not automatically update GitHub branch protection.
 
-Fix the cause of a failing check; do not remove checks solely to obtain a green status. CI artifacts are development artifacts, not formal releases, and a successful build does not replace functional or release acceptance.
+Fix the cause of a failing check; do not remove checks solely to obtain a green status. CI artifacts become formal releases only through the protected publication workflow after validation of all selected checks; a successful build alone does not replace functional acceptance.
 
 The artifact-producing build disables Node package-manager and Gradle user-home caches so restored content cannot enter the downloadable agent. Quality, module-test, and upstream-smoke jobs may restore Gradle caches read-only because they upload only reports, not runtime artifacts. Formal release candidates must continue to come from the cache-isolated build path.
 

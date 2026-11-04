@@ -18,12 +18,30 @@ Beacon uses an independent product version and artifact identity. The [packaging
 ## Release sequence
 
 1. Add user-visible changes under `Unreleased` and prepare the target product version in a pull request. Use one of these paths:
-   - For a standalone release, run **Prepare Beacon release** from `main` with the target version. It updates `version.properties`, moves completed changelog entries, opens a release pull request, and requests full Beacon CI.
+   - For a standalone release, run **Prepare Beacon release** from `main` with the target version. It updates `version.properties`, moves completed changelog entries, opens a release pull request, and requests one normal Beacon CI run. The explicit dispatch is needed because events created with `GITHUB_TOKEN` do not automatically trigger another PR workflow.
    - When an upstream synchronization PR also prepares a release, explicitly select the Beacon product version and run `node beacon/scripts/release-metadata.cjs prepare <version>` in that PR's worktree. Review the version and changelog changes together with the synchronization, validate the new-version artifact, and merge using a merge commit to preserve upstream ancestry. Do not run **Prepare Beacon release** again to create a duplicate PR.
    - Keep Beacon product notes separate from the full upstream changelog. The PR prepares source metadata; it does not create a release tag or publish artifacts.
-2. Merge the release pull request, then run [Beacon CI manual extended validation](CI.md#extended-validation-and-test-images) with `full` selected against the exact merge commit. Record the successful workflow run ID. Add Windows, OpenJ9, performance, or other targeted testing according to the declared support scope.
-3. Run **Beacon release** against that same Git ref, supplying the committed version and full-validation run ID. The workflow rejects a different commit, a reduced matrix, an existing release, or inconsistent metadata. It builds the candidate with dependency caches disabled and records its SHA-256 digest and provenance.
-4. The candidate job runs packaged-Agent and embedded-Security smoke tests. The `beacon-release` GitHub Environment gates the publish job. After approval, that job downloads the candidate artifact from the first job, revalidates its digest and Manifest, creates an annotated immutable tag, publishes the exact JAR without rebuilding, and downloads the public assets for another validation pass.
+2. Wait for the release PR's selected Beacon CI tier to succeed, then merge. A regular PR uses
+   the normal 8-job matrix; shared build, agent core, and CI changes use the 16-job upgrade matrix.
+   The 48-job `full` profile remains an explicit option for expanded acceptance, rather than a
+   mandatory second validation after every merge. Add Windows, OpenJ9, performance, or other
+   targeted testing according to the declared support scope.
+3. Run **Beacon release** against the merged source, supplying the committed version. Leave
+   `validation_run_id` empty to discover a successful PR or manual CI run with the **same complete
+   Git tree**, or supply its ID explicitly. The validator checks the actual PR test-merge tree,
+   not just the PR head SHA. It rejects different content, failed/missing selected jobs, substituted
+   or duplicate test matrix entries, fork artifacts, and missing or expired candidate artifacts.
+   A merge or squash that changes only commit identity can reuse validation. A merge that adds
+   file changes must be validated again. Source, build configuration, workflows, tests, version,
+   and documentation are all included in the tree comparison; there are no ignored-path exceptions.
+4. CI's cache-isolated build produces the JAR and SPDX SBOM once, runs HTTP, Security, and JDBC
+   acceptance against that JAR, and uploads the candidate plus a SHA-256 inventory and validation
+   plan. Release downloads and verifies those exact bytes; it does not compile or repeat the module
+   matrix. The `beacon-release` GitHub Environment gates the publish job. After approval, publication
+   revalidates the payload, creates the immutable tag and build-provenance attestation, publishes
+   without rebuilding, and downloads the public assets for digest and HTTP/Security smoke checks.
+   Provenance records both the release commit and original build commit plus their identical Git
+   tree. The unchanged SPDX document identifies the original build commit.
 5. If the product version, Manifest, or any artifact content changes, rebuild and validate again. A public release candidate whose content differs from the stable release cannot simply be renamed as the same artifact.
 6. Link user documentation and the support scope to the version. For the first release or when entry points or support status change, update the [Beacon product repository](https://github.com/beacon-observability/beacon). Cross-repository registration is not required for every patch release.
 
@@ -33,19 +51,29 @@ bypass an environment review.
 
 ## Building a release candidate
 
-The publication workflow is the formal candidate builder. For local diagnosis from a clean release
-commit with JDK 25, run the following commands at the repository root:
+The cache-isolated Beacon CI build is the candidate builder. Each build attempt uploads
+`beacon-javaagent-<attempt>` with the versioned JAR, SPDX SBOM, licenses, HTTP/Security verification
+fixture, and `ci-evidence.json`. A separate small `beacon-ci-evidence-<attempt>` artifact allows
+content matching without downloading every JAR. Candidates and evidence are retained for 30 days.
+Only successful same-repository PR and manual runs are promotable; a main push's lightweight build
+alone is not release validation. Re-running failed jobs can retain the earlier successful build
+attempt, provided all selected jobs eventually succeed and its artifacts are still available.
+
+Automatic lookup examines the latest 30 successful Beacon CI runs; older evidence may be supplied
+by ID. Old runs produced before this artifact format cannot be promoted. If evidence is absent,
+expired, from a fork, or for different content, run Beacon CI once on the release ref with the normal
+profile (or select `full` when expanded coverage is intended), then publish using that run. Do not
+manually upload a locally built substitute or silently fall back to an unvalidated release build.
+
+For local diagnosis from a clean release checkout with JDK 25:
 
 ```bash
 ./gradlew :javaagent:assemble :javaagent:verifyBeaconAgent :javaagent:spdxSbom
 ./gradlew -p beacon/testing/security-smoke-fixture shadowJar
 ```
 
-Output is written to `javaagent/build/libs/`, `javaagent/build/spdx/`, and the fixture's `build/libs/` directory. Select the single complete agent that matches the committed product version; do not publish through a wildcard that may include stale artifacts. `verifyBeaconAgent` checks the file name, Manifest, and provenance files, but does not replace functional, compatibility, or performance testing.
-
-Do not manually upload a locally built substitute. The publication workflow attaches the exact
-candidate JAR, SHA-256 file, SPDX SBOM, provenance record, license, and third-party notices. Set the
-next development version in a separate commit; it must not be included in the current release tag.
+Local builds do not create promotable GitHub validation evidence. Publication attaches the exact
+CI JAR, SHA-256 file, unchanged SPDX SBOM, provenance record, license, and third-party notices.
 
 ## Rollback and retry
 

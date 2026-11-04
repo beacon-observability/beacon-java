@@ -46,6 +46,7 @@ The upstream tag-fetching script depends only on Bash and Git. After changing it
 bash -n beacon/scripts/fetch-upstream-tag.sh
 node --test beacon/scripts/fetch-upstream-tag.test.cjs
 node --test beacon/scripts/ci-plan.test.cjs beacon/scripts/ci-workflow.test.cjs
+node --test beacon/scripts/ci-evidence.test.cjs beacon/scripts/release-metadata.test.cjs beacon/scripts/release-workflow.test.cjs
 ```
 
 These script tests use temporary local Git repositories only. They do not access the network, merge source, or publish releases.

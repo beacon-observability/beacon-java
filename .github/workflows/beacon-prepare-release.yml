@@ -60,6 +60,6 @@ jobs:
           git push --set-upstream origin "$branch"
           url=$(gh pr create --base main --head "$branch" \
             --title "Prepare Beacon Java $VERSION release" \
-            --body "Prepare the Beacon Java \`$VERSION\` release. After merge, run the full Beacon CI profile on the merge commit and pass that run ID to the Beacon release workflow.")
+            --body "Prepare the Beacon Java \`$VERSION\` release. After CI succeeds and this PR is merged without content changes, Beacon release can reuse its validation and tested candidate.")
           echo "Created $url"
-          gh workflow run beacon-ci.yml --ref "$branch" -f full=true -f native=false
+          gh workflow run beacon-ci.yml --ref "$branch" -f full=false -f native=false

@@ -18,21 +18,21 @@ test('Beacon release is isolated from inherited publication and uses a protected
   assert.doesNotMatch(release, /continue-on-error:/);
 });
 
-test('candidate validation is bound to the exact full CI source commit', () => {
-  assert.match(release, /validation_run_id:/);
-  assert.match(release, /release-metadata\.cjs verify-ci[\s\S]*?\$GITHUB_SHA/);
-  assert.match(release, /gh api --paginate[\s\S]*?jobs\?filter=latest&per_page=30/);
-  assert.match(release, /jq --slurp \. validation-job-pages\.json > validation-jobs\.json/);
-  assert.doesNotMatch(release, /gh api[^\n]*--slurp/);
-  assert.match(release, /:javaagent:assemble :javaagent:verifyBeaconAgent :javaagent:spdxSbom/);
-  assert.match(release, /security-smoke\.cjs/);
-  assert.match(release, /cache-disabled: true/);
+test('release reuses validated CI artifacts instead of building or running another matrix', () => {
+  assert.match(release, /validation_run_id:[\s\S]*?required: false/);
+  assert.match(release, /ci-evidence\.cjs download release-candidate/);
+  assert.match(release, /VALIDATION_RUN_ID: \$\{\{ inputs\.validation_run_id \}\}/);
+  assert.match(release, /build_source_commit: \$build_source_commit/);
+  assert.match(release, /source_tree: \$source_tree/);
+  assert.doesNotMatch(release, /\.\/gradlew|setup-gradle@|verify-ci|full=true/);
 });
 
 test('publish promotes the uploaded candidate without rebuilding it', () => {
   const publish = release.split('\n  publish:\n')[1];
   assert.match(publish, /actions\/download-artifact@/);
   assert.match(publish, /release-metadata\.cjs verify-artifact/);
+  assert.match(publish, /ci-evidence\.cjs verify-payload release-candidate/);
+  assert.match(publish, /BUILD_COMMIT: \$\{\{ needs\.candidate\.outputs\.build_commit \}\}/);
   assert.match(publish, /actions\/attest-build-provenance@/);
   assert.match(publish, /gh release create/);
   assert.match(publish, /--title "\$TAG"/);
@@ -40,9 +40,9 @@ test('publish promotes the uploaded candidate without rebuilding it', () => {
   assert.doesNotMatch(publish, /\.\/gradlew|assemble|spdxSbom/);
 });
 
-test('release preparation changes only release metadata and requests full CI', () => {
+test('release preparation requests the normal CI profile once', () => {
   assert.match(prepare, /github\.ref != 'refs\/heads\/main'/);
   assert.match(prepare, /release-metadata\.cjs prepare/);
   assert.match(prepare, /git add beacon\/version\.properties beacon\/CHANGELOG\.md/);
-  assert.match(prepare, /gh workflow run beacon-ci\.yml --ref "\$branch" -f full=true/);
+  assert.match(prepare, /gh workflow run beacon-ci\.yml --ref "\$branch" -f full=false/);
 });

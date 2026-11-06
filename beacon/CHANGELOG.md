@@ -6,6 +6,7 @@ This file records Beacon product changes only. The root [CHANGELOG.md](../CHANGE
 
 - Fix container packaging of CI-promoted releases: validate the retained SBOM against its
   recorded build commit while checking that build and release source trees are identical.
+  Keep historical release versions and distribution names valid in container smoke tests.
 
 ## Version 1.3.5 (2026-11-06)
 

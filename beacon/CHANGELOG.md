@@ -4,6 +4,11 @@ This file records Beacon product changes only. The root [CHANGELOG.md](../CHANGE
 
 ## Unreleased
 
+- Report `telemetry.distro.name=beacon-java-instrumentation` in both flat and declarative
+  Agent configuration, paired with the Beacon product version. Update filters and dashboards
+  matching the previous defaults, `opentelemetry-java-instrumentation` or
+  `opentelemetry-javaagent`, when upgrading. SDK identity remains unchanged.
+
 ## Version 1.3.4 (2026-11-03)
 
 - Exclude `no_evidence` Security findings from event export by default. Set

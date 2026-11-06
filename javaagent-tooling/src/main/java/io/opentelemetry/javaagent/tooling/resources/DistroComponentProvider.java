@@ -25,6 +25,6 @@ public class DistroComponentProvider implements ComponentProvider {
 
   @Override
   public Resource create(DeclarativeConfigProperties config) {
-    return DistroResourceProvider.get("opentelemetry-javaagent");
+    return DistroResourceProvider.get();
   }
 }

@@ -17,7 +17,17 @@ async function run(command, args) {
   });
 }
 
-async function smoke(agent, declarative) {
+function expectedDistroName(releasedVersion, declarative) {
+  if (releasedVersion === undefined) return 'beacon-java-instrumentation';
+  const match = releasedVersion.match(/^(\d+)\.(\d+)\.(\d+)(?:-[0-9A-Za-z.-]+)?$/);
+  assert(match, `Invalid released Agent version: ${releasedVersion}`);
+  const [major, minor, patch] = match.slice(1).map(Number);
+  const beaconIdentity = major > 1 || (major === 1 && (minor > 3 || (minor === 3 && patch >= 5)));
+  return beaconIdentity ? 'beacon-java-instrumentation' :
+    (declarative ? 'opentelemetry-javaagent' : 'opentelemetry-java-instrumentation');
+}
+
+async function smoke(agent, declarative, version, distroName) {
   const serviceName = declarative ? 'beacon-ci-smoke-declarative' : 'beacon-ci-smoke';
   const directory = mkdtempSync(join(tmpdir(), 'beacon-smoke-'));
   const exports = [];
@@ -79,16 +89,14 @@ tracer_provider:
     assert(exports.some(({ type, body }) => type === 'application/x-protobuf' &&
       body.includes(traceId) && body.includes(Buffer.from(serviceName)) &&
       body.includes(Buffer.from('/beacon-smoke'))), 'Missing correlated HTTP span in OTLP export');
-    const version = readFileSync(join(__dirname, '../version.properties'), 'utf8')
-      .match(/^version=(.+)$/m)[1].trim();
     assert(exports.some(({ body }) =>
       body.includes(Buffer.from('telemetry.distro.name')) &&
-      body.includes(Buffer.from('beacon-java-instrumentation')) &&
+      body.includes(Buffer.from(distroName)) &&
       body.includes(Buffer.from('telemetry.distro.version')) &&
       body.includes(Buffer.from(version)) &&
       body.includes(Buffer.from('telemetry.sdk.name')) &&
-      body.includes(Buffer.from('opentelemetry'))), 'Missing Beacon distribution identity in OTLP export');
-    console.log(`PASS (${declarative ? 'declarative' : 'flat'}): packaged Agent instruments HTTP, propagates context and exports OTLP traces with Beacon identity.`);
+      body.includes(Buffer.from('opentelemetry'))), 'Missing expected distribution identity in OTLP export');
+    console.log(`PASS (${declarative ? 'declarative' : 'flat'}): packaged Agent instruments HTTP, propagates context and exports OTLP traces with distribution identity.`);
   } finally {
     server.closeAllConnections();
     await new Promise((done) => server.close(done));
@@ -97,11 +105,19 @@ tracer_provider:
 }
 
 async function main() {
-  assert(process.argv[2], 'Usage: node beacon/scripts/agent-smoke.cjs <agent.jar>');
+  assert(process.argv[2], 'Usage: node beacon/scripts/agent-smoke.cjs <agent.jar> [released-version]');
   const agent = resolve(process.argv[2]);
   assert(existsSync(agent), `Missing agent: ${agent}`);
-  await smoke(agent, false);
-  await smoke(agent, true);
+  // Image verification can exercise an immutable release older than this checkout.
+  const releasedVersion = process.argv[3];
+  const version = releasedVersion || readFileSync(join(__dirname, '../version.properties'), 'utf8')
+    .match(/^version=(.+)$/m)[1].trim();
+  await smoke(agent, false, version, expectedDistroName(releasedVersion, false));
+  await smoke(agent, true, version, expectedDistroName(releasedVersion, true));
 }
 
-main().catch((error) => { console.error(error); process.exitCode = 1; });
+if (require.main === module) {
+  main().catch((error) => { console.error(error); process.exitCode = 1; });
+}
+
+module.exports = { expectedDistroName };

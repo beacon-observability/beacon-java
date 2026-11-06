@@ -59,8 +59,13 @@ the pinned public `1.3.2` release. Pull-request runs never publish packages.
 
 1. Each native amd64/arm64 runner downloads the published JAR, checksum, SBOM, provenance, and
    licenses. The preparation script verifies their version, source commit, Manifest, and digest.
+   For CI-promoted releases, it checks that build and release commits have the same Git tree
+   and verifies the unchanged SBOM against the recorded build commit. Older releases without
+   a separate build commit continue to use the release commit.
 2. Build each image once. Verify its labels, non-root read-only copy operation, byte-identical JAR,
    HTTP context propagation, and correlated OTLP trace export on that native architecture.
+   Smoke tests check the selected release version and its distribution name, including legacy
+   names for releases before 1.3.5.
 3. Upload those tested images as workflow artifacts. The publish job uses the existing
    `beacon-release` environment approval and promotes the archives without rebuilding.
 4. Reject an existing version tag. Upload the two platform manifests by digest and publish only the

@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const { execFileSync } = require('node:child_process');
 const { mkdirSync, readFileSync, readdirSync } = require('node:fs');
 const { resolve } = require('node:path');
+const { verifyProvenance } = require('./release-provenance.cjs');
 
 const repository = 'beacon-observability/beacon-java';
 const [version, destination] = process.argv.slice(2);
@@ -24,7 +25,8 @@ const release = JSON.parse(gh(['release', 'view', tag, '--repo', repository,
 assert.equal(release.tagName, tag);
 assert.equal(release.isDraft, false, 'Cannot package a draft release');
 assert.equal(release.isPrerelease, false, 'This image channel accepts stable releases only');
-const source = gh(['api', `repos/${repository}/commits/${tag}`, '--jq', '.sha']).trim();
+const releaseCommit = JSON.parse(gh(['api', `repos/${repository}/commits/${tag}`]));
+const source = releaseCommit.sha;
 assert.match(source, /^[0-9a-f]{40}$/);
 
 const agent = `beacon-javaagent-${version}.jar`;
@@ -39,12 +41,10 @@ assert.equal(match[2], agent, 'Checksum names a different artifact');
 const verifier = resolve(__dirname, '../../scripts/release-metadata.cjs');
 execFileSync(process.execPath, [verifier, 'verify-artifact', resolve(stage, agent), version, match[1]],
   { stdio: 'inherit' });
-execFileSync(process.execPath, [verifier, 'verify-sbom', resolve(stage, sbom), version, source],
-  { stdio: 'inherit' });
 const provenance = JSON.parse(readFileSync(resolve(stage, 'provenance.json'), 'utf8'));
-assert.equal(provenance.product, 'Beacon Java');
-assert.equal(provenance.version, version);
-assert.equal(provenance.source_repository, `https://github.com/${repository}`);
-assert.equal(provenance.source_commit, source, 'Release provenance differs from the tag');
-assert.equal(provenance.agent_sha256, match[1]);
+const buildSource = verifyProvenance(provenance,
+  { version, source, sourceTree: releaseCommit.commit.tree.sha, digest: match[1] },
+  (commit) => gh(['api', `repos/${repository}/commits/${commit}`, '--jq', '.commit.tree.sha']).trim());
+execFileSync(process.execPath, [verifier, 'verify-sbom', resolve(stage, sbom), version, buildSource],
+  { stdio: 'inherit' });
 console.log(JSON.stringify({ version, source, agent_sha256: match[1], stage }, null, 2));

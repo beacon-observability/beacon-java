@@ -48,6 +48,7 @@ class DeclarativeConfigurationSmokeTest extends AbstractSmokeTest<Integer> {
                                 .hasAttribute(
                                     satisfies(PROCESS_EXECUTABLE_PATH, val -> val.isNotBlank()))
                                 .hasAttribute(satisfies(HOST_NAME, val -> val.isNotBlank()))
-                                .hasAttribute(TELEMETRY_DISTRO_NAME, "opentelemetry-javaagent"))));
+                                .hasAttribute(
+                                    TELEMETRY_DISTRO_NAME, "beacon-java-instrumentation"))));
   }
 }

@@ -80,8 +80,9 @@ dependencies {
   add("testJava11Implementation", sourceSets["java11"].output)
   add("testJava11Implementation", sourceSets.main.get().output)
   add("testJava17Implementation", sourceSets.test.get().output)
-  add("testJava17Implementation", sourceSets["java11"].output)
+  // Test the active multi-release layer before its fallback classes.
   add("testJava17Implementation", sourceSets["java17"].output)
+  add("testJava17Implementation", sourceSets["java11"].output)
   add("testJava17Implementation", sourceSets.main.get().output)
 }
 

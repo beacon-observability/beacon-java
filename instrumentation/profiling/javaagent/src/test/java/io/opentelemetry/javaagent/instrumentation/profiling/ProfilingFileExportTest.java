@@ -29,13 +29,9 @@ class ProfilingFileExportTest {
     boolean available = (Boolean) flightRecorderClass.getMethod("isAvailable").invoke(null);
     Assumptions.assumeTrue(available, "JFR not available");
 
-    String configuredPath = System.getProperty("otel.profiling.experimental.file-export.path");
+    String configuredPath = System.getProperty("otel.profiling.file.path");
     if (configuredPath == null || configuredPath.isEmpty()) {
-      configuredPath = System.getenv("OTEL_PROFILING_EXPERIMENTAL_FILE_EXPORT_PATH");
-    }
-    if (configuredPath == null || configuredPath.isEmpty()) {
-      configuredPath =
-          System.getProperty("otel.instrumentation.profiling.experimental.file-export.path");
+      configuredPath = System.getenv("OTEL_PROFILING_FILE_PATH");
     }
     outputDirectory = Paths.get(configuredPath);
   }

@@ -44,7 +44,7 @@ async function main() {
     for (let i = 0; i < 3; i++) {
       const files = join(directory, `files-${i}`); const staging = join(directory, `staging-${i}`);
       const result = await run(java, [...base, '-Dotel.profiling.exporter=file',
-        `-Dotel.profiling.temp-dir=${staging}`, `-Dotel.profiling.experimental.file-export.path=${files}`,
+        `-Dotel.profiling.temp-dir=${staging}`, `-Dotel.profiling.file.path=${files}`,
         '-cp', directory, 'ProfilingShutdownProbe', 'run', files]);
       const check = execFileSync(java, ['-cp', directory, 'ProfilingShutdownProbe', 'check', files], { encoding: 'utf8' });
       assert(check.includes('FINAL_MARKER_PRESENT'), result.output);
@@ -60,15 +60,15 @@ async function main() {
     receiver.on('connection', (socket) => { sockets.add(socket); socket.on('close', () => sockets.delete(socket)); });
     await new Promise((done) => receiver.listen(0, '127.0.0.1', done));
     try {
-      const result = await run(java, [...base, '-Dotel.profiling.exporter=datakit',
-        `-Dotel.profiling.endpoint=http://127.0.0.1:${receiver.address().port}/profiling/v1/input`,
-        '-Dotel.profiling.datakit.timeout=60s', '-cp', directory, 'ProfilingShutdownProbe', 'slow', directory], 35000, (child) => { activeChild = child; });
+      const result = await run(java, [...base, '-Dotel.profiling.exporter=otlp',
+        `-Dotel.exporter.otlp.profiles.endpoint=http://127.0.0.1:${receiver.address().port}/v1development/profiles`,
+        '-Dotel.exporter.otlp.profiles.timeout=60s', '-cp', directory, 'ProfilingShutdownProbe', 'slow', directory], 35000, (child) => { activeChild = child; });
       assert(uploads > 0, 'receiver must see an in-flight upload');
       assert(result.shutdown_millis !== null && result.shutdown_millis < 13000, result.output);
       assert(result.output.includes('Profiling shutdown exceeded 10 seconds'), result.output);
-      assert(/SocketOutputStream.socketWrite|NioSocketImpl.implWrite|SocketDispatcher.write0/.test(result.output), result.output);
-      assert(result.output.includes('DatakitProfileExporterAdapter'), result.output);
-      results.push({ mode: 'unresponsive-receiver', uploads, blocked_socket_writer: true, shutdown_millis: result.shutdown_millis });
+      assert(/SocketInputStream|NioSocketImpl|HttpURLConnection|SocketDispatcher/.test(result.output), result.output);
+      assert(result.output.includes('OtlpProfileExporterAdapter'), result.output);
+      results.push({ mode: 'unresponsive-receiver', uploads, blocked_network_export: true, shutdown_millis: result.shutdown_millis });
     } finally {
       for (const socket of sockets) socket.destroy();
       await new Promise((done) => receiver.close(done));

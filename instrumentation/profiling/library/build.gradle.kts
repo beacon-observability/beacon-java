@@ -68,6 +68,11 @@ configurations {
 }
 
 dependencies {
+  implementation("io.opentelemetry.proto:opentelemetry-proto")
+  implementation("io.grpc:grpc-netty-shaded:1.75.0")
+  implementation("io.grpc:grpc-protobuf:1.75.0")
+  implementation("io.grpc:grpc-stub:1.75.0")
+  implementation("io.opentelemetry:opentelemetry-sdk-common")
   add("testJava11Implementation", sourceSets.test.get().output)
   add("testJava11Implementation", sourceSets["java11"].output)
   add("testJava11Implementation", sourceSets.main.get().output)

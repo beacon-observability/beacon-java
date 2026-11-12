@@ -107,6 +107,8 @@ val DEPENDENCIES = listOf(
   "io.opentelemetry.contrib:opentelemetry-baggage-processor:${otelContribVersion}",
   "io.opentelemetry.contrib:opentelemetry-samplers:${otelContribVersion}",
   "io.opentelemetry.proto:opentelemetry-proto:1.11.1-alpha",
+  // Profiles gencode requires this runtime in both the base agent and instrumentation libraries.
+  "com.google.protobuf:protobuf-java:4.36.2",
   "io.opentelemetry:opentelemetry-exporter-zipkin:${otelZipkinVersion}",
   "io.opentelemetry:opentelemetry-extension-annotations:1.18.0", // deprecated, no longer part of bom
   "org.assertj:assertj-core:3.27.7",

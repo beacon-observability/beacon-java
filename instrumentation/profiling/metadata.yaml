@@ -61,21 +61,28 @@ configurations:
     default: ""
   - name: otel.profiling.exporter
     description: >
-      Profiling exporter implementation. Supported values are none, file, and datakit. Environment variable: OTEL_PROFILING_EXPORTER.
+      Profiling exporter implementation. Supported values are otlp and file. Environment variable: OTEL_PROFILING_EXPORTER.
     type: string
-    default: none
-  - name: otel.profiling.endpoint
+    default: otlp
+  - name: otel.exporter.otlp.profiles.protocol
     description: >
-      Datakit profile receiver endpoint. Environment variable: OTEL_PROFILING_ENDPOINT. Compatibility aliases: otel.profiling.datakit.endpoint and OTEL_PROFILING_DATAKIT_ENDPOINT.
+      OTLP Profiles transport, http/protobuf or grpc. Falls back to the shared OTLP protocol, then http/protobuf. Used only by the otlp exporter.
     type: string
-    default: http://localhost:9529/profiling/v1/input
-  - name: otel.profiling.datakit.timeout
+  - name: otel.exporter.otlp.profiles.endpoint
     description: >
-      Timeout for Datakit profile uploads. Environment variable: OTEL_PROFILING_DATAKIT_TIMEOUT.
+      OTLP Profiles endpoint. Falls back to the shared OTLP endpoint, with /v1development/profiles appended for HTTP.
+      Defaults to http://localhost:4318/v1development/profiles for HTTP or http://localhost:4317 for gRPC. Used only by the otlp exporter.
     type: string
-    default: 10s
-  - name: otel.profiling.experimental.file-export.path
+  - name: otel.exporter.otlp.profiles.timeout
     description: >
-      Directory used by the experimental file exporter. Environment variable: OTEL_PROFILING_EXPERIMENTAL_FILE_EXPORT_PATH.
+      OTLP Profiles export timeout. Falls back to the shared OTLP timeout, then 10s. Used only by the otlp exporter.
+    type: string
+  - name: otel.exporter.otlp.profiles.headers
+    description: >
+      OTLP Profiles headers, percent-encoded key=value pairs. Falls back to shared OTLP headers. Used only by the otlp exporter.
+    type: string
+  - name: otel.profiling.file.path
+    description: >
+      Output directory used only by the file exporter. Environment variable: OTEL_PROFILING_FILE_PATH.
     type: string
     default: "${java.io.tmpdir}/otel-profiles"

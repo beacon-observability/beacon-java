@@ -10,7 +10,6 @@ import static java.util.logging.Level.WARNING;
 import com.google.auto.service.AutoService;
 import io.opentelemetry.instrumentation.profiling.ProfileExporterAdapter;
 import io.opentelemetry.instrumentation.profiling.RuntimeProfiling;
-import io.opentelemetry.instrumentation.profiling.internal.DatakitProfileExporterAdapter;
 import io.opentelemetry.instrumentation.profiling.internal.FileProfileExporterAdapter;
 import io.opentelemetry.instrumentation.profiling.internal.JfrSupport;
 import io.opentelemetry.javaagent.extension.AgentListener;
@@ -28,7 +27,6 @@ public class ProfilingInstaller implements AgentListener {
 
   private static final Logger logger = Logger.getLogger(ProfilingInstaller.class.getName());
   private static final AtomicBoolean installed = new AtomicBoolean();
-  private static final ProfileExporterAdapter noopExporter = snapshot -> {};
 
   @Override
   public void afterAgent(AutoConfiguredOpenTelemetrySdk autoConfiguredSdk) {
@@ -56,10 +54,7 @@ public class ProfilingInstaller implements AgentListener {
     }
 
     AgentProfilingConfiguration configuration = AgentProfilingConfiguration.create(config);
-    if ("none".equals(configuration.getExporter())) {
-      logger.warning(
-          "Profiling is enabled but exporter is set to 'none'. Profiling snapshots will be discarded.");
-    }
+    logger.fine("Profiling exporter selected: " + configuration.getExporter());
     ProfileExporterAdapter exporterAdapter =
         createExporter(configuration, SdkAutoconfigureAccess.getResource(autoConfiguredSdk));
     RuntimeProfiling profiling =
@@ -90,15 +85,14 @@ public class ProfilingInstaller implements AgentListener {
     if ("file".equalsIgnoreCase(exporterName)) {
       return new FileProfileExporterAdapter(configuration.getFileExportPath());
     }
-    if ("datakit".equalsIgnoreCase(exporterName)) {
-      return new DatakitProfileExporterAdapter(
-          configuration.getDatakitEndpoint(),
-          configuration.getDatakitTimeout(),
-          DatakitProfilingTags.create(resource));
+    if ("otlp".equalsIgnoreCase(exporterName)) {
+      return JfrSupport.otlpExporter(
+          configuration.getOtlpEndpoint(),
+          configuration.getOtlpProtocol(),
+          configuration.getOtlpTimeout(),
+          configuration.getOtlpHeaders(),
+          resource);
     }
-    if (!"none".equalsIgnoreCase(exporterName)) {
-      logger.warning("Unknown profiling exporter '" + exporterName + "', falling back to none.");
-    }
-    return noopExporter;
+    throw new IllegalArgumentException("Unsupported profiling exporter: " + exporterName);
   }
 }

@@ -4,6 +4,11 @@ This file records Beacon product changes only. The root [CHANGELOG.md](../CHANGE
 
 ## Unreleased
 
+- **Breaking:** replace the dedicated multipart profiling exporter with OTLP Profiles
+  over HTTP/protobuf or gRPC. `OTEL_PROFILING_EXPORTER` accepts `otlp` and `file`.
+  OTLP uses `OTEL_EXPORTER_OTLP_PROFILES_*`; file export uses the
+  `OTEL_PROFILING_FILE_PATH` directory and ignores endpoint settings.
+
 - Fix container packaging of CI-promoted releases: validate the retained SBOM against its
   recorded build commit while checking that build and release source trees are identical.
   Keep historical release versions and distribution names valid in container smoke tests.

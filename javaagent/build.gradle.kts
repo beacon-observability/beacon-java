@@ -74,6 +74,8 @@ dependencies {
   baseJavaagentLibs(project(":javaagent-extension-api"))
 
   baseJavaagentLibs(project(":javaagent-tooling"))
+  // Align the isolated agent runtime with Profiles gencode without constraining target libraries.
+  baseJavaagentLibs("com.google.protobuf:protobuf-java:4.36.2")
   baseJavaagentLibs(project(":javaagent-internal-logging-application"))
   baseJavaagentLibs(project(":javaagent-internal-logging-simple", configuration = "shadow"))
   baseJavaagentLibs(project(":muzzle"))

@@ -70,6 +70,8 @@ configurations {
 dependencies {
   testImplementation("io.github.netmikey.logunit:logunit-jul")
   implementation("io.opentelemetry.proto:opentelemetry-proto")
+  // Profiles gencode requires this runtime; keep it scoped to profiling consumers.
+  implementation("com.google.protobuf:protobuf-java:4.36.2")
   implementation("io.grpc:grpc-netty-shaded:1.75.0")
   implementation("io.grpc:grpc-protobuf:1.75.0")
   implementation("io.grpc:grpc-stub:1.75.0")

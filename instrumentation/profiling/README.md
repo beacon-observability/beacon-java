@@ -11,6 +11,9 @@ The first implementation focuses on:
 The `otlp` exporter converts execution and native-method samples, allocation samples,
 and old-object samples from JFR into OTLP Profiles. It supports HTTP/protobuf and gRPC.
 The `file` exporter writes original JFR snapshots, including events not converted to OTLP.
+For allocation profiles, weighted allocation samples take precedence within each snapshot;
+TLAB allocation events are used only when that snapshot has no usable weighted samples.
+Partial rejection is logged and completes the export without replaying accepted profiles.
 These source changes require a new Beacon release.
 
 | System property                                        | Environment variable                              | Type    | Default | Description                                                           |

@@ -11,11 +11,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 
 import com.sun.net.httpserver.HttpServer;
+import io.github.netmikey.logunit.api.LogCapturer;
 import io.grpc.Server;
 import io.grpc.netty.shaded.io.grpc.netty.NettyServerBuilder;
 import io.grpc.stub.StreamObserver;
 import io.opentelemetry.api.common.Attributes;
 import io.opentelemetry.instrumentation.profiling.ProfileSnapshot;
+import io.opentelemetry.proto.collector.profiles.v1development.ExportProfilesPartialSuccess;
 import io.opentelemetry.proto.collector.profiles.v1development.ExportProfilesServiceRequest;
 import io.opentelemetry.proto.collector.profiles.v1development.ExportProfilesServiceResponse;
 import io.opentelemetry.proto.collector.profiles.v1development.ProfilesServiceGrpc;
@@ -28,9 +30,15 @@ import java.time.Duration;
 import java.util.concurrent.atomic.AtomicReference;
 import jdk.jfr.Recording;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.RegisterExtension;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class OtlpProfileExporterAdapterTest {
+  @RegisterExtension
+  LogCapturer logs = LogCapturer.create().captureForType(OtlpProfileExporterAdapter.class);
+
   @TempDir Path directory;
   private static volatile double busyResult;
 
@@ -82,6 +90,17 @@ class OtlpProfileExporterAdapterTest {
             });
   }
 
+  private static ExportProfilesServiceResponse response(boolean partialRejection) {
+    return partialRejection
+        ? ExportProfilesServiceResponse.newBuilder()
+            .setPartialSuccess(
+                ExportProfilesPartialSuccess.newBuilder()
+                    .setRejectedProfiles(1)
+                    .setErrorMessage("rejected allocation profile"))
+            .build()
+        : ExportProfilesServiceResponse.getDefaultInstance();
+  }
+
   @Test
   void emptySnapshotsDoNotConnect() throws Exception {
     for (String protocol : new String[] {"http/protobuf", "grpc"}) {
@@ -95,8 +114,9 @@ class OtlpProfileExporterAdapterTest {
     }
   }
 
-  @Test
-  void exportsDecodedProfilesOverHttp() throws Exception {
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void exportsDecodedProfilesOverHttp(boolean partialRejection) throws Exception {
     AtomicReference<ExportProfilesServiceRequest> request = new AtomicReference<>();
     HttpServer server =
         HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
@@ -107,7 +127,9 @@ class OtlpProfileExporterAdapterTest {
               .isEqualTo("application/x-protobuf");
           assertThat(exchange.getRequestHeaders().getFirst("tenant")).isEqualTo("demo");
           request.set(ExportProfilesServiceRequest.parseFrom(exchange.getRequestBody()));
-          exchange.sendResponseHeaders(200, -1);
+          byte[] response = response(partialRejection).toByteArray();
+          exchange.sendResponseHeaders(200, response.length == 0 ? -1 : response.length);
+          exchange.getResponseBody().write(response);
           exchange.close();
         });
     server.start();
@@ -117,18 +139,22 @@ class OtlpProfileExporterAdapterTest {
               new URL(
                   "http://127.0.0.1:" + server.getAddress().getPort() + "/v1development/profiles"),
               "http/protobuf",
-              Duration.ofSeconds(5),
+              Duration.ofSeconds(15),
               singletonMap("tenant", "demo"),
               Resource.create(Attributes.builder().put("service.name", "checkout").build()));
       exporter.export(snapshot);
       verify(request.get());
+      if (partialRejection) {
+        logs.assertContains("OTLP Profiles rejected 1 profiles: rejected allocation profile");
+      }
     } finally {
       server.stop(0);
     }
   }
 
-  @Test
-  void exportsDecodedProfilesOverGrpc() throws Exception {
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void exportsDecodedProfilesOverGrpc(boolean partialRejection) throws Exception {
     AtomicReference<ExportProfilesServiceRequest> request = new AtomicReference<>();
     Server server =
         NettyServerBuilder.forAddress(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0))
@@ -139,7 +165,7 @@ class OtlpProfileExporterAdapterTest {
                       ExportProfilesServiceRequest value,
                       StreamObserver<ExportProfilesServiceResponse> observer) {
                     request.set(value);
-                    observer.onNext(ExportProfilesServiceResponse.getDefaultInstance());
+                    observer.onNext(response(partialRejection));
                     observer.onCompleted();
                   }
                 })
@@ -150,11 +176,14 @@ class OtlpProfileExporterAdapterTest {
           new OtlpProfileExporterAdapter(
               new URL("http://127.0.0.1:" + server.getPort()),
               "grpc",
-              Duration.ofSeconds(5),
+              Duration.ofSeconds(15),
               emptyMap(),
               Resource.create(Attributes.builder().put("service.name", "checkout").build()));
       exporter.export(snapshot);
       verify(request.get());
+      if (partialRejection) {
+        logs.assertContains("OTLP Profiles rejected 1 profiles: rejected allocation profile");
+      }
       var empty =
           JfrOtlpConverter.convert(
               directory.resolve("profile.jfr"),

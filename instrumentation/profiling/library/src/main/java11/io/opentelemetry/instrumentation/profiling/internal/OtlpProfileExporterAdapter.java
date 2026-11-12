@@ -137,13 +137,16 @@ final class OtlpProfileExporterAdapter implements ProfileExporterAdapter {
     }
   }
 
-  private static void checkResponse(ExportProfilesServiceResponse response) throws IOException {
+  private static void checkResponse(ExportProfilesServiceResponse response) {
     if (response.hasPartialSuccess()) {
       if (response.getPartialSuccess().getRejectedProfiles() > 0) {
-        throw new IOException(
-            "OTLP Profiles rejected profiles: " + response.getPartialSuccess().getErrorMessage());
-      }
-      if (!response.getPartialSuccess().getErrorMessage().isEmpty()) {
+        // A successful response with partial rejection must not replay accepted profiles.
+        logger.warning(
+            "OTLP Profiles rejected "
+                + response.getPartialSuccess().getRejectedProfiles()
+                + " profiles: "
+                + response.getPartialSuccess().getErrorMessage());
+      } else if (!response.getPartialSuccess().getErrorMessage().isEmpty()) {
         logger.warning(response.getPartialSuccess().getErrorMessage());
       }
     }

@@ -72,6 +72,7 @@ final class JfrOtlpConverter {
         String name = event.getEventType().getName();
         String type;
         String unit;
+        boolean tlabAllocation = false;
         long value;
         if (name.equals("jdk.ExecutionSample") || name.equals("jdk.NativeMethodSample")) {
           type = "samples";
@@ -86,6 +87,7 @@ final class JfrOtlpConverter {
           type = "allocation";
           unit = "bytes";
           value = event.getLong(name.endsWith("InNewTLAB") ? "tlabSize" : "allocationSize");
+          tlabAllocation = true;
         } else if (name.equals("jdk.OldObjectSample")) {
           type = "retained_objects";
           unit = "count";
@@ -97,7 +99,8 @@ final class JfrOtlpConverter {
         if (trace == null || trace.getFrames().isEmpty()) {
           continue;
         }
-        Profile.Builder profile = profiles.get(type);
+        String profileKey = tlabAllocation ? "tlab_allocation" : type;
+        Profile.Builder profile = profiles.get(profileKey);
         if (profile == null) {
           UUID id = UUID.randomUUID();
           profile =
@@ -112,7 +115,7 @@ final class JfrOtlpConverter {
                               .putLong(id.getMostSignificantBits())
                               .putLong(id.getLeastSignificantBits())
                               .array()));
-          profiles.put(type, profile);
+          profiles.put(profileKey, profile);
         }
         Stack.Builder stack = Stack.newBuilder();
         for (RecordedFrame frame : trace.getFrames()) {
@@ -158,6 +161,11 @@ final class JfrOtlpConverter {
                 .addValues(value)
                 .addTimestampsUnixNano(nanos(timestamp)));
       }
+    }
+    // Weighted samples and TLAB events overlap. Prefer samples from this window, regardless
+    // of event order, and keep TLAB events only when no usable weighted sample was recorded.
+    if (profiles.containsKey("allocation")) {
+      profiles.remove("tlab_allocation");
     }
     io.opentelemetry.proto.resource.v1.Resource.Builder otlpResource =
         io.opentelemetry.proto.resource.v1.Resource.newBuilder();

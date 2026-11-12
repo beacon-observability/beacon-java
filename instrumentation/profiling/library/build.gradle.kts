@@ -68,6 +68,7 @@ configurations {
 }
 
 dependencies {
+  testImplementation("io.github.netmikey.logunit:logunit-jul")
   implementation("io.opentelemetry.proto:opentelemetry-proto")
   implementation("io.grpc:grpc-netty-shaded:1.75.0")
   implementation("io.grpc:grpc-protobuf:1.75.0")

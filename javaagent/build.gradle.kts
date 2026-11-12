@@ -171,6 +171,7 @@ tasks {
 
     duplicatesStrategy = DuplicatesStrategy.FAIL
     exclude("META-INF/LICENSE")
+    exclude("META-INF/LICENSE.txt")
     exclude("META-INF/NOTICE")
     exclude("META-INF/maven/**")
     exclude("META-INF/versions/*/OSGI-INF/MANIFEST.MF")
@@ -190,6 +191,7 @@ tasks {
       duplicatesStrategy = DuplicatesStrategy.EXCLUDE
     }
     exclude("META-INF/LICENSE")
+    exclude("META-INF/LICENSE.txt")
     exclude("META-INF/NOTICE")
     exclude("META-INF/maven/**")
     exclude("META-INF/versions/*/OSGI-INF/MANIFEST.MF")

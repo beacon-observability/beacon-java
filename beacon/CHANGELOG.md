@@ -4,6 +4,8 @@ This file records Beacon product changes only. The root [CHANGELOG.md](../CHANGE
 
 ## Unreleased
 
+## Version 1.4.0 (2026-11-12)
+
 - **Breaking:** replace the dedicated multipart profiling exporter with OTLP Profiles
   over HTTP/protobuf or gRPC. `OTEL_PROFILING_EXPORTER` accepts `otlp` and `file`.
   OTLP uses `OTEL_EXPORTER_OTLP_PROFILES_*`; file export uses the

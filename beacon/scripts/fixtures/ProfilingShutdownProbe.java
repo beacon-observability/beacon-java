@@ -49,7 +49,8 @@ public class ProfilingShutdownProbe {
         payload.value = i + new String(data);
         payload.commit();
       }
-      Thread.sleep(2000);
+      long samplingDeadline = System.nanoTime() + 2_000_000_000L;
+      while (System.nanoTime() < samplingDeadline) Math.log(System.nanoTime());
       System.out.println("EXITING");
       System.exit(0);
     }

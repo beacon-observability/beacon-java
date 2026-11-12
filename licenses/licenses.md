@@ -297,7 +297,7 @@
 
 ## The 3-Clause BSD License
 
-**64** **Group:** `com.google.protobuf` **Name:** `protobuf-java` **Version:** `4.35.0`
+**64** **Group:** `com.google.protobuf` **Name:** `protobuf-java` **Version:** `4.36.2`
 > - **Manifest Project URL**: [https://developers.google.com/protocol-buffers/](https://developers.google.com/protocol-buffers/)
 > - **Manifest License**: [https://opensource.org/licenses/BSD-3-Clause](The 3-Clause BSD License)
 > - **POM License**: The 3-Clause BSD License - [https://opensource.org/licenses/BSD-3-Clause](https://opensource.org/licenses/BSD-3-Clause)

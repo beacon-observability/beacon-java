@@ -33,6 +33,10 @@ class ProfilingFileExportTest {
     if (configuredPath == null || configuredPath.isEmpty()) {
       configuredPath = System.getenv("OTEL_PROFILING_FILE_PATH");
     }
+    if (configuredPath == null || configuredPath.isEmpty()) {
+      configuredPath =
+          System.getProperty("otel.instrumentation.profiling.experimental.file-export.path");
+    }
     outputDirectory = Paths.get(configuredPath);
   }
 

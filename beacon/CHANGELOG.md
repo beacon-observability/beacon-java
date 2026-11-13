@@ -4,6 +4,11 @@ This file records Beacon product changes only. The root [CHANGELOG.md](../CHANGE
 
 ## Unreleased
 
+- Restore the existing DataKit-compatible multipart/JFR upload for the `http` profiling
+  exporter name. Preserve `datakit` as an alias and `OTEL_PROFILING_ENDPOINT`; no
+  OTLP Profiles receiver or gRPC service is required. Reserve `otlp` for a future
+  OTLP Profiles implementation; it is no longer accepted as a multipart exporter name.
+
 ## Version 1.4.0 (2026-11-12)
 
 - **Breaking:** replace the dedicated multipart profiling exporter with OTLP Profiles

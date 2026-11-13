@@ -8,13 +8,10 @@ The first implementation focuses on:
 - taking periodic snapshots
 - exporting snapshots through a pluggable adapter
 
-The `otlp` exporter converts execution and native-method samples, allocation samples,
-and old-object samples from JFR into OTLP Profiles. It supports HTTP/protobuf and gRPC.
-The `file` exporter writes original JFR snapshots, including events not converted to OTLP.
-For allocation profiles, weighted allocation samples take precedence within each snapshot;
-TLAB allocation events are used only when that snapshot has no usable weighted samples.
-Partial rejection is logged and completes the export without replaying accepted profiles.
-These source changes require a new Beacon release.
+The `http` exporter uploads JFR snapshots to a DataKit profile receiver using
+`multipart/form-data`. The legacy `datakit` name remains an alias. The `otlp` name
+is reserved for a future OTLP Profiles implementation and is currently unsupported.
+The `file` exporter exists for validation and debugging.
 
 | System property                                        | Environment variable                              | Type    | Default | Description                                                           |
 | ------------------------------------------------------ | ------------------------------------------------- | ------- | ------- | --------------------------------------------------------------------- |
@@ -28,16 +25,18 @@ These source changes require a new Beacon release.
 | `otel.profiling.memory.enabled`                        | `OTEL_PROFILING_MEMORY_ENABLED`                   | Boolean | `false` | Enables a memory-focused JFR overlay on top of the default profile.   |
 | `otel.profiling.memory.allocation-sampling`            | `OTEL_PROFILING_MEMORY_ALLOCATION_SAMPLING`       | Boolean |         | Overrides allocation sampling events (`ObjectAllocation*`).           |
 | `otel.profiling.memory.old-object-sampling`            | `OTEL_PROFILING_MEMORY_OLD_OBJECT_SAMPLING`       | Boolean |         | Overrides `OldObjectSample`.                                          |
-| `otel.profiling.exporter` | `OTEL_PROFILING_EXPORTER` | String | `otlp` | `otlp` or `file`. Disable profiling using `OTEL_PROFILING_ENABLED=false`. |
-| `otel.exporter.otlp.profiles.protocol` | `OTEL_EXPORTER_OTLP_PROFILES_PROTOCOL` | String | Shared protocol, then `http/protobuf` | `http/protobuf` or `grpc`; OTLP only. |
-| `otel.exporter.otlp.profiles.endpoint` | `OTEL_EXPORTER_OTLP_PROFILES_ENDPOINT` | String | Protocol-dependent | Exact signal endpoint; OTLP only. |
-| `otel.exporter.otlp.profiles.timeout` | `OTEL_EXPORTER_OTLP_PROFILES_TIMEOUT` | Duration | Shared timeout, then `10s` | OTLP only. |
-| `otel.exporter.otlp.profiles.headers` | `OTEL_EXPORTER_OTLP_PROFILES_HEADERS` | String | Shared headers | Percent-encoded `key=value` pairs; OTLP only. |
-| `otel.profiling.file.path` | `OTEL_PROFILING_FILE_PATH` | String | `${java.io.tmpdir}/otel-profiles` | Local output directory; file only. |
+| `otel.profiling.exporter`                              | `OTEL_PROFILING_EXPORTER`                         | String  | `http`  | Profiling exporter implementation. Supported values are `http,file,none` (legacy alias: `datakit`). |
+| `otel.profiling.endpoint`                              | `OTEL_PROFILING_ENDPOINT`                         | String  | `http://localhost:9529/profiling/v1/input` | Datakit profile receiver endpoint. |
+| `otel.profiling.datakit.timeout`                       | `OTEL_PROFILING_DATAKIT_TIMEOUT`                  | String  | `10s`   | Timeout for Datakit profile uploads.                                  |
+| `otel.profiling.file.path`         | `OTEL_PROFILING_FILE_PATH`    | String  |         | Output directory used by the experimental `file` exporter.            |
+
+Legacy `otel.instrumentation.profiling.*` keys are still accepted as compatibility aliases, but
+new configuration should use `otel.profiling.*`.
 
 JFR stack depth and its repository directory are JVM-wide settings. Configure them at JVM startup
 with `-XX:FlightRecorderOptions=stackdepth=128,repository=/path/to/jfr`. They affect every recording
-in the process; this instrumentation does not change these global settings. The `file.path` setting controls exported files, separately from the JFR repository.
+in the process; this instrumentation does not change these global settings. The experimental
+`file.path` setting controls exported files, separately from the JFR repository.
 
 Profiling configuration or startup failures are logged and isolated from the remaining agent
 listeners. Only settings for the selected exporter are parsed. Recording initialization runs on a
@@ -58,32 +57,42 @@ If JDK cleanup wins a stop/read race, the most recent detached snapshot supplies
 timestamp. Files are removed after export or session cleanup; abrupt process termination can leave
 temporary files behind. `temp-dir` controls these files, separately from the JVM JFR repository.
 
-Example for OTLP/HTTP:
+For Datakit endpoint, the legacy environment variable `OTEL_PROFILING_DATAKIT_ENDPOINT` is also
+accepted as a compatibility alias. The legacy property `otel.profiling.datakit.endpoint` is also
+accepted.
+
+Example for Datakit:
+
+```bash
+java \
+  -javaagent:path/to/opentelemetry-javaagent.jar \
+  -Dotel.profiling.enabled=true \
+  -Dotel.profiling.exporter=http \
+  -Dotel.profiling.endpoint=http://localhost:9529/profiling/v1/input \
+  -Dotel.service.name=checkout \
+  -Dotel.service.version=1.2.3 \
+  -Dotel.resource.attributes=deployment.environment.name=prod \
+  -jar app.jar
+```
+
+Environment variable example:
 
 ```bash
 export OTEL_PROFILING_ENABLED=true
-export OTEL_PROFILING_EXPORTER=otlp
-export OTEL_EXPORTER_OTLP_PROFILES_PROTOCOL=http/protobuf
-export OTEL_EXPORTER_OTLP_PROFILES_ENDPOINT=http://localhost:4318/v1development/profiles
-java -javaagent:beacon-javaagent.jar -jar app.jar
+export OTEL_PROFILING_EXPORTER=http
+export OTEL_PROFILING_ENDPOINT=http://localhost:9529/profiling/v1/input
+export OTEL_PROFILING_MEMORY_ENABLED=true
+export OTEL_PROFILING_MAX_AGE=1m
 ```
 
-For gRPC use `OTEL_EXPORTER_OTLP_PROFILES_PROTOCOL=grpc` and
-`OTEL_EXPORTER_OTLP_PROFILES_ENDPOINT=http://localhost:4317`.
-The receiver must support the development OTLP Profiles schema; an OTLP traces
-endpoint alone is insufficient. `https://` enables TLS.
+The Datakit exporter sends:
 
-When the signal endpoint is unset, `OTEL_EXPORTER_OTLP_ENDPOINT` is used:
-HTTP appends `/v1development/profiles`; gRPC uses the endpoint unchanged.
+- `main` as `main.jfr`
+- `event` as `event.json`
 
-For local output:
+The generated `event.json` includes `tags_profiler`, `start`, `end`, `family=java`,
+`language=java`, and `format=jfr`.
 
-```bash
-export OTEL_PROFILING_ENABLED=true
-export OTEL_PROFILING_EXPORTER=file
-export OTEL_PROFILING_FILE_PATH=./profiles
-java -javaagent:beacon-javaagent.jar -jar app.jar
-```
-
-File export ignores OTLP endpoint, protocol, headers and timeout configuration.
-The old multipart exporter, endpoint settings and exporter identifier are removed.
+When `otel.profiling.memory.enabled=true`, the profiler turns on a memory-oriented
+JFR overlay on top of the built-in `profile` template. You can also override allocation
+sampling and old-object sampling independently.

@@ -61,9 +61,9 @@ configurations:
     default: ""
   - name: otel.profiling.exporter
     description: >
-      Profiling exporter implementation. Supported values are otlp, file, and none (datakit remains an alias). Environment variable: OTEL_PROFILING_EXPORTER.
+      Profiling exporter implementation. Supported values are http, file, and none (datakit remains an alias). Environment variable: OTEL_PROFILING_EXPORTER.
     type: string
-    default: otlp
+    default: http
   - name: otel.profiling.endpoint
     description: >
       Datakit profile receiver endpoint. Environment variable: OTEL_PROFILING_ENDPOINT. Compatibility aliases: otel.profiling.datakit.endpoint and OTEL_PROFILING_DATAKIT_ENDPOINT.

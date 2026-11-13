@@ -90,7 +90,7 @@ public class ProfilingInstaller implements AgentListener {
     if ("file".equalsIgnoreCase(exporterName)) {
       return new FileProfileExporterAdapter(configuration.getFileExportPath());
     }
-    if ("otlp".equalsIgnoreCase(exporterName)) {
+    if ("http".equalsIgnoreCase(exporterName)) {
       return new DatakitProfileExporterAdapter(
           configuration.getDatakitEndpoint(),
           configuration.getDatakitTimeout(),

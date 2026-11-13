@@ -30,7 +30,7 @@ class AgentProfilingConfigurationTest {
   @Test
   void datakitExporterStillValidatesItsEndpoint() {
     ConfigProperties config = mock(ConfigProperties.class);
-    when(config.getString("otel.profiling.exporter")).thenReturn("otlp");
+    when(config.getString("otel.profiling.exporter")).thenReturn("http");
     when(config.getString("otel.profiling.endpoint")).thenReturn("not a URL");
 
     assertThatThrownBy(() -> AgentProfilingConfiguration.create(config))
@@ -39,8 +39,8 @@ class AgentProfilingConfigurationTest {
   }
 
   @Test
-  void otlpNameUsesExistingMultipartEndpointAndKeepsDatakitAlias() {
-    for (String exporter : new String[] {"otlp", "datakit"}) {
+  void httpNameUsesExistingMultipartEndpointAndKeepsDatakitAlias() {
+    for (String exporter : new String[] {"http", "datakit"}) {
       var config =
           DefaultConfigProperties.createFromMap(
               Map.of(
@@ -49,9 +49,24 @@ class AgentProfilingConfigurationTest {
                   "otel.profiling.endpoint",
                   "http://127.0.0.1:9529/profiling/v1/input"));
       var result = AgentProfilingConfiguration.create(config);
-      assertThat(result.getExporter()).isEqualTo("otlp");
+      assertThat(result.getExporter()).isEqualTo("http");
       assertThat(result.getDatakitEndpoint().toString())
           .isEqualTo("http://127.0.0.1:9529/profiling/v1/input");
     }
+  }
+
+  @Test
+  void defaultsToHttpExporter() {
+    assertThat(AgentProfilingConfiguration.create(mock(ConfigProperties.class)).getExporter())
+        .isEqualTo("http");
+  }
+
+  @Test
+  void otlpIsNotAnAliasForMultipartUploads() {
+    ConfigProperties config = mock(ConfigProperties.class);
+    when(config.getString("otel.profiling.exporter")).thenReturn("otlp");
+    assertThatThrownBy(() -> AgentProfilingConfiguration.create(config))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessage("Unsupported profiling exporter: otlp");
   }
 }

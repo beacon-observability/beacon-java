@@ -8,10 +8,10 @@ The first implementation focuses on:
 - taking periodic snapshots
 - exporting snapshots through a pluggable adapter
 
-The `otlp` name selects the existing DataKit-compatible multipart uploader; it
-does not change the wire format to the standard OTLP Profiles signal. The legacy
-`datakit` name remains an alias. The `otlp` exporter uploads JFR snapshots to a
-DataKit profile receiver using `multipart/form-data`. The `file` exporter exists for validation and debugging.
+The `http` exporter uploads JFR snapshots to a DataKit profile receiver using
+`multipart/form-data`. The legacy `datakit` name remains an alias. The `otlp` name
+is reserved for a future OTLP Profiles implementation and is currently unsupported.
+The `file` exporter exists for validation and debugging.
 
 | System property                                        | Environment variable                              | Type    | Default | Description                                                           |
 | ------------------------------------------------------ | ------------------------------------------------- | ------- | ------- | --------------------------------------------------------------------- |
@@ -25,7 +25,7 @@ DataKit profile receiver using `multipart/form-data`. The `file` exporter exists
 | `otel.profiling.memory.enabled`                        | `OTEL_PROFILING_MEMORY_ENABLED`                   | Boolean | `false` | Enables a memory-focused JFR overlay on top of the default profile.   |
 | `otel.profiling.memory.allocation-sampling`            | `OTEL_PROFILING_MEMORY_ALLOCATION_SAMPLING`       | Boolean |         | Overrides allocation sampling events (`ObjectAllocation*`).           |
 | `otel.profiling.memory.old-object-sampling`            | `OTEL_PROFILING_MEMORY_OLD_OBJECT_SAMPLING`       | Boolean |         | Overrides `OldObjectSample`.                                          |
-| `otel.profiling.exporter`                              | `OTEL_PROFILING_EXPORTER`                         | String  | `otlp`  | Profiling exporter implementation. Supported values are `otlp,file,none` (legacy alias: `datakit`). |
+| `otel.profiling.exporter`                              | `OTEL_PROFILING_EXPORTER`                         | String  | `http`  | Profiling exporter implementation. Supported values are `http,file,none` (legacy alias: `datakit`). |
 | `otel.profiling.endpoint`                              | `OTEL_PROFILING_ENDPOINT`                         | String  | `http://localhost:9529/profiling/v1/input` | Datakit profile receiver endpoint. |
 | `otel.profiling.datakit.timeout`                       | `OTEL_PROFILING_DATAKIT_TIMEOUT`                  | String  | `10s`   | Timeout for Datakit profile uploads.                                  |
 | `otel.profiling.file.path`         | `OTEL_PROFILING_FILE_PATH`    | String  |         | Output directory used by the experimental `file` exporter.            |
@@ -67,7 +67,7 @@ Example for Datakit:
 java \
   -javaagent:path/to/opentelemetry-javaagent.jar \
   -Dotel.profiling.enabled=true \
-  -Dotel.profiling.exporter=otlp \
+  -Dotel.profiling.exporter=http \
   -Dotel.profiling.endpoint=http://localhost:9529/profiling/v1/input \
   -Dotel.service.name=checkout \
   -Dotel.service.version=1.2.3 \
@@ -79,7 +79,7 @@ Environment variable example:
 
 ```bash
 export OTEL_PROFILING_ENABLED=true
-export OTEL_PROFILING_EXPORTER=otlp
+export OTEL_PROFILING_EXPORTER=http
 export OTEL_PROFILING_ENDPOINT=http://localhost:9529/profiling/v1/input
 export OTEL_PROFILING_MEMORY_ENABLED=true
 export OTEL_PROFILING_MAX_AGE=1m

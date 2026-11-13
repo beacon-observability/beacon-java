@@ -64,7 +64,7 @@ async function main() {
     receiver.on('connection', (socket) => { sockets.add(socket); socket.on('close', () => sockets.delete(socket)); });
     await new Promise((done) => receiver.listen(0, '127.0.0.1', done));
     try {
-      const result = await run(java, [...base, '-Dotel.profiling.exporter=otlp',
+      const result = await run(java, [...base, '-Dotel.profiling.exporter=http',
         `-Dotel.profiling.endpoint=http://127.0.0.1:${receiver.address().port}/profiling/v1/input`,
         '-Dotel.profiling.datakit.timeout=60s', '-cp', directory, 'ProfilingShutdownProbe', 'slow', directory], 35000, (child) => { activeChild = child; });
       assert(uploads > 0, 'receiver must see an in-flight upload');

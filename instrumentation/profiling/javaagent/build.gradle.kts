@@ -4,7 +4,7 @@ plugins {
 
 val profilingTestOutputDir = layout.buildDirectory.dir("test-profile-output")
 val profilingTestLauncher = javaToolchains.launcherFor { languageVersion.set(JavaLanguageVersion.of(11)) }
-val profilingOtlpTestPort = 19529
+val profilingHttpTestPort = 19529
 
 dependencies {
   implementation(project(":instrumentation:profiling:library"))
@@ -24,7 +24,7 @@ tasks {
     javaLauncher.set(profilingTestLauncher)
 
     filter {
-      excludeTestsMatching("io.opentelemetry.javaagent.instrumentation.profiling.ProfilingOtlpExportTest")
+      excludeTestsMatching("io.opentelemetry.javaagent.instrumentation.profiling.ProfilingHttpExportTest")
     }
 
     doFirst {
@@ -39,23 +39,23 @@ tasks {
     environment("OTEL_PROFILING_FILE_PATH", outputDir.absolutePath)
   }
 
-  val otlpTest by registering(Test::class) {
+  val httpTest by registering(Test::class) {
     javaLauncher.set(profilingTestLauncher)
     testClassesDirs = sourceSets.test.get().output.classesDirs
     classpath = sourceSets.test.get().runtimeClasspath
 
     filter {
-      includeTestsMatching("io.opentelemetry.javaagent.instrumentation.profiling.ProfilingOtlpExportTest")
+      includeTestsMatching("io.opentelemetry.javaagent.instrumentation.profiling.ProfilingHttpExportTest")
     }
 
     environment("OTEL_PROFILING_ENABLED", "true")
-    environment("OTEL_PROFILING_EXPORTER", "otlp")
+    environment("OTEL_PROFILING_EXPORTER", "http")
     environment("OTEL_PROFILING_INTERVAL", "1s")
     environment("OTEL_PROFILING_STARTUP_DELAY", "2s")
     environment("OTEL_PROFILING_MEMORY_ENABLED", "true")
     systemProperty(
       "otel.profiling.endpoint",
-      "http://127.0.0.1:$profilingOtlpTestPort/profiling/v1/input"
+      "http://127.0.0.1:$profilingHttpTestPort/profiling/v1/input"
     )
     systemProperty("otel.service.name", "profiling-test-service")
     systemProperty("otel.service.version", "1.2.3")
@@ -63,10 +63,10 @@ tasks {
       "otel.resource.attributes",
       "deployment.environment.name=prod,host.name=profiling-host"
     )
-    systemProperty("profiling.otlp.test.port", profilingOtlpTestPort.toString())
+    systemProperty("profiling.http.test.port", profilingHttpTestPort.toString())
   }
 
   check {
-    dependsOn(otlpTest)
+    dependsOn(httpTest)
   }
 }

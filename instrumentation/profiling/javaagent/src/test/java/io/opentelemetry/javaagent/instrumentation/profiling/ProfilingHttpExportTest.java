@@ -23,7 +23,7 @@ import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
-class ProfilingOtlpExportTest {
+class ProfilingHttpExportTest {
 
   private static HttpServer server;
   private static AtomicReference<String> requestContentType;
@@ -38,7 +38,7 @@ class ProfilingOtlpExportTest {
     requestContentType = new AtomicReference<>();
     requestBody = new AtomicReference<>();
 
-    int port = Integer.parseInt(System.getProperty("profiling.otlp.test.port"));
+    int port = Integer.parseInt(System.getProperty("profiling.http.test.port"));
     server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), port), 0);
     server.createContext(
         "/profiling/v1/input",

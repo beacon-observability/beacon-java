@@ -41,7 +41,7 @@ final class AgentProfilingConfiguration {
   }
 
   static AgentProfilingConfiguration create(ConfigProperties config) {
-    String exporter = normalizeExporter(defaultString(getString(config, "exporter"), "otlp"));
+    String exporter = normalizeExporter(defaultString(getString(config, "exporter"), "http"));
     if (getInt(config, "stack-depth") != null) {
       logger.warning(
           "Profiling stack-depth cannot configure per-recording JFR stack depth. "
@@ -65,7 +65,7 @@ final class AgentProfilingConfiguration {
                 : null,
             Paths.get(System.getProperty("java.io.tmpdir"), "otel-profiles")),
         toUrlOrDefault(
-            "otlp".equals(exporter)
+            "http".equals(exporter)
                 ? getString(
                     config,
                     new String[] {"endpoint", "datakit.endpoint"},
@@ -74,7 +74,7 @@ final class AgentProfilingConfiguration {
                 : null,
             "http://localhost:9529/profiling/v1/input"),
         defaultDuration(
-            "otlp".equals(exporter) ? getDuration(config, "datakit.timeout") : null,
+            "http".equals(exporter) ? getDuration(config, "datakit.timeout") : null,
             Duration.ofSeconds(10)));
   }
 
@@ -182,9 +182,9 @@ final class AgentProfilingConfiguration {
   private static String normalizeExporter(String exporter) {
     String normalized = exporter.trim().toLowerCase(ROOT);
     if (normalized.isEmpty() || normalized.equals("datakit")) {
-      return "otlp";
+      return "http";
     }
-    if (!normalized.equals("otlp") && !normalized.equals("file") && !normalized.equals("none")) {
+    if (!normalized.equals("http") && !normalized.equals("file") && !normalized.equals("none")) {
       throw new IllegalArgumentException("Unsupported profiling exporter: " + normalized);
     }
     return normalized;

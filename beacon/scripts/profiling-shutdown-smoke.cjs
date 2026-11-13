@@ -53,9 +53,13 @@ async function main() {
     }
     let uploads = 0; let activeChild; const sockets = new Set();
     const receiver = createServer((request) => {
-      uploads++; request.pause(); request.socket.pause();
-      // Capture the actual blocked writer, rather than infer it from a missing response.
-      setTimeout(() => { if (activeChild?.exitCode === null) activeChild.kill('SIGQUIT'); }, 500);
+      request.resume();
+      // Wait for the complete multipart body before capturing the blocked HTTP response read.
+      // JFR encoding and streaming can still be active when request headers first arrive.
+      request.on('end', () => {
+        uploads++;
+        setTimeout(() => { if (activeChild?.exitCode === null) activeChild.kill('SIGQUIT'); }, 500);
+      });
     });
     receiver.on('connection', (socket) => { sockets.add(socket); socket.on('close', () => sockets.delete(socket)); });
     await new Promise((done) => receiver.listen(0, '127.0.0.1', done));

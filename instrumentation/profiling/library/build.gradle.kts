@@ -68,21 +68,12 @@ configurations {
 }
 
 dependencies {
-  testImplementation("io.github.netmikey.logunit:logunit-jul")
-  implementation("io.opentelemetry.proto:opentelemetry-proto")
-  // Profiles gencode requires this runtime; keep it scoped to profiling consumers.
-  implementation("com.google.protobuf:protobuf-java:4.36.2")
-  implementation("io.grpc:grpc-netty-shaded:1.75.0")
-  implementation("io.grpc:grpc-protobuf:1.75.0")
-  implementation("io.grpc:grpc-stub:1.75.0")
-  implementation("io.opentelemetry:opentelemetry-sdk-common")
   add("testJava11Implementation", sourceSets.test.get().output)
   add("testJava11Implementation", sourceSets["java11"].output)
   add("testJava11Implementation", sourceSets.main.get().output)
   add("testJava17Implementation", sourceSets.test.get().output)
-  // Test the active multi-release layer before its fallback classes.
-  add("testJava17Implementation", sourceSets["java17"].output)
   add("testJava17Implementation", sourceSets["java11"].output)
+  add("testJava17Implementation", sourceSets["java17"].output)
   add("testJava17Implementation", sourceSets.main.get().output)
 }
 

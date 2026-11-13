@@ -5,17 +5,12 @@
 
 package io.opentelemetry.javaagent.instrumentation.profiling;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
-import io.grpc.Server;
-import io.grpc.netty.shaded.io.grpc.netty.NettyServerBuilder;
-import io.grpc.stub.StreamObserver;
-import io.opentelemetry.proto.collector.profiles.v1development.ExportProfilesServiceRequest;
-import io.opentelemetry.proto.collector.profiles.v1development.ExportProfilesServiceResponse;
-import io.opentelemetry.proto.collector.profiles.v1development.ProfilesServiceGrpc;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -31,9 +26,8 @@ import org.junit.jupiter.api.Test;
 class ProfilingOtlpExportTest {
 
   private static HttpServer server;
-  private static Server grpcServer;
   private static AtomicReference<String> requestContentType;
-  private static AtomicReference<byte[]> requestBody;
+  private static AtomicReference<String> requestBody;
 
   @BeforeAll
   static void setUp() throws Exception {
@@ -45,84 +39,58 @@ class ProfilingOtlpExportTest {
     requestBody = new AtomicReference<>();
 
     int port = Integer.parseInt(System.getProperty("profiling.otlp.test.port"));
-    if ("grpc".equals(System.getProperty("profiling.otlp.test.protocol"))) {
-      grpcServer =
-          NettyServerBuilder.forAddress(
-                  new InetSocketAddress(InetAddress.getLoopbackAddress(), port))
-              .addService(
-                  new ProfilesServiceGrpc.ProfilesServiceImplBase() {
-                    @Override
-                    public void export(
-                        ExportProfilesServiceRequest value,
-                        StreamObserver<ExportProfilesServiceResponse> observer) {
-                      requestBody.set(value.toByteArray());
-                      observer.onNext(ExportProfilesServiceResponse.getDefaultInstance());
-                      observer.onCompleted();
-                    }
-                  })
-              .build()
-              .start();
-    } else {
-      server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), port), 0);
-      server.createContext(
-          "/v1development/profiles",
-          exchange -> {
-            requestContentType.set(exchange.getRequestHeaders().getFirst("Content-Type"));
-            requestBody.set(readBody(exchange));
-            byte[] response = new byte[0];
-            exchange.sendResponseHeaders(200, -1);
-            try {
-              exchange.getResponseBody().write(response);
-            } finally {
-              exchange.close();
-            }
-          });
-      server.start();
-    }
+    server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), port), 0);
+    server.createContext(
+        "/profiling/v1/input",
+        exchange -> {
+          requestContentType.set(exchange.getRequestHeaders().getFirst("Content-Type"));
+          requestBody.set(readBody(exchange));
+          byte[] response = "ok".getBytes(UTF_8);
+          exchange.sendResponseHeaders(200, response.length);
+          try {
+            exchange.getResponseBody().write(response);
+          } finally {
+            exchange.close();
+          }
+        });
+    server.start();
   }
 
   @AfterAll
   static void tearDown() {
-    if (grpcServer != null) {
-      grpcServer.shutdownNow();
-    }
     if (server != null) {
       server.stop(0);
     }
   }
 
   @Test
-  void shouldExportProfilesToOtlpEndpoint() {
+  void shouldExportProfilesToDatakitEndpoint() {
     await()
         .atMost(Duration.ofSeconds(20))
         .untilAsserted(
             () -> {
               doBusyWork(Duration.ofMillis(250));
 
-              if (!"grpc".equals(System.getProperty("profiling.otlp.test.protocol"))) {
-                assertThat(requestContentType.get()).isEqualTo("application/x-protobuf");
-              }
-              assertThat(requestBody.get()).isNotNull();
-              var request = ExportProfilesServiceRequest.parseFrom(requestBody.get());
-              assertThat(request.getDictionary().getStackTableCount()).isGreaterThan(1);
-              var resource = request.getResourceProfiles(0);
-              assertThat(resource.getResource().getAttributesList())
-                  .anySatisfy(
-                      attribute -> {
-                        assertThat(attribute.getKey()).isEqualTo("service.name");
-                        assertThat(attribute.getValue().getStringValue())
-                            .isEqualTo("profiling-test-service");
-                      });
-              assertThat(resource.getScopeProfiles(0).getProfilesList())
-                  .anySatisfy(
-                      profile -> {
-                        assertThat(profile.getSamplesCount()).isPositive();
-                        assertThat(profile.getOriginalPayload()).isEmpty();
-                      });
+              assertThat(requestContentType.get()).startsWith("multipart/form-data; boundary=");
+              String body = requestBody.get();
+              assertThat(body).isNotBlank();
+              assertThat(body).contains("name=\"main\"; filename=\"main.jfr\"");
+              assertThat(body).contains("name=\"event\"; filename=\"event.json\"");
+              assertThat(body).contains("\"attachments\":[\"main.jfr\"]");
+              assertThat(body).contains("\"family\":\"java\"");
+              assertThat(body).contains("\"language\":\"java\"");
+              assertThat(body).contains("\"format\":\"jfr\"");
+              assertThat(body).contains("\"tags_profiler\":\"service:profiling-test-service");
+              assertThat(body).contains("env:prod");
+              assertThat(body).contains("version:1.2.3");
+              assertThat(body).contains("host:profiling-host");
+              assertThat(body).contains("library_type:opentelemetry-javaagent");
+              assertThat(body).contains("language:jvm");
+              assertThat(body).contains("process_id:");
             });
   }
 
-  private static byte[] readBody(HttpExchange exchange) throws IOException {
+  private static String readBody(HttpExchange exchange) throws IOException {
     try (InputStream inputStream = exchange.getRequestBody();
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream()) {
       byte[] buffer = new byte[1024];
@@ -130,7 +98,7 @@ class ProfilingOtlpExportTest {
       while ((read = inputStream.read(buffer)) >= 0) {
         outputStream.write(buffer, 0, read);
       }
-      return outputStream.toByteArray();
+      return new String(outputStream.toByteArray(), UTF_8);
     }
   }
 

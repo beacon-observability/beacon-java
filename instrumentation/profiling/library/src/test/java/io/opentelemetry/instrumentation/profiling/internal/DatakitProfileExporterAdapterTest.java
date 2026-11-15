@@ -7,6 +7,7 @@ package io.opentelemetry.instrumentation.profiling.internal;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.concurrent.TimeUnit.SECONDS;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -28,6 +29,18 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 class DatakitProfileExporterAdapterTest {
+
+  @Test
+  void rejectsTimeoutBelowOneMillisecond() throws IOException {
+    URL endpoint = new URL("http://127.0.0.1:9529/profiling/v1/input");
+
+    assertThatThrownBy(
+            () ->
+                new DatakitProfileExporterAdapter(
+                    endpoint, Duration.ofNanos(500000), new LinkedHashMap<String, String>()))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessage("timeout must be at least one millisecond");
+  }
 
   @Test
   void uploadsMultipartJfrPayload() throws Exception {

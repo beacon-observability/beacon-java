@@ -216,6 +216,9 @@ public final class DatakitProfileExporterAdapter implements ProfileExporterAdapt
       throw new IllegalArgumentException("timeout must be positive");
     }
     long timeoutMillis = timeout.toMillis();
+    if (timeoutMillis == 0) {
+      throw new IllegalArgumentException("timeout must be at least one millisecond");
+    }
     if (timeoutMillis > Integer.MAX_VALUE) {
       return Integer.MAX_VALUE;
     }

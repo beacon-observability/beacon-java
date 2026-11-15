@@ -4,6 +4,8 @@ This file records Beacon product changes only. The root [CHANGELOG.md](../CHANGE
 
 ## Unreleased
 
+- Reject profiling HTTP timeouts below one millisecond so they cannot become infinite waits.
+
 - Restore the existing DataKit-compatible multipart/JFR upload for the `http` profiling
   exporter name. Preserve `datakit` as an alias and `OTEL_PROFILING_ENDPOINT`; no
   OTLP Profiles receiver or gRPC service is required. Reserve `otlp` for a future

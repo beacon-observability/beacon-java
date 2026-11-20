@@ -4,6 +4,10 @@ This file records Beacon product changes only. The root [CHANGELOG.md](../CHANGE
 
 ## Unreleased
 
+## Version 1.4.1 (2026-11-20)
+
+- Integrated official OTel Java Instrumentation [v2.34.0](https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/tag/v2.34.0), pinned to `c220c0c83d8bdf04be7d41276624dfb83b1c91fd`, with its SDK and build constraints. Review the root upstream changelog for compatibility and migration notes; Beacon product versioning remains independent.
+
 ## Version 1.4.0 (2026-11-12)
 
 - **Breaking:** replace the dedicated multipart profiling exporter with OTLP Profiles

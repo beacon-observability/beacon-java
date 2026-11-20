@@ -1,11 +1,11 @@
 plugins {
   id("java")
-  id("com.diffplug.spotless") version "8.10.4"
+  id("com.diffplug.spotless") version "8.11.0"
 }
 
 spotless {
   java {
-    googleJavaFormat()
+    googleJavaFormat("1.36.1")
     licenseHeaderFile(rootProject.file("../buildscripts/spotless.license.java"), "(package|import|public)")
     target("src/**/*.java")
   }
@@ -23,7 +23,7 @@ dependencies {
   testImplementation("org.testcontainers:testcontainers-postgresql")
   testImplementation("org.junit.jupiter:junit-jupiter-api")
   testImplementation("org.junit.jupiter:junit-jupiter-params")
-  testImplementation("com.squareup.okhttp3:okhttp:5.5.0")
+  testImplementation("com.squareup.okhttp3:okhttp:5.5.1")
   testImplementation("org.jooq:joox:2.0.2")
   testImplementation("com.jayway.jsonpath:json-path:3.0.0")
   testImplementation("org.slf4j:slf4j-simple:2.0.20")

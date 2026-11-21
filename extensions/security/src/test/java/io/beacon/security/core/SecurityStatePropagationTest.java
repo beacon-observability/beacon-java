@@ -6,6 +6,7 @@
 package io.beacon.security.core;
 
 import static java.util.Collections.singleton;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -48,6 +49,38 @@ class SecurityStatePropagationTest {
       }
       new Call(state, "test", "call", "", null, new Object[] {wide}, "test");
       assertTrue(state.gaps().contains("call_input_traversal_limit"));
+    } finally {
+      state.close();
+    }
+  }
+
+  @Test
+  void callTraversalRevisitsSharedArrayAtShallowerDepth() {
+    SecurityState state = new SecurityState();
+    try {
+      String source = new String("nested-input");
+      state.source(source, "parameter", "q", "test");
+      Object[] shared = new Object[] {source};
+      Object[] root = new Object[] {new Object[] {new Object[] {shared}}, shared};
+      Call call = new Call(state, "test", "call", "", null, new Object[] {root}, "test");
+      assertThat(call.arg(0)).hasSize(1);
+      assertThat(state.gaps()).contains("call_input_traversal_limit");
+    } finally {
+      state.close();
+    }
+  }
+
+  @Test
+  void callTraversalKeepsDistinctEqualObjectsAndDeduplicatesRepeatedIdentity() {
+    SecurityState state = new SecurityState();
+    try {
+      String first = new String("same-input");
+      String second = new String("same-input");
+      state.source(first, "parameter", "first", "test");
+      state.source(second, "parameter", "second", "test");
+      Object[] root = new Object[] {first, second, first};
+      Call call = new Call(state, "test", "call", "", null, new Object[] {root}, "test");
+      assertThat(call.arg(0)).hasSize(2);
     } finally {
       state.close();
     }

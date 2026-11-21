@@ -12,6 +12,18 @@ import java.util.IdentityHashMap;
 import java.util.List;
 
 public final class Call {
+  private static final TraversalDepth[] TRAVERSAL_DEPTHS = {
+    new TraversalDepth(0), new TraversalDepth(1), new TraversalDepth(2), new TraversalDepth(3)
+  };
+
+  private static final class TraversalDepth {
+    private final int value;
+
+    private TraversalDepth(int value) {
+      this.value = value;
+    }
+  }
+
   public final SecurityState state;
   public final String owner;
   public final String method;
@@ -50,7 +62,7 @@ public final class Call {
         remaining = new int[] {512};
       }
       List<Mark> marks = new ArrayList<>();
-      collect(state, arg, 0, marks, new IdentityHashMap<Object, Integer>(), remaining);
+      collect(state, arg, 0, marks, new IdentityHashMap<Object, TraversalDepth>(), remaining);
       argumentMarks.add(marks);
     }
   }
@@ -60,7 +72,7 @@ public final class Call {
       Object value,
       int depth,
       List<Mark> marks,
-      IdentityHashMap<Object, Integer> visited,
+      IdentityHashMap<Object, TraversalDepth> visited,
       int[] remaining) {
     if (marks.size() >= 64) {
       state.gap("call_input_mark_limit");
@@ -70,11 +82,11 @@ public final class Call {
       state.gap("call_input_traversal_limit");
       return;
     }
-    Integer previousDepth = visited.get(value);
-    if (previousDepth != null && previousDepth <= depth) {
+    TraversalDepth previousDepth = visited.get(value);
+    if (previousDepth != null && previousDepth.value <= depth) {
       return;
     }
-    visited.put(value, depth);
+    visited.put(value, TRAVERSAL_DEPTHS[depth]);
     if (previousDepth == null) {
       for (Mark mark : state.marks(value)) {
         if (marks.size() >= 64) {
@@ -89,10 +101,10 @@ public final class Call {
       if (values.length == 0) {
         return;
       }
-      if (depth >= 3 || values.length > 128) {
+      if (depth >= TRAVERSAL_DEPTHS.length - 1 || values.length > 128) {
         state.gap("call_input_traversal_limit");
       }
-      if (depth >= 3) {
+      if (depth >= TRAVERSAL_DEPTHS.length - 1) {
         return;
       }
       for (int i = 0; i < Math.min(values.length, 128) && marks.size() < 64; i++) {

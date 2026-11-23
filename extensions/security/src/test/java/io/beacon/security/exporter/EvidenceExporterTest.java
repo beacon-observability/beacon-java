@@ -10,7 +10,9 @@ import static io.opentelemetry.api.common.AttributeKey.stringKey;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Arrays.asList;
 import static java.util.Collections.emptyList;
+import static java.util.Collections.emptyMap;
 import static java.util.Collections.singletonList;
+import static java.util.Collections.singletonMap;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.NANOSECONDS;
 import static java.util.concurrent.TimeUnit.SECONDS;
@@ -23,8 +25,10 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.beacon.security.core.AttackEvidence;
+import io.beacon.security.core.Events;
 import io.beacon.security.core.Identity;
 import io.beacon.security.core.SecurityState;
+import io.beacon.security.core.SiemEvent;
 import io.opentelemetry.api.GlobalOpenTelemetry;
 import io.opentelemetry.api.logs.Severity;
 import io.opentelemetry.api.trace.Span;
@@ -187,7 +191,8 @@ class EvidenceExporterTest {
       sdk.close();
     }
     assertThat(logs.records).hasSize(1);
-    Map<?, ?> body = json.readValue(logs.bodies().get(0), Map.class);
+    Map<?, ?> envelope = json.readValue(logs.bodies().get(0), Map.class);
+    Map<?, ?> body = json.readValue((String) envelope.get("message"), Map.class);
     assertThat(body.get("occurrence_id")).isEqualTo(occurrenceId);
     assertThat(body.get("attack_evidence"))
         .isEqualTo(
@@ -260,6 +265,7 @@ class EvidenceExporterTest {
   @AfterEach
   void restoreSettings() {
     GlobalOpenTelemetry.resetForTest();
+    Identity.configure(emptyMap());
     for (String key : SETTINGS) {
       String value = previousSettings.get(key);
       if (value == null) {
@@ -354,9 +360,13 @@ class EvidenceExporterTest {
     assertThat(occurrences).hasSize(3);
     for (int i = 0; i < occurrences.size(); i++) {
       LogRecordData log = occurrences.get(i);
-      Map<?, ?> body = json.readValue(log.getBodyValue().asString(), Map.class);
+      Map<?, ?> envelope = json.readValue(log.getBodyValue().asString(), Map.class);
+      Map<?, ?> body = json.readValue((String) envelope.get("message"), Map.class);
       assertThat(body.get("trace_id")).isEqualTo(String.format(Locale.ROOT, "%032x", i + 1));
       assertThat(log.getSpanContext().getTraceId()).isEqualTo(body.get("trace_id"));
+      assertThat(body.get("span_id")).isEqualTo(log.getSpanContext().getSpanId());
+      assertThat(body.containsKey("server_span_id")).isFalse();
+      assertThat(body.containsKey("current_span_id")).isFalse();
       assertThat(log.getSpanContext().isSampled()).isFalse();
       assertThat(body.get("evidence_sampled")).isEqualTo(i == 0);
     }
@@ -527,6 +537,7 @@ class EvidenceExporterTest {
 
   @Test
   void exportsOnlyFindingsAndMinimalInventory(@TempDir Path temp) throws IOException {
+    Identity.configure(singletonMap("service.name", "orders"));
     System.setProperty("beacon.security.output", temp.toString());
     CapturingExporter logs = new CapturingExporter();
     OpenTelemetrySdk sdk = installLogs(logs);
@@ -593,7 +604,13 @@ class EvidenceExporterTest {
     }
     assertThat(logs.records).hasSize(2);
     for (LogRecordData log : logs.records) {
-      Map<?, ?> body = json.readValue(log.getBodyValue().asString(), Map.class);
+      Map<?, ?> envelope = json.readValue(log.getBodyValue().asString(), Map.class);
+      Map<?, ?> body = json.readValue((String) envelope.get("message"), Map.class);
+      assertThat(envelope).hasSize(15);
+      assertThat(envelope.get("service")).isEqualTo("orders");
+      assertThat(envelope.get("tenant_id")).isEqualTo("default");
+      assertThat(envelope.get("status")).isEqualTo("info");
+      assertThat(envelope.get("severity")).isEqualTo("informational");
       boolean inventory = "beacon.security.sbom.inventory".equals(log.getEventName());
       String source = inventory ? "beacon_security_sbom" : "beacon_security";
       assertThat(log.getAttributes().get(stringKey("source"))).isEqualTo(source);
@@ -623,6 +640,68 @@ class EvidenceExporterTest {
                         "uptime_ms")));
       }
     }
+  }
+
+  @Test
+  void preservesOriginalV2MessageIdenticallyInOtelAndJsonl(@TempDir Path temp) throws IOException {
+    Path file = temp.resolve("evidence.jsonl");
+    System.setProperty("beacon.security.evidence.file", file.toString());
+    Identity.configure(singletonMap("service.name", "orders"));
+    Map<String, Object> event =
+        Events.record(
+            map(
+                "event_name", "beacon.security.finding",
+                "occurrence_id", "ev-original",
+                "finding_id", "finding-stable",
+                "rule", "sql_injection",
+                "stack", asList("订单\\目录\"query\"\n下一行"),
+                "evidence_sampled", true,
+                "collection_complete", true));
+    String original = json.writeValueAsString(Events.exported(event));
+    CapturingExporter logs = new CapturingExporter();
+    OpenTelemetrySdk sdk = installLogs(logs);
+    EvidenceExporter exporter = new EvidenceExporter();
+    try {
+      exporter.emit(event, Context.root(), true);
+    } finally {
+      exporter.close();
+      sdk.close();
+    }
+
+    assertThat(logs.records).hasSize(1);
+    String body = logs.records.get(0).getBodyValue().asString();
+    Map<?, ?> envelope = json.readValue(body, Map.class);
+    assertThat(envelope).hasSize(15);
+    assertThat(envelope.get("message")).isEqualTo(original);
+    assertThat(Files.readAllLines(file, UTF_8)).containsExactly(body);
+  }
+
+  @Test
+  void rejectsEnvelopeOverflowWithoutSilentlyShorteningTheOriginalMessage() throws IOException {
+    Map<String, Object> event =
+        Events.record(
+            map(
+                "event_name", "beacon.security.finding",
+                "occurrence_id", "ev-overhead",
+                "stack", asList(repeat('x', 800))));
+    String original = json.writeValueAsString(Events.exported(event));
+    int maximum = original.getBytes(UTF_8).length + 1;
+    System.setProperty("beacon.security.evidence.max.bytes", String.valueOf(maximum));
+    assertThat(SiemEvent.encode(json, Events.exported(event)).length).isGreaterThan(maximum);
+    CapturingExporter logs = new CapturingExporter();
+    OpenTelemetrySdk sdk = installLogs(logs);
+    EvidenceExporter exporter = new EvidenceExporter();
+    try {
+      exporter.emit(event, Context.root(), true);
+    } finally {
+      exporter.close();
+      sdk.close();
+    }
+
+    assertThat(logs.records).isEmpty();
+    assertThat(exporter.dropped()).isEqualTo(1);
+    assertThat(counter(exporter.delivery(), "record_limit_exceeded")).isEqualTo(1);
+    assertThat(json.writeValueAsString(Events.exported(event))).isEqualTo(original);
   }
 
   @Test
@@ -660,7 +739,8 @@ class EvidenceExporterTest {
     List<String> lines = Files.readAllLines(file, UTF_8);
     assertEquals(1, lines.size());
     assertTrue(lines.get(0).getBytes(UTF_8).length <= 2048);
-    Map<?, ?> record = json.readValue(lines.get(0), Map.class);
+    Map<?, ?> envelope = json.readValue(lines.get(0), Map.class);
+    Map<?, ?> record = json.readValue((String) envelope.get("message"), Map.class);
     assertEquals("beacon.security.finding", record.get("event_name"));
     assertTrue(Boolean.TRUE.equals(record.get("truncated")));
     assertEquals("beacon_security", record.get("source"));
@@ -678,7 +758,9 @@ class EvidenceExporterTest {
     assertEquals(Severity.INFO, log.getSeverity());
     assertEquals(9, log.getSeverity().getSeverityNumber());
     assertEquals("INFO", log.getSeverityText());
-    Map<?, ?> otelBody = json.readValue(log.getBodyValue().asString(), Map.class);
+    Map<?, ?> otelEnvelope = json.readValue(log.getBodyValue().asString(), Map.class);
+    assertThat(otelEnvelope).isEqualTo(envelope);
+    Map<?, ?> otelBody = json.readValue((String) otelEnvelope.get("message"), Map.class);
     assertEquals("beacon.security.finding", otelBody.get("event_name"));
     assertEquals("beacon_security", otelBody.get("source"));
     assertTrue(Boolean.TRUE.equals(otelBody.get("truncated")));

@@ -24,6 +24,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.beacon.security.core.Events;
 import io.beacon.security.core.Identity;
+import io.beacon.security.core.SiemEvent;
 import io.beacon.security.core.Values;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -1519,7 +1520,7 @@ class SbomInventoryBehaviorTest {
     List<Map<String, Object>> records = new ArrayList<>();
     for (int i = 0; i < 150; i++) {
       Component component =
-          new Component("library-" + i + "-中文", "org.example", "1.0", "aabb", "maven-metadata");
+          new Component("library-" + i + "-中文\"\\", "org.example", "1.0", "aabb", "maven-metadata");
       component.loaded = true;
       records.add(component.json());
     }
@@ -1544,7 +1545,7 @@ class SbomInventoryBehaviorTest {
       assertThat(part)
           .containsEntry("started_at", "2026-10-27T09:00:00.000Z")
           .containsEntry("uptime_ms", 123456L);
-      assertTrue(json.writeValueAsBytes(part).length <= 2048);
+      assertThat(SiemEvent.encode(json, part).length).isLessThanOrEqualTo(2048);
       dependencies.addAll((List<?>) part.get("dependencies"));
     }
     assertEquals(151, dependencies.size());

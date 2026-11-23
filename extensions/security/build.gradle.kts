@@ -32,6 +32,8 @@ val securitySchemaVersion = securitySpec.getProperty("schemaVersion")
   ?: error("Missing Beacon Security schema version")
 val securityFingerprintVersion = securitySpec.getProperty("fingerprintVersion")
   ?: error("Missing Beacon Security fingerprint version")
+val securityWireProfile = securitySpec.getProperty("wireProfile")
+  ?: error("Missing Beacon Security wire profile")
 
 dependencies {
   compileOnly(project(":javaagent-extension-api"))
@@ -78,6 +80,7 @@ val generateSecurityVersionProperties =
     property("spec.revision", securitySpecRevision)
     property("schema.version", securitySchemaVersion)
     property("fingerprint.version", securityFingerprintVersion)
+    property("wire.profile", securityWireProfile)
   }
 
 tasks.processResources {
@@ -93,4 +96,5 @@ tasks.test {
   useJUnitPlatform()
   systemProperty("beacon.security.spec.schema-version", securitySchemaVersion)
   systemProperty("beacon.security.spec.fingerprint-version", securityFingerprintVersion)
+  systemProperty("beacon.security.spec.wire-profile", securityWireProfile)
 }

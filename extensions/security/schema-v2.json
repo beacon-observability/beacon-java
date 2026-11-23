@@ -216,10 +216,14 @@
           "type": "string"
         },
         "server_span_id": {
-          "type": "string"
+          "type": "string",
+          "deprecated": true,
+          "description": "Historical v2 records only; new producers do not emit this field."
         },
         "current_span_id": {
-          "type": "string"
+          "type": "string",
+          "deprecated": true,
+          "description": "Historical v2 records only; new producers do not emit this field."
         },
         "precision": {
           "type": "string"
@@ -260,6 +264,11 @@
         "triage": {
           "type": "object",
           "minProperties": 1
+        },
+        "span_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{16}$",
+          "description": "Current invocation span ID. Retained even when it is the HTTP server span."
         }
       },
       "not": {

@@ -189,7 +189,7 @@ class EventsTest {
   }
 
   @Test
-  void omitsEmptyEvidenceButKeepsQualityFlagsAndDistinctSpanCorrelation() {
+  void omitsEmptyEvidenceButKeepsQualityFlagsAndRenamesCurrentSpanEvenWhenItIsTheServer() {
     Map<String, Object> input =
         map(
             "event_name",
@@ -221,14 +221,22 @@ class EventsTest {
         .containsEntry("coverage_gaps", asList("unmodeled_call"))
         .containsEntry("evidence_sampled", false)
         .containsEntry("evidence_sample_reason", "interval")
+        .containsEntry("span_id", "1111111111111111")
         .doesNotContainKeys(
-            "sources", "ranges", "propagation", "stack", "truncated", "current_span_id");
+            "sources",
+            "ranges",
+            "propagation",
+            "stack",
+            "truncated",
+            "current_span_id",
+            "server_span_id");
 
     input.put("current_span_id", "2222222222222222");
     input.put("truncated", true);
     input.put("truncation_reason", "record_byte_limit");
     assertThat(Events.exported(input))
-        .containsEntry("current_span_id", "2222222222222222")
+        .containsEntry("span_id", "2222222222222222")
+        .doesNotContainKeys("current_span_id", "server_span_id")
         .containsEntry("truncated", true)
         .containsEntry("truncation_reason", "record_byte_limit");
   }

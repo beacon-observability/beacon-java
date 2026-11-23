@@ -30,6 +30,10 @@ public final class Identity {
     resource = Collections.unmodifiableMap(new LinkedHashMap<>(values));
   }
 
+  public static Map<String, String> resourceAttributes() {
+    return resource;
+  }
+
   // Keep fingerprint v1 stable without exporting a second application identifier.
   public static String findingScope() {
     return findingScope(resource);

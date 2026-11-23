@@ -28,6 +28,7 @@ public final class SecurityConfiguration implements AutoConfigurationCustomizerP
                   (key, value) -> {
                     String name = key.getKey();
                     if (name.equals("service.name")
+                        || name.equals("tenant.id")
                         || name.equals("service.version")
                         || name.equals("service.namespace")
                         || name.equals("service.instance.id")

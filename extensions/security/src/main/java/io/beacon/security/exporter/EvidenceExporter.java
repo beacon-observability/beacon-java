@@ -17,6 +17,7 @@ import io.beacon.security.core.AttackEvidence;
 import io.beacon.security.core.Events;
 import io.beacon.security.core.Identity;
 import io.beacon.security.core.Settings;
+import io.beacon.security.core.SiemEvent;
 import io.opentelemetry.api.GlobalOpenTelemetry;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.logs.Severity;
@@ -306,6 +307,7 @@ public final class EvidenceExporter implements AutoCloseable {
     Map<String, Object> event = Events.exported(input);
     byte[] encoded = json.writeValueAsBytes(event);
     boolean truncated = encoded.length > maxBytes;
+    // Retain the existing declared v2 truncation before establishing the original message.
     if (encoded.length > maxBytes) {
       event = new LinkedHashMap<>(event);
       if ("beacon.security.finding".equals(event.get("event_name"))) {
@@ -323,6 +325,9 @@ public final class EvidenceExporter implements AutoCloseable {
       event.put("truncation_reason", "record_byte_limit");
       encoded = json.writeValueAsBytes(event);
     }
+    encoded =
+        SiemEvent.encode(json, event, new String(encoded, UTF_8), Identity.resourceAttributes());
+    // Never shorten message to fit the additional envelope/escaping overhead.
     if (encoded.length > maxBytes) {
       counter("record_limit_exceeded").incrementAndGet();
       throw new IOException("record_limit");

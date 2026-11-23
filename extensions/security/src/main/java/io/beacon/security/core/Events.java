@@ -270,8 +270,7 @@ public final class Events {
             "rule",
             "precision",
             "trace_id",
-            "server_span_id",
-            "current_span_id",
+            "span_id",
             "sources",
             "propagation",
             "ranges",
@@ -285,6 +284,10 @@ public final class Events {
             "evidence_sample_reason",
             "run",
             "triage");
+    Object currentSpan = input.get("current_span_id");
+    if (currentSpan instanceof String && !((String) currentSpan).isEmpty()) {
+      event.put("span_id", currentSpan);
+    }
     for (String name : asList("attack_evidence", "request", "sink")) {
       Object nested = input.get(name);
       if (nested instanceof Map) {
@@ -301,10 +304,6 @@ public final class Events {
           event.put(name, value);
         }
       }
-    }
-    if (event.get("server_span_id") != null
-        && event.get("server_span_id").equals(event.get("current_span_id"))) {
-      event.remove("current_span_id");
     }
     if (Boolean.FALSE.equals(event.get("truncated"))) {
       event.remove("truncated");

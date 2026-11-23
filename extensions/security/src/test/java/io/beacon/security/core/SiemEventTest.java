@@ -12,12 +12,15 @@ import static java.util.Collections.emptyMap;
 import static java.util.Collections.singletonMap;
 import static java.util.Objects.requireNonNull;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import org.junit.jupiter.api.Test;
@@ -46,8 +49,8 @@ class SiemEventTest {
     Map<String, Object> actual = parse(SiemEvent.encode(json, event, message, resource));
 
     assertThat(actual).isEqualTo(expected);
-    assertThat(actual.keySet())
-        .containsExactlyElementsOf(
+    List<String> expectedKeys =
+        new ArrayList<>(
             asList(
                 "time",
                 "event_id",
@@ -64,6 +67,12 @@ class SiemEventTest {
                 "status",
                 "severity",
                 "message"));
+    for (String key : asList("instance_id", "trace_id", "span_id", "trace_flags")) {
+      if (event.containsKey(key)) {
+        expectedKeys.add(key);
+      }
+    }
+    assertThat(actual.keySet()).containsExactlyElementsOf(expectedKeys);
     assertThat(actual.get("message")).isEqualTo(message);
     assertThat(parse((String) actual.get("message"))).isEqualTo(event);
   }
@@ -135,6 +144,35 @@ class SiemEventTest {
     event.remove("part_index");
     event.put("observed_at", "2026-10-02T00:25:00.000Z");
     assertThat(projected(event).get("event_id")).isNotEqualTo(initial);
+  }
+
+  @Test
+  void retainsRequiredProcessIdentityAndNumericFlagsWithoutInventingAMissingSpan()
+      throws IOException {
+    Map<String, Object> event = parse((String) fixture("finding").get("message"));
+    event.put("trace_flags", 0);
+    event.remove("span_id");
+
+    Map<String, Object> actual = projected(event);
+
+    assertThat(actual.get("instance_id")).isEqualTo(event.get("instance_id"));
+    assertThat(actual.get("trace_id")).isEqualTo(event.get("trace_id"));
+    assertThat(actual.get("trace_flags")).isEqualTo(0).isInstanceOf(Integer.class);
+    assertThat(actual).doesNotContainKeys("span_id", "server_span_id", "current_span_id");
+  }
+
+  @Test
+  void rejectsMissingProcessIdentityAndStringTraceFlags() throws IOException {
+    Map<String, Object> event = parse((String) fixture("finding").get("message"));
+    event.remove("instance_id");
+    assertThatThrownBy(() -> projected(event))
+        .isInstanceOf(IOException.class)
+        .hasMessage("security_instance_id_missing");
+    event.put("instance_id", Identity.INSTANCE);
+    event.put("trace_flags", "1");
+    assertThatThrownBy(() -> projected(event))
+        .isInstanceOf(IOException.class)
+        .hasMessage("invalid_security_trace_flags");
   }
 
   @Test

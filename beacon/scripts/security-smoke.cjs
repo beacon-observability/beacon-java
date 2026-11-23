@@ -17,7 +17,15 @@ const siemFields = ['time', 'event_id', 'event_class', 'source', 'service', 'ten
 
 function securityPayload(line, tenant) {
   const envelope = JSON.parse(line);
-  assert.deepEqual(Object.keys(envelope), siemFields);
+  const payload = JSON.parse(envelope.message);
+  const correlation = ['instance_id', 'trace_id', 'span_id', 'trace_flags'];
+  assert.deepEqual(Object.keys(envelope), [...siemFields, ...correlation.filter(key => key in payload)]);
+  assert.equal(envelope.instance_id, payload.instance_id);
+  for (const key of correlation.filter(key => key in payload)) assert.equal(envelope[key], payload[key]);
+  if ('trace_flags' in envelope) {
+    assert(Number.isInteger(envelope.trace_flags));
+    assert(envelope.trace_flags >= 0 && envelope.trace_flags <= 255);
+  }
   for (const key of siemFields) assert.equal(typeof envelope[key], 'string');
   assert.equal(envelope.service, 'beacon-security-smoke');
   assert.equal(envelope.tenant_id, tenant);
@@ -25,7 +33,6 @@ function securityPayload(line, tenant) {
   assert.equal(envelope.ip, '');
   assert.equal(envelope.status, 'info');
   assert.equal(envelope.severity, 'informational');
-  const payload = JSON.parse(envelope.message);
   assert.equal(payload.schema_version, 2);
   assert.equal(envelope.source, payload.source);
   assert.equal(envelope.time, payload.observed_at);
@@ -78,8 +85,12 @@ function protobufFields(bytes) {
       assert(offset + length <= bytes.length, 'Invalid protobuf length');
       value = bytes.subarray(offset, offset + length);
       offset += length;
-    } else if (wire === 1 || wire === 5) {
-      offset += wire === 1 ? 8 : 4;
+    } else if (wire === 5) {
+      assert(offset + 4 <= bytes.length, 'Truncated protobuf fixed32');
+      value = bytes.readUInt32LE(offset);
+      offset += 4;
+    } else if (wire === 1) {
+      offset += 8;
       assert(offset <= bytes.length, 'Truncated protobuf field');
       continue;
     } else throw new Error(`Unsupported protobuf wire type ${wire}`);
@@ -109,7 +120,14 @@ function otlpLogs(bytes, tenant) {
         const payload = securityPayload(body, tenant);
         assert.equal(resource['service.name'], 'beacon-security-smoke');
         assert.equal(fields.get(2)[0], 9);
-        if (payload.trace_id) assert.equal(fields.get(9)[0].toString('hex'), payload.trace_id);
+        if (payload.trace_id && payload.span_id) {
+          assert.equal(fields.get(9)[0].toString('hex'), payload.trace_id);
+          assert.equal(fields.get(10)[0].toString('hex'), payload.span_id);
+          if ('trace_flags' in payload) assert.equal((fields.get(8)?.[0] || 0) & 255, payload.trace_flags);
+        } else {
+          assert(!fields.get(9));
+          assert(!fields.get(10));
+        }
         records.push({ body, payload });
       }
     }

@@ -5,15 +5,17 @@ This file records Beacon product changes only. The root [CHANGELOG.md](../CHANGE
 ## Unreleased
 
 - **Breaking:** Security OTel Logs and evidence JSONL now use the `beacon-security-siem-v1`
-  fifteen-field envelope. Parse `message` to recover the complete serialized v2 finding or
-  dependency inventory, including trace IDs, evidence, and multipart metadata; v2 fields are no
-  longer at the outer Body level. Fingerprint v1, detection, sampling, and default `no_evidence`
+  SIEM envelope with fifteen base fields plus required process identity and available trace
+  correlation. Parse `message` to recover the complete serialized v2 finding or
+  dependency inventory, including detailed evidence and multipart metadata. Preserve process and
+  available trace correlation directly in the envelope. Fingerprint v1, detection, sampling, and default `no_evidence`
   filtering are unchanged. Use configured Resource `tenant.id` when present, otherwise `default`;
   unavailable actor/client IP remain empty. Include envelope and escaping overhead in byte budgets
   and inventory splitting; do not silently shorten the original message on conversion overflow.
   Manifest and embedded specification provenance record the wire profile separately from schema v2.
   Within finding `message`, remove `server_span_id` and rename `current_span_id` to `span_id`,
-  including when it equals the HTTP server span ID.
+  including when it equals the HTTP server span ID. Preserve numeric `trace_flags`; associate
+  the native log with the invocation span and omit unknown spans without a request-entry fallback.
 
 ## Version 1.4.2 (2026-11-23)
 

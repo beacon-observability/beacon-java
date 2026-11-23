@@ -21,6 +21,10 @@ import io.beacon.security.core.SiemEvent;
 import io.opentelemetry.api.GlobalOpenTelemetry;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.logs.Severity;
+import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.api.trace.SpanContext;
+import io.opentelemetry.api.trace.TraceFlags;
+import io.opentelemetry.api.trace.TraceState;
 import io.opentelemetry.context.Context;
 import java.io.BufferedWriter;
 import java.io.IOException;
@@ -345,7 +349,7 @@ public final class EvidenceExporter implements AutoCloseable {
           .setInstrumentationVersion(Identity.VERSION)
           .build()
           .logRecordBuilder()
-          .setContext(entry.context)
+          .setContext(invocationContext(entry.context, event))
           .setTimestamp(System.currentTimeMillis(), MILLISECONDS)
           .setSeverity(Severity.INFO)
           .setSeverityText("INFO")
@@ -381,6 +385,30 @@ public final class EvidenceExporter implements AutoCloseable {
         logFailure(error);
       }
     }
+  }
+
+  private static Context invocationContext(Context requestContext, Map<String, Object> event) {
+    if (!"beacon.security.finding".equals(event.get("event_name"))) {
+      return Context.root();
+    }
+    Object trace = event.get("trace_id");
+    Object span = event.get("span_id");
+    Object flags = event.get("trace_flags");
+    if (trace instanceof String && span instanceof String) {
+      SpanContext invocation =
+          SpanContext.create(
+              (String) trace,
+              (String) span,
+              flags instanceof Number
+                  ? TraceFlags.fromByte(((Number) flags).byteValue())
+                  : TraceFlags.getDefault(),
+              TraceState.getDefault());
+      if (invocation.isValid()) {
+        return requestContext.with(Span.wrap(invocation));
+      }
+    }
+    // No invocation span was observed; do not fall back to the request-entry span.
+    return requestContext.with(Span.getInvalid());
   }
 
   private void openWriter() throws IOException {

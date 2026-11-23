@@ -238,7 +238,7 @@ public final class Events {
       Object flags = event.get("trace_flags");
       event.put(
           "trace_flags",
-          !server.isEmpty() && flags instanceof Number ? ((Number) flags).intValue() & 255 : 0);
+          !trace.isEmpty() && flags instanceof Number ? ((Number) flags).intValue() & 255 : 0);
       event.put("trace_availability", "not_guaranteed_by_trace_id");
       event.putIfAbsent("attack_evidence", AttackEvidence.unknown("analysis_unavailable").fields());
       Object component = event.get("component");
@@ -271,6 +271,7 @@ public final class Events {
             "precision",
             "trace_id",
             "span_id",
+            "trace_flags",
             "sources",
             "propagation",
             "ranges",
@@ -287,6 +288,9 @@ public final class Events {
     Object currentSpan = input.get("current_span_id");
     if (currentSpan instanceof String && !((String) currentSpan).isEmpty()) {
       event.put("span_id", currentSpan);
+    }
+    if (!event.containsKey("trace_id")) {
+      event.remove("trace_flags");
     }
     for (String name : asList("attack_evidence", "request", "sink")) {
       Object nested = input.get(name);

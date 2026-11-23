@@ -606,7 +606,7 @@ class EvidenceExporterTest {
     for (LogRecordData log : logs.records) {
       Map<?, ?> envelope = json.readValue(log.getBodyValue().asString(), Map.class);
       Map<?, ?> body = json.readValue((String) envelope.get("message"), Map.class);
-      assertThat(envelope).hasSize(15);
+      assertThat(envelope).hasSize(16);
       assertThat(envelope.get("service")).isEqualTo("orders");
       assertThat(envelope.get("tenant_id")).isEqualTo("default");
       assertThat(envelope.get("status")).isEqualTo("info");
@@ -642,6 +642,80 @@ class EvidenceExporterTest {
     }
   }
 
+  @ParameterizedTest
+  @ValueSource(strings = {"", "2222222222222222"})
+  void associatesLogWithObservedInvocationOrClearsMissingSpan(String invocationSpan)
+      throws IOException {
+    String traceId = "11111111111111111111111111111111";
+    SpanContext requestSpan =
+        SpanContext.create(
+            traceId, "1111111111111111", TraceFlags.getDefault(), TraceState.getDefault());
+    CapturingExporter logs = new CapturingExporter();
+    OpenTelemetrySdk sdk = installLogs(logs);
+    EvidenceExporter exporter = new EvidenceExporter();
+    try {
+      exporter.emit(
+          map(
+              "event_name",
+              "beacon.security.finding",
+              "trace_id",
+              traceId,
+              "server_span_id",
+              requestSpan.getSpanId(),
+              "current_span_id",
+              invocationSpan,
+              "trace_flags",
+              1),
+          Context.root().with(Span.wrap(requestSpan)),
+          false);
+    } finally {
+      exporter.close();
+      sdk.close();
+    }
+    assertThat(logs.records).hasSize(1);
+    LogRecordData log = logs.records.get(0);
+    Map<?, ?> envelope = json.readValue(log.getBodyValue().asString(), Map.class);
+    assertThat(envelope.get("trace_flags")).isEqualTo(1);
+    if (invocationSpan.isEmpty()) {
+      assertThat(envelope.containsKey("span_id")).isFalse();
+      assertThat(log.getSpanContext().isValid()).isFalse();
+    } else {
+      assertThat(envelope.get("span_id")).isEqualTo(invocationSpan);
+      assertThat(log.getSpanContext().getTraceId()).isEqualTo(traceId);
+      assertThat(log.getSpanContext().getSpanId()).isEqualTo(invocationSpan);
+      assertThat(log.getSpanContext().getTraceFlags().isSampled()).isTrue();
+    }
+  }
+
+  @Test
+  void doesNotAttachAnUnrelatedRequestSpanToInventory() throws IOException {
+    CapturingExporter logs = new CapturingExporter();
+    OpenTelemetrySdk sdk = installLogs(logs);
+    EvidenceExporter exporter = new EvidenceExporter();
+    SpanContext span =
+        SpanContext.create(
+            "11111111111111111111111111111111",
+            "1111111111111111",
+            TraceFlags.getSampled(),
+            TraceState.getDefault());
+    try {
+      exporter.emit(
+          map("event_name", "beacon.security.sbom.inventory", "dependencies", emptyList()),
+          Context.root().with(Span.wrap(span)),
+          false);
+    } finally {
+      exporter.close();
+      sdk.close();
+    }
+    assertThat(logs.records).hasSize(1);
+    LogRecordData record = logs.records.get(0);
+    assertThat(record.getSpanContext().isValid()).isFalse();
+    Map<?, ?> envelope = json.readValue(record.getBodyValue().asString(), Map.class);
+    assertThat(envelope.containsKey("trace_id")).isFalse();
+    assertThat(envelope.containsKey("span_id")).isFalse();
+    assertThat(envelope.containsKey("trace_flags")).isFalse();
+  }
+
   @Test
   void preservesOriginalV2MessageIdenticallyInOtelAndJsonl(@TempDir Path temp) throws IOException {
     Path file = temp.resolve("evidence.jsonl");
@@ -671,7 +745,7 @@ class EvidenceExporterTest {
     assertThat(logs.records).hasSize(1);
     String body = logs.records.get(0).getBodyValue().asString();
     Map<?, ?> envelope = json.readValue(body, Map.class);
-    assertThat(envelope).hasSize(15);
+    assertThat(envelope).hasSize(16);
     assertThat(envelope.get("message")).isEqualTo(original);
     assertThat(Files.readAllLines(file, UTF_8)).containsExactly(body);
   }

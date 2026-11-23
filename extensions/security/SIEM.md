@@ -1,9 +1,10 @@
-# Security fifteen-field output
+# Security SIEM output
 
 The development Agent adopts the `beacon-security-siem-v1` profile pinned in
 [`beacon/security-spec.properties`](../../beacon/security-spec.properties). This change is
 unreleased. Older Agents emit a v2 event directly. New OTel LogRecord string Bodies and evidence
-JSONL lines contain exactly the following fifteen string fields:
+JSONL lines contain the following fifteen required string fields, required process identity,
+and available trace correlation:
 
 | Field | Finding | Dependency inventory |
 | --- | --- | --- |
@@ -24,9 +25,16 @@ JSONL lines contain exactly the following fifteen string fields:
 | `message` | Complete serialized v2 finding. | Complete serialized v2 inventory part. |
 
 Findings inside `message` expose the current invocation span as `span_id`; `server_span_id` is
-not exported, and `current_span_id` is no longer an output field. The current span is retained
-even when it is the HTTP server span. Internal server-context tracking and native OTel span
-association remain intact; this rename does not change the existing finding fingerprint.
+not exported, and `current_span_id` is no longer an output field or schema alias. The current span is retained
+even when it is the HTTP server span. Internal server-context tracking and the existing finding
+fingerprint remain unchanged. Native OTel association follows the invocation span as described below.
+
+The outer envelope also requires `instance_id` (the process UUID). It preserves available
+`trace_id`, `span_id`, and `trace_flags` from the embedded event. Trace IDs and span IDs are
+strings; `trace_flags` is an integer in 0..255, including zero. Missing span IDs are omitted.
+Inventory does not inherit request trace context. OTel LogRecords associate with the observed
+invocation span; a missing invocation span never falls back to a different request-entry span.
+There is no format-selection switch or legacy-output fallback.
 
 The [envelope JSON Schema](schema-siem-v1.json) and six pinned
 [unenriched conformance fixtures](src/test/resources/siem-v1/) describe the output. Java does not
@@ -69,12 +77,13 @@ requires restarting the Agent, as with existing startup settings.
 
 ## Consumer migration
 
-1. Validate the outer envelope with `schema-siem-v1.json`; every field is a string. The profile
+1. Validate the outer envelope with `schema-siem-v1.json`; the fifteen base fields are strings,
+   process identity is required, and trace flags remain numeric. The profile
    is recorded in Manifest `Beacon-Security-Wire-Profile` and embedded `wireProfile` / `wire.profile`
    provenance, independently of embedded payload `schema_version=2` and fingerprint version 1.
-2. Parse `message` as JSON for `event_name`, `instance_id`, request, sink, trace/span IDs,
-   attack-evidence classification, sampling, coverage, components, and evidence. Do not expect
-   those v2 fields at the outer level. Historical v2 records retain their previous interpretation.
+2. Parse `message` as JSON for `event_name`, request, sink, attack-evidence classification,
+   sampling, coverage, components, and evidence. Process/trace correlation is also available
+   directly in the envelope. Historical records retain their originally pinned interpretation.
 3. Deduplicate findings by tenant/source/process/occurrence; group issues by `target` (finding ID).
    The finding target is the problem, not a database URL, shell command, or file path.
 4. Assemble inventory by embedded `instance_id + observed_at`, using embedded
@@ -85,6 +94,6 @@ requires restarting the Agent, as with existing startup settings.
    from Resource attributes instead of the per-record source. No collector pipeline is deployed
    by this Java change.
 
-OTel scope `io.beacon.security`, product version, INFO level, event name / `event.name` / `source`,
-and native SpanContext association remain unchanged. No duplicate v2 copy is sent on the same
-route. See the implementation PR for unit, byte-budget, and real OTLP smoke evidence.
+OTel scope `io.beacon.security`, product version, INFO level, and event name / `event.name` / `source`
+remain unchanged. Native SpanContext association uses the observed invocation when available.
+No duplicate v2 copy is sent on the same route. See the implementation PR for unit, byte-budget, and real OTLP smoke evidence.

@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/beacon-observability/beacon-security-spec/raw/main/schemas/beacon-security-siem-v1.schema.json",
-  "title": "Beacon Security SIEM fifteen-field profile v1 (draft)",
-  "description": "Proposed envelope, not an adopted runtime contract. Raw v2 payload remains in message.",
+  "title": "Beacon Security SIEM profile v1",
+  "description": "Security SIEM envelope with required process identity and preserved raw v2 evidence in message.",
   "type": "object",
   "required": [
     "time",
@@ -19,7 +19,8 @@
     "outcome",
     "status",
     "severity",
-    "message"
+    "message",
+    "instance_id"
   ],
   "properties": {
     "time": {
@@ -94,6 +95,23 @@
       "type": "string",
       "minLength": 1,
       "description": "Exact original serialized Security v2 payload string. Validate decoded content separately against v2."
+    },
+    "instance_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "trace_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "span_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{16}$"
+    },
+    "trace_flags": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255
     }
   },
   "additionalProperties": false,

@@ -215,16 +215,6 @@
         "trace_id": {
           "type": "string"
         },
-        "server_span_id": {
-          "type": "string",
-          "deprecated": true,
-          "description": "Historical v2 records only; new producers do not emit this field."
-        },
-        "current_span_id": {
-          "type": "string",
-          "deprecated": true,
-          "description": "Historical v2 records only; new producers do not emit this field."
-        },
         "precision": {
           "type": "string"
         },
@@ -269,6 +259,11 @@
           "type": "string",
           "pattern": "^[0-9a-f]{16}$",
           "description": "Current invocation span ID. Retained even when it is the HTTP server span."
+        },
+        "trace_flags": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255
         }
       },
       "not": {

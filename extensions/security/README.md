@@ -16,11 +16,12 @@ repository pins an immutable specification revision in
 [`beacon/security-spec.properties`](../../beacon/security-spec.properties); the complete Agent JAR
 embeds that record under `META-INF/beacon/` and exposes the versions in its Manifest.
 
-The current development output uses the `beacon-security-siem-v1` fifteen-field wire profile.
+The current development output uses the `beacon-security-siem-v1` SIEM wire profile with fifteen base fields plus process/trace correlation.
 Its `message` retains the serialized schema v2 Security event. The pinned specification includes
 both contracts and the unchanged fingerprint version 1 vectors. This is an unreleased wire-format
 change; older released Agents continue to export v2 directly. See [SIEM output](SIEM.md) before
-upgrading consumers. V1/v2 schemas remain available for historical and embedded payloads.
+upgrading consumers. Historical v1/v2 contracts remain available at older specification pins; the local v2 schema
+describes current embedded evidence.
 
 ## Current status
 
@@ -104,7 +105,7 @@ not introduce a second application-name setting.
 
 The following v2 field descriptions now apply to the JSON string inside envelope `message`,
 including occurrence, trace, evidence, dependencies, and multipart metadata. The outer Body and
-evidence JSONL contain exactly fifteen fields; local diagnostic snapshots retain their existing
+evidence JSONL contain fifteen base fields plus process/trace correlation; local diagnostic snapshots retain their existing
 format. No additional actor, client-IP, or tenant collection is required.
 
 Schema version 2 removes `application_id` from Security events, component references, local
@@ -237,7 +238,7 @@ is one, an event reservation cannot be made. All lanes remain best effort when t
 or the total budget is exhausted. Per-request occurrence identifiers and trace correlation are
 preserved; ordinary events are not merged across requests.
 
-Byte and rate budgets include the final fifteen-field JSON and escaped `message`. Inventory
+Byte and rate budgets include the final SIEM JSON and escaped `message`. Inventory
 splitting accounts for that overhead. Existing v2 evidence truncation remains explicit; if the
 resulting envelope still exceeds the per-record limit, it is dropped with a local loss counter.
 The envelope conversion never silently shortens `message` to fit. See [SIEM output](SIEM.md).
@@ -398,7 +399,7 @@ node beacon/scripts/security-smoke.cjs \
 
 It runs with default filtering and with `BEACON_SECURITY_EXPORT_NO_EVIDENCE_ENABLED=true`,
 checking both event streams and retained local findings through a real local OTLP HTTP/protobuf
-Logs receiver. It verifies fifteen-field envelopes, default and configured tenants, dependency
+Logs receiver. It verifies SIEM envelopes, invocation span correlation, default and configured tenants, dependency
 inventory, byte-identical OTLP/JSONL envelopes, separate trace correlation for repeated dynamic-SQL
 requests, immediate export of stronger evidence inside the sampling window, and independent classification of later ordinary
 requests. It also verifies that a dynamically concatenated prepared template retains its risk,

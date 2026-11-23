@@ -44,9 +44,13 @@ class AsyncHttpClientTest extends AbstractHttpClientTest<Request> {
     // Netty 3 can stall during TLS 1.3 handshakes on newer JDK updates.
     // Keep this legacy-client fixture on TLS 1.2 regardless of the JDK feature version.
     AsyncHttpClientConfig.Builder builder =
-        new AsyncHttpClientConfig.Builder()
-            .setConnectTimeout(CONNECTION_TIMEOUT_MS)
-            .setEnabledProtocols(new String[] {"TLSv1.2"});
+        new AsyncHttpClientConfig.Builder().setConnectTimeout(CONNECTION_TIMEOUT_MS);
+    // Netty 3 does not complete TLS 1.3 handshakes on affected JDK versions.
+    if (System.getProperty("java.vm.name").contains("OpenJ9")
+        || Integer.parseInt(System.getProperty("java.specification.version").replace("1.", ""))
+            >= 25) {
+      builder.setEnabledProtocols(new String[] {"TLSv1.2"});
+    }
     if (readTimeout) {
       builder.setReadTimeout(READ_TIMEOUT_MS);
     }

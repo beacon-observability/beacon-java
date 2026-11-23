@@ -4,6 +4,8 @@ This file records Beacon product changes only. The root [CHANGELOG.md](../CHANGE
 
 ## Unreleased
 
+## Version 1.4.2 (2026-11-23)
+
 - Reject profiling HTTP timeouts below one millisecond so they cannot become infinite waits.
 
 - Restore the existing DataKit-compatible multipart/JFR upload for the `http` profiling

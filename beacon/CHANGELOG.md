@@ -4,6 +4,8 @@ This file records Beacon product changes only. The root [CHANGELOG.md](../CHANGE
 
 ## Unreleased
 
+## Version 1.5.0 (2026-11-23)
+
 - **Breaking:** Security OTel Logs and evidence JSONL now use the `beacon-security-siem-v1`
   SIEM envelope with fifteen base fields plus required process identity and available trace
   correlation. Parse `message` to recover the complete serialized v2 finding or

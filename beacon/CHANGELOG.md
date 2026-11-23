@@ -4,6 +4,13 @@ This file records Beacon product changes only. The root [CHANGELOG.md](../CHANGE
 
 ## Unreleased
 
+- Reject profiling HTTP timeouts below one millisecond so they cannot become infinite waits.
+
+- Restore the existing DataKit-compatible multipart/JFR upload for the `http` profiling
+  exporter name. Preserve `datakit` as an alias and `OTEL_PROFILING_ENDPOINT`; no
+  OTLP Profiles receiver or gRPC service is required. Reserve `otlp` for a future
+  OTLP Profiles implementation; it is no longer accepted as a multipart exporter name.
+
 ## Version 1.4.1 (2026-11-20)
 
 - Integrated official OTel Java Instrumentation [v2.34.0](https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/tag/v2.34.0), pinned to `c220c0c83d8bdf04be7d41276624dfb83b1c91fd`, with its SDK and build constraints. Review the root upstream changelog for compatibility and migration notes; Beacon product versioning remains independent.

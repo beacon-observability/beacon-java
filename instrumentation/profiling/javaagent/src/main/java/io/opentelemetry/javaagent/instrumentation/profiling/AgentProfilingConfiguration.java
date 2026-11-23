@@ -5,23 +5,20 @@
 
 package io.opentelemetry.javaagent.instrumentation.profiling;
 
-import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Locale.ROOT;
 
 import io.opentelemetry.sdk.autoconfigure.spi.ConfigProperties;
 import java.net.MalformedURLException;
 import java.net.URL;
-import java.net.URLDecoder;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
-import java.util.LinkedHashMap;
-import java.util.Map;
 import java.util.logging.Logger;
 
 final class AgentProfilingConfiguration {
 
   private static final String PREFIX = "otel.profiling.";
+  private static final String LEGACY_PREFIX = "otel.instrumentation.profiling.";
   private static final Logger logger =
       Logger.getLogger(AgentProfilingConfiguration.class.getName());
 
@@ -36,17 +33,15 @@ final class AgentProfilingConfiguration {
   private final Boolean memoryAllocationSampling;
   private final Boolean memoryOldObjectSampling;
   private final Path fileExportPath;
-  private final URL otlpEndpoint;
-  private final String otlpProtocol;
-  private final Duration otlpTimeout;
-  private final Map<String, String> otlpHeaders;
+  private final URL datakitEndpoint;
+  private final Duration datakitTimeout;
 
   static boolean isEnabled(ConfigProperties config) {
     return defaultBoolean(getBoolean(config, "enabled"), false);
   }
 
   static AgentProfilingConfiguration create(ConfigProperties config) {
-    String exporter = normalizeExporter(defaultString(getString(config, "exporter"), "otlp"));
+    String exporter = normalizeExporter(defaultString(getString(config, "exporter"), "http"));
     if (getInt(config, "stack-depth") != null) {
       logger.warning(
           "Profiling stack-depth cannot configure per-recording JFR stack depth. "
@@ -65,83 +60,22 @@ final class AgentProfilingConfiguration {
         getBoolean(config, "memory.allocation-sampling"),
         getBoolean(config, "memory.old-object-sampling"),
         toPathOrDefault(
-            "file".equals(exporter) ? getString(config, "file.path") : null,
+            "file".equals(exporter)
+                ? getString(config, new String[] {"file.path", "experimental.file-export.path"})
+                : null,
             Paths.get(System.getProperty("java.io.tmpdir"), "otel-profiles")),
-        otlpEndpoint(config, exporter),
-        "otlp".equals(exporter) ? otlpProtocol(config) : "http/protobuf",
-        "otlp".equals(exporter) ? otlpTimeout(config) : Duration.ofSeconds(10),
-        "otlp".equals(exporter) ? otlpHeaders(config) : Map.of());
-  }
-
-  private static URL otlpEndpoint(ConfigProperties config, String exporter) {
-    if (!"otlp".equals(exporter)) {
-      return toUrlOrDefault(null, "http://localhost:4318/v1development/profiles");
-    }
-    String protocol = otlpProtocol(config);
-    String endpoint = config.getString("otel.exporter.otlp.profiles.endpoint");
-    if (endpoint == null) {
-      String base = config.getString("otel.exporter.otlp.endpoint");
-      endpoint =
-          protocol.equals("grpc")
-              ? (base == null ? "http://localhost:4317" : base)
-              : (base == null ? "http://localhost:4318" : base.replaceAll("/+$", ""))
-                  + "/v1development/profiles";
-    }
-    URL url = toUrlOrDefault(endpoint, "http://localhost:4318/v1development/profiles");
-    if (protocol.equals("grpc")
-        && ((!url.getPath().isEmpty() && !url.getPath().equals("/"))
-            || url.getQuery() != null
-            || url.getRef() != null)) {
-      throw new IllegalArgumentException(
-          "gRPC Profiles endpoint must contain only scheme and host:port");
-    }
-    return toUrlOrDefault(endpoint, "http://localhost:4318/v1development/profiles");
-  }
-
-  private static String otlpProtocol(ConfigProperties config) {
-    String value = config.getString("otel.exporter.otlp.profiles.protocol");
-    if (value == null) {
-      value = config.getString("otel.exporter.otlp.protocol");
-    }
-    if (value == null) {
-      return "http/protobuf";
-    }
-    if (!value.equals("grpc") && !value.equals("http/protobuf")) {
-      throw new IllegalArgumentException("Unsupported OTLP Profiles protocol: " + value);
-    }
-    return value;
-  }
-
-  private static Duration otlpTimeout(ConfigProperties config) {
-    Duration value = config.getDuration("otel.exporter.otlp.profiles.timeout");
-    if (value == null) {
-      value = config.getDuration("otel.exporter.otlp.timeout");
-    }
-    Duration result = defaultDuration(value, Duration.ofSeconds(10));
-    if (result.toMillis() < 1 || result.toMillis() > Integer.MAX_VALUE) {
-      throw new IllegalArgumentException("Invalid OTLP Profiles timeout");
-    }
-    return result;
-  }
-
-  private static Map<String, String> otlpHeaders(ConfigProperties config) {
-    String value = config.getString("otel.exporter.otlp.profiles.headers");
-    if (value == null) {
-      value = config.getString("otel.exporter.otlp.headers");
-    }
-    Map<String, String> headers = new LinkedHashMap<>();
-    if (value != null) {
-      for (String entry : value.split(",")) {
-        int separator = entry.indexOf('=');
-        if (separator <= 0) {
-          throw new IllegalArgumentException("Invalid OTLP Profiles header");
-        }
-        headers.put(
-            URLDecoder.decode(entry.substring(0, separator).trim().replace("+", "%2B"), UTF_8),
-            URLDecoder.decode(entry.substring(separator + 1).trim().replace("+", "%2B"), UTF_8));
-      }
-    }
-    return headers;
+        toUrlOrDefault(
+            "http".equals(exporter)
+                ? getString(
+                    config,
+                    new String[] {"endpoint", "datakit.endpoint"},
+                    "OTEL_PROFILING_ENDPOINT",
+                    "OTEL_PROFILING_DATAKIT_ENDPOINT")
+                : null,
+            "http://localhost:9529/profiling/v1/input"),
+        defaultDuration(
+            "http".equals(exporter) ? getDuration(config, "datakit.timeout") : null,
+            Duration.ofSeconds(10)));
   }
 
   private AgentProfilingConfiguration(
@@ -156,10 +90,8 @@ final class AgentProfilingConfiguration {
       Boolean memoryAllocationSampling,
       Boolean memoryOldObjectSampling,
       Path fileExportPath,
-      URL otlpEndpoint,
-      String otlpProtocol,
-      Duration otlpTimeout,
-      Map<String, String> otlpHeaders) {
+      URL datakitEndpoint,
+      Duration datakitTimeout) {
     this.interval = interval;
     this.startupDelay = startupDelay;
     this.maxAge = maxAge;
@@ -171,10 +103,8 @@ final class AgentProfilingConfiguration {
     this.memoryAllocationSampling = memoryAllocationSampling;
     this.memoryOldObjectSampling = memoryOldObjectSampling;
     this.fileExportPath = fileExportPath;
-    this.otlpEndpoint = otlpEndpoint;
-    this.otlpProtocol = otlpProtocol;
-    this.otlpTimeout = otlpTimeout;
-    this.otlpHeaders = otlpHeaders;
+    this.datakitEndpoint = datakitEndpoint;
+    this.datakitTimeout = datakitTimeout;
   }
 
   Duration getInterval() {
@@ -221,20 +151,12 @@ final class AgentProfilingConfiguration {
     return fileExportPath;
   }
 
-  String getOtlpProtocol() {
-    return otlpProtocol;
+  URL getDatakitEndpoint() {
+    return datakitEndpoint;
   }
 
-  URL getOtlpEndpoint() {
-    return otlpEndpoint;
-  }
-
-  Map<String, String> getOtlpHeaders() {
-    return otlpHeaders;
-  }
-
-  Duration getOtlpTimeout() {
-    return otlpTimeout;
+  Duration getDatakitTimeout() {
+    return datakitTimeout;
   }
 
   private static Duration defaultDuration(Duration value, Duration defaultValue) {
@@ -259,33 +181,62 @@ final class AgentProfilingConfiguration {
 
   private static String normalizeExporter(String exporter) {
     String normalized = exporter.trim().toLowerCase(ROOT);
-    if (normalized.isEmpty()) {
-      return "otlp";
+    if (normalized.isEmpty() || normalized.equals("datakit")) {
+      return "http";
     }
-    if (!normalized.equals("file") && !normalized.equals("otlp")) {
+    if (!normalized.equals("http") && !normalized.equals("file") && !normalized.equals("none")) {
       throw new IllegalArgumentException("Unsupported profiling exporter: " + normalized);
     }
     return normalized;
   }
 
   private static Boolean getBoolean(ConfigProperties config, String suffix) {
-    return config.getBoolean(PREFIX + suffix);
+    Boolean value = config.getBoolean(PREFIX + suffix);
+    return value != null ? value : config.getBoolean(LEGACY_PREFIX + suffix);
   }
 
   private static Duration getDuration(ConfigProperties config, String suffix) {
-    return config.getDuration(PREFIX + suffix);
+    Duration value = config.getDuration(PREFIX + suffix);
+    return value != null ? value : config.getDuration(LEGACY_PREFIX + suffix);
   }
 
   private static Integer getInt(ConfigProperties config, String suffix) {
-    return config.getInt(PREFIX + suffix);
+    Integer value = config.getInt(PREFIX + suffix);
+    return value != null ? value : config.getInt(LEGACY_PREFIX + suffix);
   }
 
   private static Long getLong(ConfigProperties config, String suffix) {
-    return config.getLong(PREFIX + suffix);
+    Long value = config.getLong(PREFIX + suffix);
+    return value != null ? value : config.getLong(LEGACY_PREFIX + suffix);
   }
 
   private static String getString(ConfigProperties config, String suffix) {
-    return config.getString(PREFIX + suffix);
+    String value = config.getString(PREFIX + suffix);
+    return value != null ? value : config.getString(LEGACY_PREFIX + suffix);
+  }
+
+  private static String getString(
+      ConfigProperties config, String[] suffixes, String... envAliases) {
+    for (String suffix : suffixes) {
+      String value = getString(config, suffix);
+      if (value != null) {
+        return value;
+      }
+    }
+    return getString((String) null, envAliases);
+  }
+
+  private static String getString(String value, String... envAliases) {
+    if (value != null) {
+      return value;
+    }
+    for (String envAlias : envAliases) {
+      value = System.getenv(envAlias);
+      if (value != null && !value.isEmpty()) {
+        return value;
+      }
+    }
+    return null;
   }
 
   private static Path toPath(String value) {
@@ -298,13 +249,9 @@ final class AgentProfilingConfiguration {
 
   private static URL toUrlOrDefault(String value, String defaultValue) {
     try {
-      URL url = new URL(value == null || value.isEmpty() ? defaultValue : value);
-      if (!url.getProtocol().equals("http") && !url.getProtocol().equals("https")) {
-        throw new IllegalArgumentException("OTLP Profiles requires an HTTP(S) endpoint");
-      }
-      return url;
+      return new URL(value == null || value.isEmpty() ? defaultValue : value);
     } catch (MalformedURLException exception) {
-      throw new IllegalArgumentException("Invalid OTLP Profiles endpoint", exception);
+      throw new IllegalArgumentException("Invalid profiling Datakit endpoint", exception);
     }
   }
 }

@@ -7,10 +7,6 @@ package io.opentelemetry.instrumentation.profiling.internal;
 
 import io.opentelemetry.instrumentation.profiling.ProfileExporterAdapter;
 import io.opentelemetry.instrumentation.profiling.RuntimeProfiling;
-import io.opentelemetry.sdk.resources.Resource;
-import java.net.URL;
-import java.time.Duration;
-import java.util.Map;
 import jdk.jfr.FlightRecorder;
 
 /**
@@ -34,15 +30,6 @@ public final class JfrSupport {
     } catch (Throwable ignored) {
       return false;
     }
-  }
-
-  public static ProfileExporterAdapter otlpExporter(
-      URL endpoint,
-      String protocol,
-      Duration timeout,
-      Map<String, String> headers,
-      Resource resource) {
-    return new OtlpProfileExporterAdapter(endpoint, protocol, timeout, headers, resource);
   }
 
   private JfrSupport() {}

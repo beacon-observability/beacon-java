@@ -53,21 +53,25 @@ async function main() {
     }
     let uploads = 0; let activeChild; const sockets = new Set();
     const receiver = createServer((request) => {
-      uploads++; request.pause(); request.socket.pause();
-      // Capture the actual blocked writer, rather than infer it from a missing response.
-      setTimeout(() => { if (activeChild?.exitCode === null) activeChild.kill('SIGQUIT'); }, 500);
+      request.resume();
+      // Wait for the complete multipart body before capturing the blocked HTTP response read.
+      // JFR encoding and streaming can still be active when request headers first arrive.
+      request.on('end', () => {
+        uploads++;
+        setTimeout(() => { if (activeChild?.exitCode === null) activeChild.kill('SIGQUIT'); }, 500);
+      });
     });
     receiver.on('connection', (socket) => { sockets.add(socket); socket.on('close', () => sockets.delete(socket)); });
     await new Promise((done) => receiver.listen(0, '127.0.0.1', done));
     try {
-      const result = await run(java, [...base, '-Dotel.profiling.exporter=otlp',
-        `-Dotel.exporter.otlp.profiles.endpoint=http://127.0.0.1:${receiver.address().port}/v1development/profiles`,
-        '-Dotel.exporter.otlp.profiles.timeout=60s', '-cp', directory, 'ProfilingShutdownProbe', 'slow', directory], 35000, (child) => { activeChild = child; });
+      const result = await run(java, [...base, '-Dotel.profiling.exporter=http',
+        `-Dotel.profiling.endpoint=http://127.0.0.1:${receiver.address().port}/profiling/v1/input`,
+        '-Dotel.profiling.datakit.timeout=60s', '-cp', directory, 'ProfilingShutdownProbe', 'slow', directory], 35000, (child) => { activeChild = child; });
       assert(uploads > 0, 'receiver must see an in-flight upload');
       assert(result.shutdown_millis !== null && result.shutdown_millis < 13000, result.output);
       assert(result.output.includes('Profiling shutdown exceeded 10 seconds'), result.output);
       assert(/SocketInputStream|NioSocketImpl|HttpURLConnection|SocketDispatcher/.test(result.output), result.output);
-      assert(result.output.includes('OtlpProfileExporterAdapter'), result.output);
+      assert(result.output.includes('DatakitProfileExporterAdapter'), result.output);
       results.push({ mode: 'unresponsive-receiver', uploads, blocked_network_export: true, shutdown_millis: result.shutdown_millis });
     } finally {
       for (const socket of sockets) socket.destroy();

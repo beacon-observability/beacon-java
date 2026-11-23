@@ -18,6 +18,7 @@ import io.beacon.security.core.Values;
 import io.beacon.security.exporter.EvidenceExporter;
 import io.beacon.security.sbom.SbomInventory;
 import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.api.trace.SpanContext;
 import io.opentelemetry.context.Context;
 import io.opentelemetry.context.ContextKey;
 import java.lang.instrument.Instrumentation;
@@ -175,6 +176,7 @@ public final class SecurityRuntime {
 
   private static void emit(Call call, SinkRules.Finding finding, ClassLoader loader) {
     Context context = Context.current();
+    SpanContext invocation = Span.fromContext(context).getSpanContext();
     List<StackFrames.Frame> frames =
         StackFrames.capture(
             SecurityRuntime::evidenceFrame, call.receiver instanceof Statement ? 128 : 24);
@@ -191,12 +193,15 @@ public final class SecurityRuntime {
                 + call.method,
             site,
             finding.marks,
-            call.state.traceId.equals(Span.fromContext(context).getSpanContext().getTraceId())
-                ? Span.fromContext(context).getSpanContext().getSpanId()
-                : "",
+            invocation.isValid() ? invocation.getSpanId() : "",
             finding.attackEvidence);
     if (event == null) {
       return;
+    }
+    if (invocation.isValid()) {
+      event.put("trace_id", invocation.getTraceId());
+      event.put("current_span_id", invocation.getSpanId());
+      event.put("trace_flags", invocation.getTraceFlags().asByte() & 255);
     }
     List<String> stack = new ArrayList<>();
     for (StackFrames.Frame captured : frames) {

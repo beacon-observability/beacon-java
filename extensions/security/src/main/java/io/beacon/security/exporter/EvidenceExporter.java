@@ -17,9 +17,14 @@ import io.beacon.security.core.AttackEvidence;
 import io.beacon.security.core.Events;
 import io.beacon.security.core.Identity;
 import io.beacon.security.core.Settings;
+import io.beacon.security.core.SiemEvent;
 import io.opentelemetry.api.GlobalOpenTelemetry;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.logs.Severity;
+import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.api.trace.SpanContext;
+import io.opentelemetry.api.trace.TraceFlags;
+import io.opentelemetry.api.trace.TraceState;
 import io.opentelemetry.context.Context;
 import java.io.BufferedWriter;
 import java.io.IOException;
@@ -306,6 +311,7 @@ public final class EvidenceExporter implements AutoCloseable {
     Map<String, Object> event = Events.exported(input);
     byte[] encoded = json.writeValueAsBytes(event);
     boolean truncated = encoded.length > maxBytes;
+    // Retain the existing declared v2 truncation before establishing the original message.
     if (encoded.length > maxBytes) {
       event = new LinkedHashMap<>(event);
       if ("beacon.security.finding".equals(event.get("event_name"))) {
@@ -323,6 +329,9 @@ public final class EvidenceExporter implements AutoCloseable {
       event.put("truncation_reason", "record_byte_limit");
       encoded = json.writeValueAsBytes(event);
     }
+    encoded =
+        SiemEvent.encode(json, event, new String(encoded, UTF_8), Identity.resourceAttributes());
+    // Never shorten message to fit the additional envelope/escaping overhead.
     if (encoded.length > maxBytes) {
       counter("record_limit_exceeded").incrementAndGet();
       throw new IOException("record_limit");
@@ -340,7 +349,7 @@ public final class EvidenceExporter implements AutoCloseable {
           .setInstrumentationVersion(Identity.VERSION)
           .build()
           .logRecordBuilder()
-          .setContext(entry.context)
+          .setContext(invocationContext(entry.context, event))
           .setTimestamp(System.currentTimeMillis(), MILLISECONDS)
           .setSeverity(Severity.INFO)
           .setSeverityText("INFO")
@@ -376,6 +385,30 @@ public final class EvidenceExporter implements AutoCloseable {
         logFailure(error);
       }
     }
+  }
+
+  private static Context invocationContext(Context requestContext, Map<String, Object> event) {
+    if (!"beacon.security.finding".equals(event.get("event_name"))) {
+      return Context.root();
+    }
+    Object trace = event.get("trace_id");
+    Object span = event.get("span_id");
+    Object flags = event.get("trace_flags");
+    if (trace instanceof String && span instanceof String) {
+      SpanContext invocation =
+          SpanContext.create(
+              (String) trace,
+              (String) span,
+              flags instanceof Number
+                  ? TraceFlags.fromByte(((Number) flags).byteValue())
+                  : TraceFlags.getDefault(),
+              TraceState.getDefault());
+      if (invocation.isValid()) {
+        return requestContext.with(Span.wrap(invocation));
+      }
+    }
+    // No invocation span was observed; do not fall back to the request-entry span.
+    return requestContext.with(Span.getInvalid());
   }
 
   private void openWriter() throws IOException {

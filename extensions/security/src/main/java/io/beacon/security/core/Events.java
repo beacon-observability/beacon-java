@@ -238,7 +238,7 @@ public final class Events {
       Object flags = event.get("trace_flags");
       event.put(
           "trace_flags",
-          !server.isEmpty() && flags instanceof Number ? ((Number) flags).intValue() & 255 : 0);
+          !trace.isEmpty() && flags instanceof Number ? ((Number) flags).intValue() & 255 : 0);
       event.put("trace_availability", "not_guaranteed_by_trace_id");
       event.putIfAbsent("attack_evidence", AttackEvidence.unknown("analysis_unavailable").fields());
       Object component = event.get("component");
@@ -270,8 +270,8 @@ public final class Events {
             "rule",
             "precision",
             "trace_id",
-            "server_span_id",
-            "current_span_id",
+            "span_id",
+            "trace_flags",
             "sources",
             "propagation",
             "ranges",
@@ -285,6 +285,13 @@ public final class Events {
             "evidence_sample_reason",
             "run",
             "triage");
+    Object currentSpan = input.get("current_span_id");
+    if (currentSpan instanceof String && !((String) currentSpan).isEmpty()) {
+      event.put("span_id", currentSpan);
+    }
+    if (!event.containsKey("trace_id")) {
+      event.remove("trace_flags");
+    }
     for (String name : asList("attack_evidence", "request", "sink")) {
       Object nested = input.get(name);
       if (nested instanceof Map) {
@@ -301,10 +308,6 @@ public final class Events {
           event.put(name, value);
         }
       }
-    }
-    if (event.get("server_span_id") != null
-        && event.get("server_span_id").equals(event.get("current_span_id"))) {
-      event.remove("current_span_id");
     }
     if (Boolean.FALSE.equals(event.get("truncated"))) {
       event.remove("truncated");

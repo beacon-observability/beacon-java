@@ -38,6 +38,11 @@ val securitySchemaVersion = securitySpec.getProperty("schemaVersion")
   ?: error("Missing Beacon Security schema version")
 val securityFingerprintVersion = securitySpec.getProperty("fingerprintVersion")
   ?: error("Missing Beacon Security fingerprint version")
+val securityWireProfile = securitySpec.getProperty("wireProfile")
+  ?: error("Missing Beacon Security wire profile")
+require(securityWireProfile == "beacon-security-siem-v1") {
+  "Unexpected Beacon Security wire profile: $securityWireProfile"
+}
 require(securitySpecRepository == "https://github.com/beacon-observability/beacon-security-spec") {
   "Unexpected Beacon Security specification repository: $securitySpecRepository"
 }
@@ -62,6 +67,7 @@ val beaconAttributes = mapOf(
   "Beacon-Security-Spec-Commit" to securitySpecRevision,
   "Beacon-Security-Schema-Version" to securitySchemaVersion,
   "Beacon-Security-Fingerprint-Version" to securityFingerprintVersion,
+  "Beacon-Security-Wire-Profile" to securityWireProfile,
 )
 val beaconFileName = "beacon-javaagent-$beaconVersion.jar"
 val beaconSecurityProject = rootProject.findProject(":extensions:security")

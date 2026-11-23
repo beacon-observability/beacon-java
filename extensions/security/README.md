@@ -16,9 +16,12 @@ repository pins an immutable specification revision in
 [`beacon/security-spec.properties`](../../beacon/security-spec.properties); the complete Agent JAR
 embeds that record under `META-INF/beacon/` and exposes the versions in its Manifest.
 
-The Java output uses schema version 2 for runtime-only identity as described below. The pinned
-specification revision includes the matching v2 event contract and retains the unchanged
-fingerprint version 1 vectors. V1 schemas remain available for historical consumers.
+The current development output uses the `beacon-security-siem-v1` SIEM wire profile with fifteen base fields plus process/trace correlation.
+Its `message` retains the serialized schema v2 Security event. The pinned specification includes
+both contracts and the unchanged fingerprint version 1 vectors. This is an unreleased wire-format
+change; older released Agents continue to export v2 directly. See [SIEM output](SIEM.md) before
+upgrading consumers. Historical v1/v2 contracts remain available at older specification pins; the local v2 schema
+describes current embedded evidence.
 
 ## Current status
 
@@ -100,6 +103,11 @@ not introduce a second application-name setting.
 
 ### Runtime identity and migration
 
+The following v2 field descriptions now apply to the JSON string inside envelope `message`,
+including occurrence, trace, evidence, dependencies, and multipart metadata. The outer Body and
+evidence JSONL contain fifteen base fields plus process/trace correlation; local diagnostic snapshots retain their existing
+format. No additional actor, client-IP, or tenant collection is required.
+
 Schema version 2 removes `application_id` from Security events, component references, local
 snapshots, and SBOM metadata. Use the existing `instance_id` UUID to identify the runtime process
 and `service.namespace` / `service.name` to group its application. Consumers that map `instance_id`
@@ -131,7 +139,8 @@ is retained in process only when local debug output is explicitly enabled.
 Local `control.json` exceptions now require only `scope.finding_id`, whose stable fingerprint
 already includes service identity. Exceptions are not tied to a process UUID. Update consumers
 for schema version 2 before upgrading; a v1 event schema cannot validate v2 output. The local
-[schema v2](schema-v2.json) is identical to the canonical schema in the pinned specification.
+[schema v2](schema-v2.json) describes the embedded payload; use
+[SIEM schema v1](schema-siem-v1.json) for the outer envelope.
 
 ### Primary settings
 
@@ -228,6 +237,11 @@ byte limit; the remaining budget is reserved for higher priorities. If the confi
 is one, an event reservation cannot be made. All lanes remain best effort when their own capacity
 or the total budget is exhausted. Per-request occurrence identifiers and trace correlation are
 preserved; ordinary events are not merged across requests.
+
+Byte and rate budgets include the final SIEM JSON and escaped `message`. Inventory
+splitting accounts for that overhead. Existing v2 evidence truncation remains explicit; if the
+resulting envelope still exceeds the per-record limit, it is dropped with a local loss counter.
+The envelope conversion never silently shortens `message` to fit. See [SIEM output](SIEM.md).
 
 | JVM property | Environment variable | Default | Purpose |
 | --- | --- | --- | --- |
@@ -384,9 +398,10 @@ node beacon/scripts/security-smoke.cjs \
 ```
 
 It runs with default filtering and with `BEACON_SECURITY_EXPORT_NO_EVIDENCE_ENABLED=true`,
-checking both event streams and retained local findings. It verifies separate trace correlation
-for repeated dynamic-SQL requests, immediate export of
-stronger evidence inside the sampling window, and independent classification of later ordinary
+checking both event streams and retained local findings through a real local OTLP HTTP/protobuf
+Logs receiver. It verifies SIEM envelopes, invocation span correlation, default and configured tenants, dependency
+inventory, byte-identical OTLP/JSONL envelopes, separate trace correlation for repeated dynamic-SQL
+requests, immediate export of stronger evidence inside the sampling window, and independent classification of later ordinary
 requests. It also verifies that a dynamically concatenated prepared template retains its risk,
 fixed parameterized and constant SQL do not produce findings, runtime SBOM is present, the product
 version is resolved, and delivery reports no local loss.

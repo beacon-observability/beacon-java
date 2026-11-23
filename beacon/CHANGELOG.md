@@ -12,6 +12,8 @@ This file records Beacon product changes only. The root [CHANGELOG.md](../CHANGE
   filtering are unchanged. Use configured Resource `tenant.id` when present, otherwise `default`;
   unavailable actor/client IP remain empty. Include envelope and escaping overhead in byte budgets
   and inventory splitting; do not silently shorten the original message on conversion overflow.
+  Inventory byte planning uses the exporter's UTF-8 serialization path, including supplementary
+  Unicode escaping, so near-limit dependency parts remain exportable.
   Manifest and embedded specification provenance record the wire profile separately from schema v2.
   Within finding `message`, remove `server_span_id` and rename `current_span_id` to `span_id`,
   including when it equals the HTTP server span ID. Preserve numeric `trace_flags`; associate

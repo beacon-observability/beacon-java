@@ -8,6 +8,7 @@ package io.beacon.security.sbom;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Collections.emptyList;
 import static java.util.Collections.emptyMap;
+import static java.util.Collections.nCopies;
 import static java.util.Collections.singletonList;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -1554,6 +1555,58 @@ class SbomInventoryBehaviorTest {
         DependencyInventory.events(
             Values.map("event_name", "beacon.security.sbom.inventory"), emptyList());
     assertEquals(emptyList(), empty.get(0).get("dependencies"));
+  }
+
+  @Test
+  void supplementaryCoordinatesSplitAtTheActualSerializedByteBoundary() throws IOException {
+    List<Map<String, Object>> records = new ArrayList<>();
+    String suffix = String.join("", nCopies(32, "🚀"));
+    for (int i = 0; i < 3; i++) {
+      Component component =
+          new Component("library-" + i + suffix, "org.example", "1.0", "aabb", "maven-metadata");
+      component.loaded = true;
+      records.add(component.json());
+    }
+    Map<String, Object> event =
+        Values.map(
+            "event_name", "beacon.security.sbom.inventory",
+            "observed_at", "2026-10-27T09:00:00.000Z",
+            "started_at", "2026-10-27T08:00:00.000Z",
+            "uptime_ms", 3600000L);
+    System.setProperty("beacon.security.evidence.max.bytes", "65536");
+    List<Map<String, Object>> whole = DependencyInventory.events(event, records);
+    assertThat(whole).hasSize(1);
+    Map<String, Object> snapshot = whole.get(0);
+    // Match EvidenceExporter: serialize the v2 payload as UTF-8 bytes before wrapping message.
+    int maximum =
+        SiemEvent.encode(
+                    json,
+                    snapshot,
+                    new String(json.writeValueAsBytes(snapshot), UTF_8),
+                    Identity.resourceAttributes())
+                .length
+            - 1;
+    System.setProperty("beacon.security.evidence.max.bytes", String.valueOf(maximum));
+
+    List<Map<String, Object>> parts = DependencyInventory.events(event, records);
+
+    assertThat(parts).hasSizeGreaterThan(1);
+    List<Object> dependencies = new ArrayList<>();
+    for (int i = 0; i < parts.size(); i++) {
+      Map<String, Object> part = parts.get(i);
+      assertThat(part).containsEntry("part_index", i).containsEntry("part_count", parts.size());
+      byte[] encoded =
+          SiemEvent.encode(
+              json,
+              part,
+              new String(json.writeValueAsBytes(part), UTF_8),
+              Identity.resourceAttributes());
+      assertThat(encoded.length).isLessThanOrEqualTo(maximum);
+      dependencies.addAll((List<?>) part.get("dependencies"));
+    }
+    assertThat(dependencies)
+        .containsExactlyInAnyOrderElementsOf((List<?>) snapshot.get("dependencies"))
+        .doesNotHaveDuplicates();
   }
 
   @Test

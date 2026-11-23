@@ -6,6 +6,7 @@
 package io.beacon.security.sbom;
 
 import static io.beacon.security.core.Values.map;
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Arrays.asList;
 import static java.util.Collections.emptyList;
 
@@ -64,8 +65,9 @@ final class DependencyInventory {
     chunks.add(chunk);
     int bytes = overhead;
     for (Map<String, Object> row : unique.values()) {
-      // Account for the second escaping layer inside the envelope's message string.
-      int size = json.writeValueAsBytes(json.writeValueAsString(row)).length - 2;
+      // Match the exporter's byte-based JSON serialization before escaping message again.
+      String messageRow = new String(json.writeValueAsBytes(row), UTF_8);
+      int size = json.writeValueAsBytes(messageRow).length - 2;
       if (overhead + size > maximum) {
         throw new IOException("dependency_snapshot_item_exceeds_budget");
       }

@@ -6,6 +6,7 @@
 package io.beacon.security.core;
 
 import static io.beacon.security.core.Values.map;
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Arrays.asList;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -19,7 +20,11 @@ public final class SiemEvent {
   private SiemEvent() {}
 
   public static byte[] encode(ObjectMapper json, Map<String, Object> event) throws IOException {
-    return encode(json, event, json.writeValueAsString(event), Identity.resourceAttributes());
+    return encode(
+        json,
+        event,
+        new String(json.writeValueAsBytes(event), UTF_8),
+        Identity.resourceAttributes());
   }
 
   public static byte[] encode(

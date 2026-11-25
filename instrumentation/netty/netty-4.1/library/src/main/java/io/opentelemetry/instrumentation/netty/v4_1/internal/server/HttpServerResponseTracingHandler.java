@@ -56,6 +56,31 @@ public class HttpServerResponseTracingHandler extends ChannelOutboundHandlerAdap
       return;
     }
 
+    // Interim responses must retain the request context for the final response.
+    if (msg instanceof HttpResponse) {
+      HttpResponse response = (HttpResponse) msg;
+      int status = response.status().code();
+      if (status >= 100 && status < 200 && status != 101) {
+        // Keep the existing SPI callback, even when response trace ID injection is disabled.
+        beforeCommitHandler.handle(serverContext.context(), response);
+        if (!(msg instanceof FullHttpResponse)) {
+          ctx.channel().attr(HTTP_SERVER_RESPONSE).set(response);
+        }
+        writeInterim(ctx, msg, prm, serverContexts, serverContext);
+        return;
+      }
+    } else if (msg instanceof LastHttpContent) {
+      HttpResponse previous = ctx.channel().attr(HTTP_SERVER_RESPONSE).get();
+      if (previous != null
+          && previous.status().code() >= 100
+          && previous.status().code() < 200
+          && previous.status().code() != 101) {
+        ctx.channel().attr(HTTP_SERVER_RESPONSE).set(null);
+        writeInterim(ctx, msg, prm, serverContexts, serverContext);
+        return;
+      }
+    }
+
     ChannelPromise writePromise;
 
     if (msg instanceof LastHttpContent) {
@@ -71,6 +96,7 @@ public class HttpServerResponseTracingHandler extends ChannelOutboundHandlerAdap
       // Going to finish the span after the write of the last content finishes.
       if (msg instanceof FullHttpResponse) {
         FullHttpResponse response = (FullHttpResponse) msg;
+        ctx.channel().attr(HTTP_SERVER_RESPONSE).set(null);
         if (response.status().equals(HttpResponseStatus.SWITCHING_PROTOCOLS)) {
           eventHandler.handle(
               ProtocolSpecificEvent.SWITCHING_PROTOCOLS,
@@ -126,6 +152,23 @@ public class HttpServerResponseTracingHandler extends ChannelOutboundHandlerAdap
     } catch (Throwable t) {
       serverContexts.pollFirst();
       end(serverContext.context(), serverContext.request(), null, t);
+      throw t;
+    }
+  }
+
+  private void writeInterim(
+      ChannelHandlerContext ctx,
+      Object msg,
+      ChannelPromise promise,
+      ServerContexts contexts,
+      ServerContext context)
+      throws Exception {
+    try (Scope ignored = context.context().makeCurrent()) {
+      super.write(ctx, msg, promise);
+    } catch (Throwable t) {
+      contexts.pollFirst();
+      ctx.channel().attr(HTTP_SERVER_RESPONSE).set(null);
+      end(context.context(), context.request(), null, t);
       throw t;
     }
   }

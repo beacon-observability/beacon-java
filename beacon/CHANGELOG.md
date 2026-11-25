@@ -4,6 +4,11 @@ This file records Beacon product changes only. The root [CHANGELOG.md](../CHANGE
 
 ## Unreleased
 
+- Add opt-in HTTP server response trace ID injection with default header `btrace-id`,
+  configurable names, valid unsampled context support, and preservation of application
+  headers. Implement Tomcat commit and Netty 4.1 HTTP/1 paths; see
+  [configuration and verification scope](HTTP-RESPONSE-TRACE-ID.md).
+
 ## Version 1.5.0 (2026-11-23)
 
 - **Breaking:** Security OTel Logs and evidence JSONL now use the `beacon-security-siem-v1`

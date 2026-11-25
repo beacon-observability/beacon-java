@@ -7,7 +7,7 @@ package io.opentelemetry.javaagent.instrumentation.tomcat.v7_0;
 
 import static io.opentelemetry.javaagent.extension.matcher.AgentElementMatchers.hasClassesNamed;
 import static io.opentelemetry.javaagent.instrumentation.tomcat.v7_0.Tomcat7Singletons.helper;
-import static java.util.Collections.singletonList;
+import static java.util.Arrays.asList;
 
 import com.google.auto.service.AutoService;
 import io.opentelemetry.context.Context;
@@ -17,6 +17,7 @@ import io.opentelemetry.javaagent.bootstrap.http.HttpServerResponseCustomizerHol
 import io.opentelemetry.javaagent.bootstrap.internal.AgentCommonConfig;
 import io.opentelemetry.javaagent.extension.instrumentation.InstrumentationModule;
 import io.opentelemetry.javaagent.extension.instrumentation.TypeInstrumentation;
+import io.opentelemetry.javaagent.instrumentation.tomcat.common.v7_0.TomcatResponseCommitInstrumentation;
 import io.opentelemetry.javaagent.instrumentation.tomcat.common.v7_0.TomcatServerHandlerInstrumentation;
 import java.util.List;
 import javax.annotation.Nullable;
@@ -47,7 +48,8 @@ public class Tomcat7InstrumentationModule extends InstrumentationModule {
 
   @Override
   public List<TypeInstrumentation> typeInstrumentations() {
-    return singletonList(
+    return asList(
+        new TomcatResponseCommitInstrumentation(),
         new TomcatServerHandlerInstrumentation(
             getClass().getName() + "$Tomcat7ServerHandlerAdvice",
             getClass().getName() + "$Tomcat7AttachResponseAdvice"));

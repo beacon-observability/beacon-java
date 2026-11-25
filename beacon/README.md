@@ -24,6 +24,7 @@ Links below are relative to this file; run all commands from the repository root
 - [Contributing guide](../CONTRIBUTING.md): build, development, and testing instructions.
 - [CI status and launch checklist](CI.md): identifies which automation can run and which automation has not yet been adapted.
 - [Release process](RELEASING.md): versioning, artifact validation, and rollback.
+- [HTTP response trace ID](HTTP-RESPONSE-TRACE-ID.md): opt-in correlation headers and integration scope.
 
 The development branch is `main` and continues from the imported downstream enhancement history. Do not replace the current code with another repository's `main`. Custom upstream references do not appear under `refs/upstream-tags/*` merely by cloning the Beacon repository; configure and fetch them explicitly according to the synchronization guide.
 

@@ -16,8 +16,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.beacon.security.core.AttackEvidence;
 import io.beacon.security.core.Events;
 import io.beacon.security.core.Identity;
+import io.beacon.security.core.SecurityLogRecord;
 import io.beacon.security.core.Settings;
-import io.beacon.security.core.SiemEvent;
 import io.opentelemetry.api.GlobalOpenTelemetry;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.logs.Severity;
@@ -309,9 +309,9 @@ public final class EvidenceExporter implements AutoCloseable {
 
   private Encoded encode(Map<String, Object> input) throws IOException {
     Map<String, Object> event = Events.exported(input);
-    byte[] encoded = json.writeValueAsBytes(event);
+    byte[] encoded = SecurityLogRecord.encodeBody(json, event);
     boolean truncated = encoded.length > maxBytes;
-    // Retain the existing declared v2 truncation before establishing the original message.
+    // Budget the final Body after moving metadata, without SIEM escaping overhead.
     if (encoded.length > maxBytes) {
       event = new LinkedHashMap<>(event);
       if ("beacon.security.finding".equals(event.get("event_name"))) {
@@ -327,16 +327,13 @@ public final class EvidenceExporter implements AutoCloseable {
       }
       event.put("truncated", true);
       event.put("truncation_reason", "record_byte_limit");
-      encoded = json.writeValueAsBytes(event);
+      encoded = SecurityLogRecord.encodeBody(json, event);
     }
-    encoded =
-        SiemEvent.encode(json, event, new String(encoded, UTF_8), Identity.resourceAttributes());
-    // Never shorten message to fit the additional envelope/escaping overhead.
     if (encoded.length > maxBytes) {
       counter("record_limit_exceeded").incrementAndGet();
       throw new IOException("record_limit");
     }
-    return new Encoded(event, encoded, truncated);
+    return new Encoded(event, SecurityLogRecord.create(json, event, encoded), truncated);
   }
 
   private void export(Entry entry, Encoded encoded, String channel) {
@@ -350,11 +347,12 @@ public final class EvidenceExporter implements AutoCloseable {
           .build()
           .logRecordBuilder()
           .setContext(invocationContext(entry.context, event))
-          .setTimestamp(System.currentTimeMillis(), MILLISECONDS)
+          .setTimestamp(encoded.record.timeUnixNano, NANOSECONDS)
           .setSeverity(Severity.INFO)
           .setSeverityText("INFO")
           .setBody(body)
           .setEventName(String.valueOf(event.get("event_name")))
+          .setAttribute(AttributeKey.stringKey("event_id"), encoded.record.eventId)
           .setAttribute(AttributeKey.stringKey("source"), String.valueOf(event.get("source")))
           .setAttribute(
               AttributeKey.stringKey("event.name"), String.valueOf(event.get("event_name")))
@@ -370,13 +368,14 @@ public final class EvidenceExporter implements AutoCloseable {
         if (writer == null) {
           openWriter();
         }
-        if (fileBytes + encoded.bytes.length + 1 > rotateBytes) {
+        byte[] diagnostic = encoded.record.diagnostic(json, event);
+        if (fileBytes + diagnostic.length + 1 > rotateBytes) {
           rotate();
         }
-        writer.write(body);
-        writer.newLine();
+        writer.write(new String(diagnostic, UTF_8));
+        writer.write('\n');
         writer.flush();
-        fileBytes += encoded.bytes.length + 1;
+        fileBytes += diagnostic.length + 1;
         lastFileSuccess = System.currentTimeMillis();
         counter("beacon.security.file_written").incrementAndGet();
       } catch (IOException error) {
@@ -552,11 +551,13 @@ public final class EvidenceExporter implements AutoCloseable {
   private static final class Encoded {
     final Map<String, Object> event;
     final byte[] bytes;
+    final SecurityLogRecord record;
     final boolean truncated;
 
-    Encoded(Map<String, Object> event, byte[] bytes, boolean truncated) {
+    Encoded(Map<String, Object> event, SecurityLogRecord record, boolean truncated) {
       this.event = event;
-      this.bytes = bytes;
+      this.record = record;
+      this.bytes = record.body;
       this.truncated = truncated;
     }
   }

@@ -72,7 +72,7 @@ class SinkRulesTest {
     for (String option : asList("-lc", "-ec", "-xc")) {
       String script = new String("printf '%s' BEACON_SECURITY_MARKER_" + option.substring(1, 2));
       SecurityState state = marked(script, "fixture:shell:" + option);
-      String[] command = {"bash", option, script};
+      String[] command = {"bash", "--noprofile", "--norc", option, script};
       List<SinkRules.Finding> findings =
           classify(state, "java/lang/Runtime", "exec", null, new Object[] {command});
 
@@ -87,7 +87,7 @@ class SinkRulesTest {
   void combinedOptionWithValueSkipsTheValueBeforeTheCommand() throws Exception {
     String script = new String("printf '%s' BEACON_SECURITY_MARKER_LCO");
     SecurityState state = marked(script, "fixture:shell:lco");
-    String[] command = {"bash", "-lco", "posix", script};
+    String[] command = {"bash", "--noprofile", "--norc", "-lco", "posix", script};
     List<SinkRules.Finding> findings =
         classify(state, "java/lang/Runtime", "exec", null, new Object[] {command});
 
@@ -141,10 +141,10 @@ class SinkRulesTest {
   void optionSentinelsDependOnWhetherCWasAlreadySeen() throws Exception {
     for (String[] command :
         new String[][] {
-          {"bash", "-lc", "--", "printf '%s' DOUBLE_DASH_MARKER"},
+          {"bash", "--noprofile", "--norc", "-lc", "--", "printf '%s' DOUBLE_DASH_MARKER"},
           {"bash", "-c", "-", "printf '%s' SINGLE_DASH_MARKER"}
         }) {
-      String script = command[3];
+      String script = command[command.length - 1];
       SecurityState state = marked(script, "fixture:shell:sentinel-positive");
       List<SinkRules.Finding> findings =
           classify(state, "java/lang/Runtime", "exec", null, new Object[] {command});

@@ -40,7 +40,7 @@ val securityFingerprintVersion = securitySpec.getProperty("fingerprintVersion")
   ?: error("Missing Beacon Security fingerprint version")
 val securityWireProfile = securitySpec.getProperty("wireProfile")
   ?: error("Missing Beacon Security wire profile")
-require(securityWireProfile == "beacon-security-siem-v1") {
+require(securityWireProfile == "beacon-security-log-record-v1") {
   "Unexpected Beacon Security wire profile: $securityWireProfile"
 }
 require(securitySpecRepository == "https://github.com/beacon-observability/beacon-security-spec") {

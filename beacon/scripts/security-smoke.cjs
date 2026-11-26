@@ -12,49 +12,30 @@ const { join, resolve } = require('node:path');
 
 const pause = (milliseconds) => new Promise((done) => setTimeout(done, milliseconds));
 
-const siemFields = ['time', 'event_id', 'event_class', 'source', 'service', 'tenant_id',
-  'actor', 'ip', 'action', 'target', 'target_type', 'outcome', 'status', 'severity', 'message'];
-
-function securityPayload(line, tenant) {
-  const envelope = JSON.parse(line);
-  const payload = JSON.parse(envelope.message);
-  const correlation = ['instance_id', 'trace_id', 'span_id', 'trace_flags'];
-  assert.deepEqual(Object.keys(envelope), [...siemFields, ...correlation.filter(key => key in payload)]);
-  assert.equal(envelope.instance_id, payload.instance_id);
-  for (const key of correlation.filter(key => key in payload)) assert.equal(envelope[key], payload[key]);
-  if ('trace_flags' in envelope) {
-    assert(Number.isInteger(envelope.trace_flags));
-    assert(envelope.trace_flags >= 0 && envelope.trace_flags <= 255);
+// Diagnostic files and decoded OTLP are compared as logical records. This wrapper
+// is file/test-only: the actual wire Body is the compact event object directly.
+function securityPayload(line) {
+  const record = JSON.parse(line);
+  const payload = JSON.parse(record.body);
+  assert(!/[\r\n]/.test(record.body));
+  for (const key of ['message', 'observed_at', 'occurrence_id', 'event_id', 'attributes']) {
+    assert(!Object.hasOwn(payload, key), `Duplicate or wrapped Body field: ${key}`);
   }
-  for (const key of siemFields) assert.equal(typeof envelope[key], 'string');
-  assert.equal(envelope.service, 'beacon-security-smoke');
-  assert.equal(envelope.tenant_id, tenant);
-  assert.equal(envelope.actor, '');
-  assert.equal(envelope.ip, '');
-  assert.equal(envelope.status, 'info');
-  assert.equal(envelope.severity, 'informational');
   assert.equal(payload.schema_version, 2);
-  assert.equal(envelope.source, payload.source);
-  assert.equal(envelope.time, payload.observed_at);
+  assert.equal(record.attributes.source, payload.source);
+  assert.equal(record.attributes['event.name'], payload.event_name);
+  assert(BigInt(record.time_unix_nano) > 0n);
+  assert(BigInt(record.time_unix_nano) <= 9223372036854775807n);
   if (payload.event_name === 'beacon.security.finding') {
     assert(!Object.hasOwn(payload, 'server_span_id'));
     assert(!Object.hasOwn(payload, 'current_span_id'));
     if (payload.span_id) assert.match(payload.span_id, /^[0-9a-f]{16}$/);
-    assert.equal(envelope.event_class, 'security_finding');
-    assert.equal(envelope.event_id, payload.occurrence_id);
-    assert.equal(envelope.action, payload.rule);
-    assert.equal(envelope.target, payload.finding_id);
-    assert.equal(envelope.target_type, 'finding');
-    assert.equal(envelope.outcome, 'unknown');
-  } else {
-    assert.equal(payload.event_name, 'beacon.security.sbom.inventory');
-    assert.equal(envelope.event_class, 'software_inventory_info');
-    assert.equal(envelope.target_type, 'process');
-    assert.equal(envelope.target, payload.instance_id);
-    assert.equal(envelope.action, 'inventory_snapshot');
-    assert.equal(envelope.outcome, 'success');
-    assert.match(envelope.event_id, /^inventory-[0-9a-f]{64}$/);
+    assert.match(record.attributes.event_id, /^ev-/);
+    // A test-side view for existing occurrence assertions, never transmitted.
+    return { ...payload, occurrence_id: record.attributes.event_id };
   }
+  assert.equal(payload.event_name, 'beacon.security.sbom.inventory');
+  assert.match(record.attributes.event_id, /^inventory-[0-9a-f]{64}$/);
   return payload;
 }
 
@@ -90,9 +71,9 @@ function protobufFields(bytes) {
       value = bytes.readUInt32LE(offset);
       offset += 4;
     } else if (wire === 1) {
+      assert(offset + 8 <= bytes.length, 'Truncated protobuf fixed64');
+      value = bytes.readBigUInt64LE(offset);
       offset += 8;
-      assert(offset <= bytes.length, 'Truncated protobuf field');
-      continue;
     } else throw new Error(`Unsupported protobuf wire type ${wire}`);
     if (!fields.has(number)) fields.set(number, []);
     fields.get(number).push(value);
@@ -117,8 +98,17 @@ function otlpLogs(bytes, tenant) {
       for (const log of scope.get(2) || []) {
         const fields = protobufFields(log);
         const body = protobufFields(fields.get(5)[0]).get(1)[0].toString('utf8');
-        const payload = securityPayload(body, tenant);
+        const attributes = {};
+        for (const entry of fields.get(6) || []) {
+          const kv = protobufFields(entry);
+          const value = protobufFields(kv.get(2)[0]).get(1);
+          if (value) attributes[kv.get(1)[0].toString('utf8')] = value[0].toString('utf8');
+        }
+        const time_unix_nano = fields.get(1)[0].toString();
+        const diagnostic = { time_unix_nano, body, attributes };
+        const payload = securityPayload(JSON.stringify(diagnostic));
         assert.equal(resource['service.name'], 'beacon-security-smoke');
+        if (tenant !== 'default') assert.equal(resource['tenant.id'], tenant);
         assert.equal(fields.get(2)[0], 9);
         if (payload.trace_id && payload.span_id) {
           assert.equal(fields.get(9)[0].toString('hex'), payload.trace_id);
@@ -128,7 +118,7 @@ function otlpLogs(bytes, tenant) {
           assert(!fields.get(9));
           assert(!fields.get(10));
         }
-        records.push({ body, payload });
+        records.push({ body, payload, time_unix_nano, attributes });
       }
     }
   }
@@ -350,7 +340,7 @@ async function verify(includeNoEvidence, tenant = 'default') {
     'dynamic-prepared-sql');
     const evidence = await eventually(() => {
       const records = readFileSync(join(output, 'evidence.jsonl'), 'utf8')
-        .trim().split('\n').map((line) => securityPayload(line, tenant));
+        .trim().split('\n').map((line) => securityPayload(line));
       assert.equal(records.filter((event) => event.event_name === 'beacon.security.finding').length, includeNoEvidence ? 5 : 2);
       return records;
     }, 'request occurrences matching the export policy');
@@ -386,7 +376,7 @@ async function verify(includeNoEvidence, tenant = 'default') {
     await request(port, '/api/coverage/async-timeout');
     await eventually(() => {
       const records = readFileSync(join(output, 'evidence.jsonl'), 'utf8')
-        .trim().split('\n').map((line) => securityPayload(line, tenant));
+        .trim().split('\n').map((line) => securityPayload(line));
       const covered = records.filter((event) => event.event_name === 'beacon.security.finding');
       for (const [route, rule] of [['file', 'path_traversal'], ['lines', 'path_traversal'],
         ['https', 'ssrf'], ['batch', 'sql_injection'], ['large-update', 'sql_injection']]) {
@@ -411,14 +401,19 @@ async function verify(includeNoEvidence, tenant = 'default') {
       if (!includeNoEvidence) {
         assert(onlineFindings.every(({ payload }) => payload.attack_evidence.status !== 'no_evidence'));
       }
-      const jsonl = readFileSync(join(output, 'evidence.jsonl'), 'utf8').trim().split('\n');
-      const onlineBodies = new Set(onlineFindings.map(({ body }) => body));
-      assert(jsonl.every((line) => onlineBodies.has(line)), 'JSONL and OTLP must retain identical envelopes');
-    }, 'real OTLP findings, dependency inventory, and identical JSONL envelopes');
+      const jsonl = readFileSync(join(output, 'evidence.jsonl'), 'utf8').trim().split('\n').map(JSON.parse);
+      for (const diagnostic of jsonl) {
+        const online = onlineFindings.find(r => r.attributes.event_id === diagnostic.attributes.event_id);
+        assert(online, 'Missing OTLP occurrence for diagnostic record');
+        assert.equal(diagnostic.body, online.body);
+        assert.equal(diagnostic.time_unix_nano, online.time_unix_nano);
+        assert.deepEqual(diagnostic.attributes, online.attributes);
+      }
+    }, 'real OTLP findings, dependency inventory, and matching diagnostic metadata');
     if (process.env.BEACON_SECURITY_SMOKE_CAPTURE) {
       const mode = includeNoEvidence ? 'enabled' : 'default';
       writeFileSync(`${process.env.BEACON_SECURITY_SMOKE_CAPTURE}-${mode}.jsonl`,
-        `${received.map(({ body }) => body).join('\n')}\n`);
+        `${received.map(({ time_unix_nano, body, attributes }) => JSON.stringify({ time_unix_nano, body, attributes })).join('\n')}\n`);
     }
     completed = true;
     console.log(`PASS: per-request correlation, evidence upgrades, ordinary SQL classification, parameter binding, and runtime SBOM (no-evidence export: ${includeNoEvidence ? 'enabled' : 'default-disabled'}).`);

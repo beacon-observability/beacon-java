@@ -343,6 +343,18 @@ public class AgentInstaller {
     HttpServerResponseCustomizerHolder.setCustomizer(
         new HttpServerResponseCustomizer() {
           @Override
+          public <T> void customizeBeforeCommit(
+              Context serverContext, T response, HttpServerResponseMutator<T> responseMutator) {
+            for (HttpServerResponseCustomizer modifier : customizers) {
+              try {
+                modifier.customizeBeforeCommit(serverContext, response, responseMutator);
+              } catch (Throwable t) {
+                logger.log(FINE, "Failed to customize HTTP response before commit", t);
+              }
+            }
+          }
+
+          @Override
           public <T> void customize(
               Context serverContext, T response, HttpServerResponseMutator<T> responseMutator) {
 

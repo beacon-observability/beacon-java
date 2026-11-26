@@ -12,6 +12,13 @@ public enum NettyHttpServerResponseMutator implements HttpServerResponseMutator<
   INSTANCE;
 
   @Override
+  public void appendHeaderIfAbsent(HttpResponse response, String name, String value) {
+    if (!response.headers().contains(name)) {
+      response.headers().add(name, value);
+    }
+  }
+
+  @Override
   public void appendHeader(HttpResponse response, String name, String value) {
     response.headers().add(name, value);
   }

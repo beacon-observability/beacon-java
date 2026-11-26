@@ -17,6 +17,15 @@ import io.opentelemetry.context.Context;
  */
 public interface HttpServerResponseCustomizer {
   /**
+   * Additional callback immediately before commit for integrations with an early customize
+   * callback. The default preserves the invocation behavior of existing providers.
+   */
+  default <RESPONSE> void customizeBeforeCommit(
+      Context serverContext,
+      RESPONSE response,
+      HttpServerResponseMutator<RESPONSE> responseMutator) {}
+
+  /**
    * Called for each HTTP server response with its SERVER span context provided. This is called at a
    * time when response headers can already be set, but the response is not yet committed, which is
    * typically at the start of request handling.

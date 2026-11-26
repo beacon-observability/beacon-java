@@ -4,6 +4,8 @@ This file records Beacon product changes only. The root [CHANGELOG.md](../CHANGE
 
 ## Unreleased
 
+## Version 1.5.1 (2026-11-26)
+
 - **Breaking:** Correct Security Logs to the merged `beacon-security-log-record-v1`
   binding: export compact JSON directly as Body, move `observed_at` to native
   `time_unix_nano` and finding `occurrence_id` to `attributes.event_id`, and omit

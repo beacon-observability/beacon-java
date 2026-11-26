@@ -622,7 +622,9 @@ class EvidenceExporterTest {
     assertThat(logs.records).hasSize(2);
     for (LogRecordData log : logs.records) {
       Map<?, ?> body = json.readValue(log.getBodyValue().asString(), Map.class);
-      assertThat(body).doesNotContainKeys("message", "observed_at", "occurrence_id", "event_id");
+      for (String key : asList("message", "observed_at", "occurrence_id", "event_id")) {
+        assertThat(body.containsKey(key)).isFalse();
+      }
       assertThat(log.getAttributes().get(stringKey("event_id"))).isNotBlank();
       assertThat(log.getTimestampEpochNanos()).isPositive();
       boolean inventory = "beacon.security.sbom.inventory".equals(log.getEventName());
@@ -814,6 +816,7 @@ class EvidenceExporterTest {
     Map<?, ?> payload = json.readValue(body, Map.class);
     assertThat(payload.containsKey("observed_at")).isFalse();
     assertThat(payload.containsKey("occurrence_id")).isFalse();
+    assertThat(new String(Files.readAllBytes(file), UTF_8)).endsWith("\n").doesNotContain("\r");
     Map<?, ?> diagnostic = json.readValue(Files.readAllLines(file, UTF_8).get(0), Map.class);
     assertThat(diagnostic.get("body")).isEqualTo(body);
     assertThat(diagnostic.get("time_unix_nano"))

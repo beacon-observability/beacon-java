@@ -373,7 +373,7 @@ public final class EvidenceExporter implements AutoCloseable {
           rotate();
         }
         writer.write(new String(diagnostic, UTF_8));
-        writer.newLine();
+        writer.write('\n');
         writer.flush();
         fileBytes += diagnostic.length + 1;
         lastFileSuccess = System.currentTimeMillis();

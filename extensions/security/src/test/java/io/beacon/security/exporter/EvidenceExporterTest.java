@@ -299,7 +299,8 @@ class EvidenceExporterTest {
     assertTrue(logs.hasEventId("ev-always-off"));
     LogRecordData securityRecord =
         logs.records.stream()
-            .filter(record -> record.getBodyValue().asString().contains("ev-always-off"))
+            .filter(
+                record -> "ev-always-off".equals(record.getAttributes().get(stringKey("event_id"))))
             .findFirst()
             .orElseThrow(() -> new AssertionError("security log record missing"));
     assertEquals("io.beacon.security", securityRecord.getInstrumentationScopeInfo().getName());

@@ -25,7 +25,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.beacon.security.core.Events;
 import io.beacon.security.core.Identity;
-import io.beacon.security.core.SiemEvent;
+import io.beacon.security.core.SecurityLogRecord;
 import io.beacon.security.core.Values;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -1546,7 +1546,7 @@ class SbomInventoryBehaviorTest {
       assertThat(part)
           .containsEntry("started_at", "2026-10-27T09:00:00.000Z")
           .containsEntry("uptime_ms", 123456L);
-      assertThat(SiemEvent.encode(json, part).length).isLessThanOrEqualTo(2048);
+      assertThat(SecurityLogRecord.encodeBody(json, part).length).isLessThanOrEqualTo(2048);
       dependencies.addAll((List<?>) part.get("dependencies"));
     }
     assertEquals(151, dependencies.size());
@@ -1577,15 +1577,8 @@ class SbomInventoryBehaviorTest {
     List<Map<String, Object>> whole = DependencyInventory.events(event, records);
     assertThat(whole).hasSize(1);
     Map<String, Object> snapshot = whole.get(0);
-    // Match EvidenceExporter: serialize the v2 payload as UTF-8 bytes before wrapping message.
-    int maximum =
-        SiemEvent.encode(
-                    json,
-                    snapshot,
-                    new String(json.writeValueAsBytes(snapshot), UTF_8),
-                    Identity.resourceAttributes())
-                .length
-            - 1;
+    // Match EvidenceExporter: budget final UTF-8 Body bytes after metadata moves.
+    int maximum = SecurityLogRecord.encodeBody(json, snapshot).length - 1;
     System.setProperty("beacon.security.evidence.max.bytes", String.valueOf(maximum));
 
     List<Map<String, Object>> parts = DependencyInventory.events(event, records);
@@ -1595,12 +1588,7 @@ class SbomInventoryBehaviorTest {
     for (int i = 0; i < parts.size(); i++) {
       Map<String, Object> part = parts.get(i);
       assertThat(part).containsEntry("part_index", i).containsEntry("part_count", parts.size());
-      byte[] encoded =
-          SiemEvent.encode(
-              json,
-              part,
-              new String(json.writeValueAsBytes(part), UTF_8),
-              Identity.resourceAttributes());
+      byte[] encoded = SecurityLogRecord.encodeBody(json, part);
       assertThat(encoded.length).isLessThanOrEqualTo(maximum);
       dependencies.addAll((List<?>) part.get("dependencies"));
     }

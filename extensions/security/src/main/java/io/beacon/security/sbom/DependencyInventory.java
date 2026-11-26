@@ -6,14 +6,13 @@
 package io.beacon.security.sbom;
 
 import static io.beacon.security.core.Values.map;
-import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Arrays.asList;
 import static java.util.Collections.emptyList;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.beacon.security.core.Events;
+import io.beacon.security.core.SecurityLogRecord;
 import io.beacon.security.core.Settings;
-import io.beacon.security.core.SiemEvent;
 import java.io.IOException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -56,7 +55,7 @@ final class DependencyInventory {
         Math.min(
             Settings.limit("beacon.security.evidence.max.bytes", 65536),
             Settings.limit("beacon.security.export.sbom.bytes-per-second", 262144));
-    int overhead = SiemEvent.encode(json, envelope).length;
+    int overhead = SecurityLogRecord.encodeBody(json, envelope).length;
     if (overhead > maximum) {
       throw new IOException("dependency_snapshot_envelope_exceeds_budget");
     }
@@ -65,9 +64,8 @@ final class DependencyInventory {
     chunks.add(chunk);
     int bytes = overhead;
     for (Map<String, Object> row : unique.values()) {
-      // Match the exporter's byte-based JSON serialization before escaping message again.
-      String messageRow = new String(json.writeValueAsBytes(row), UTF_8);
-      int size = json.writeValueAsBytes(messageRow).length - 2;
+      // Rows are embedded once in the compact Body, not escaped inside a message string.
+      int size = json.writeValueAsBytes(row).length;
       if (overhead + size > maximum) {
         throw new IOException("dependency_snapshot_item_exceeds_budget");
       }

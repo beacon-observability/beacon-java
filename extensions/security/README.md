@@ -16,12 +16,13 @@ repository pins an immutable specification revision in
 [`beacon/security-spec.properties`](../../beacon/security-spec.properties); the complete Agent JAR
 embeds that record under `META-INF/beacon/` and exposes the versions in its Manifest.
 
-The current development output uses the `beacon-security-siem-v1` SIEM wire profile with fifteen base fields plus process/trace correlation.
-Its `message` retains the serialized schema v2 Security event. The pinned specification includes
-both contracts and the unchanged fingerprint version 1 vectors. This is an unreleased wire-format
-change; older released Agents continue to export v2 directly. See [SIEM output](SIEM.md) before
-upgrading consumers. Historical v1/v2 contracts remain available at older specification pins; the local v2 schema
-describes current embedded evidence.
+The current development output uses `beacon-security-log-record-v1`: a compact,
+single-line JSON Body with event time moved to native `time_unix_nano` and finding
+occurrence ID moved to `attributes.event_id`. Body omits `observed_at` and
+`occurrence_id`; all other fields retain their original nesting. There is no SIEM
+or `message` wrapper. See [log output and receiver migration](LOG-OUTPUT.md).
+The pinned specification retains historical complete event schemas and unchanged
+fingerprint v1 vectors alongside the dedicated bound-Body schema.
 
 ## Current status
 
@@ -125,12 +126,13 @@ previous inventory. Independent health, summary, diagnostic, dropped-record, and
 events are removed. SBOM IDs, revisions, release IDs, and history are removed.
 
 Only large inventories include `part_index` and `part_count`. Collect all parts for the same
-`instance_id` and `observed_at` before replacing the previous dependency list; all parts share
+`instance_id` and native `time_unix_nano` before replacing the previous dependency list; all parts share
 `started_at` and `uptime_ms`. An incomplete multipart update must not clear or partly replace the
 previous list. A complete, valid empty list can clear it. Body `source` values are also attached as
 OTel record attributes; collector-specific source mapping may differ from the body.
 
-Findings carry `occurrence_id` instead of the duplicate `evidence_id`; component metadata is
+Findings expose the logical occurrence ID once as LogRecord `attributes.event_id`,
+with no Body `occurrence_id` or duplicate `evidence_id`; component metadata is
 provided directly as name/version/identity hash, and counts are aggregated by the backend.
 Fingerprint version 1 remains unchanged. `collection_complete` records actual collection quality;
 normal evidence sampling does not itself mark a record truncated. Full representative evidence
@@ -138,9 +140,10 @@ is retained in process only when local debug output is explicitly enabled.
 
 Local `control.json` exceptions now require only `scope.finding_id`, whose stable fingerprint
 already includes service identity. Exceptions are not tied to a process UUID. Update consumers
-for schema version 2 before upgrading; a v1 event schema cannot validate v2 output. The local
-[schema v2](schema-v2.json) describes the embedded payload; use
-[SIEM schema v1](schema-siem-v1.json) for the outer envelope.
+for schema version 2 before upgrading; a v1 event schema cannot validate v2 output. The local [schema v2](schema-v2.json) describes full logical events and historical
+complete v2 JSON. Validate current wire Body with the
+[log Body schema](schema-log-body-v1.json), and use the
+[logical-record schema](schema-log-record-v1.json) for diagnostic records.
 
 ### Primary settings
 
@@ -238,10 +241,10 @@ is one, an event reservation cannot be made. All lanes remain best effort when t
 or the total budget is exhausted. Per-request occurrence identifiers and trace correlation are
 preserved; ordinary events are not merged across requests.
 
-Byte and rate budgets include the final SIEM JSON and escaped `message`. Inventory
-splitting accounts for that overhead. Existing v2 evidence truncation remains explicit; if the
-resulting envelope still exceeds the per-record limit, it is dropped with a local loss counter.
-The envelope conversion never silently shortens `message` to fit. See [SIEM output](SIEM.md).
+Byte and rate budgets include final compact UTF-8 Body bytes after metadata moves.
+Inventory splitting uses the same serialization. Existing evidence truncation
+remains explicit; a reduced Body still over its limit is dropped with a local loss
+counter. Diagnostic file rotation counts actual file bytes. See [log output](LOG-OUTPUT.md).
 
 | JVM property | Environment variable | Default | Purpose |
 | --- | --- | --- | --- |
@@ -399,8 +402,8 @@ node beacon/scripts/security-smoke.cjs \
 
 It runs with default filtering and with `BEACON_SECURITY_EXPORT_NO_EVIDENCE_ENABLED=true`,
 checking both event streams and retained local findings through a real local OTLP HTTP/protobuf
-Logs receiver. It verifies SIEM envelopes, invocation span correlation, default and configured tenants, dependency
-inventory, byte-identical OTLP/JSONL envelopes, separate trace correlation for repeated dynamic-SQL
+Logs receiver. It verifies unwrapped Bodies, native event timestamps and IDs, invocation span correlation,
+Resource identity, dependency inventory, matching OTLP/diagnostic-file Bodies and metadata, separate trace correlation for repeated dynamic-SQL
 requests, immediate export of stronger evidence inside the sampling window, and independent classification of later ordinary
 requests. It also verifies that a dynamically concatenated prepared template retains its risk,
 fixed parameterized and constant SQL do not produce findings, runtime SBOM is present, the product

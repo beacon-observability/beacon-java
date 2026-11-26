@@ -4,6 +4,15 @@ This file records Beacon product changes only. The root [CHANGELOG.md](../CHANGE
 
 ## Unreleased
 
+- **Breaking:** Correct Security Logs to the merged `beacon-security-log-record-v1`
+  binding: export compact JSON directly as Body, move `observed_at` to native
+  `time_unix_nano` and finding `occurrence_id` to `attributes.event_id`, and omit
+  both moved fields from Body. All other Body fields and nesting remain unchanged.
+  Remove the SIEM/`message` wrapper, budget and split inventory by final Body bytes,
+  and preserve exact event time and stable IDs across queued export. Evidence JSONL
+  stores a file-only record containing native metadata and the identical Body.
+  See [receiver and evidence-file migration](../extensions/security/LOG-OUTPUT.md).
+
 - Add opt-in HTTP server response trace ID injection with default header `btrace-id`,
   configurable names, valid unsampled context support, and preservation of application
   headers. Implement Tomcat commit and Netty 4.1 HTTP/1 paths; see
